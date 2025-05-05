@@ -1,0 +1,8193 @@
+from test import universal_extractor
+import json
+import os
+import uuid
+import requests
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image
+import pytz
+import tempfile
+import asyncio
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Union, Tuple
+from datetime import datetime, timedelta
+from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends, Query, Body
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+# Make sure to add this import at the top of the file with other imports
+import aiohttp
+import uvicorn
+import nest_asyncio
+import pickle
+from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy import func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from google.cloud import storage
+import pandas as pd
+import matplotlib.pyplot as plt
+from io import BytesIO
+import io
+import base64
+from weasyprint import HTML
+import markdown
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+from multiprocessing import cpu_count
+from sqlalchemy.orm import Session
+from fastapi.responses import StreamingResponse
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.lib.styles import getSampleStyleSheet
+
+import concurrent.futures
+import re
+import time
+import hashlib
+
+# Keep all existing imports
+from llama_index.core import Document, VectorStoreIndex, SimpleDirectoryReader, StorageContext
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.ingestion import IngestionPipeline
+from llama_index.core import StorageContext
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core import Settings
+import chromadb
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.models import Transformer, Pooling
+import faiss
+import torch
+import tqdm
+import numpy as np
+from transformers import AutoTokenizer, AutoModelForCausalLM, Gemma3ForConditionalGeneration, AutoProcessor, AutoModelForTokenClassification, pipeline
+import tiktoken
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from liquid import Template
+from llama_index.llms.gemini import Gemini
+from llama_index.llms.openai import OpenAI
+import logging
+from dotenv import load_dotenv
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")  # Replace with your actual key
+
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-VL-32B-Instruct"
+HUGGINGFACE_ACCESS_TOKEN = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
+USE_LOCAL_MODEL = True  # Set to False to use Qwen API instead of local Gemma
+LOCAL_MODEL_NAME = "google/gemma-3-4b-it"  # Smaller model that can run locally
+PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")  # Add your actual API key here
+gemma_model = None
+gemma_tokenizer = None
+medical_ner_pipeline = None
+MEDICAL_NER_MODEL = "Clinical-AI-Apollo/Medical-NER"
+
+
+# Constants for medical literature retrieval
+PUBMED_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+PUBMED_FETCH_URL = f"{PUBMED_BASE_URL}efetch.fcgi"
+PUBMED_SEARCH_URL = f"{PUBMED_BASE_URL}esearch.fcgi"
+PUBMED_SUMMARY_URL = f"{PUBMED_BASE_URL}esummary.fcgi"
+MEDICAL_LITERATURE_DIR = "./medical_literature"
+MEDICAL_CORPUS_DIR = "./medical_corpus"
+DIAGNOSIS_CORPUS_PATH = os.path.join(MEDICAL_CORPUS_DIR, "diagnosis")
+RISK_CORPUS_PATH = os.path.join(MEDICAL_CORPUS_DIR, "risk_assessment")
+
+
+
+# Create necessary directories
+os.makedirs("reports", exist_ok=True)
+os.makedirs("ehr_records", exist_ok=True)
+os.makedirs("patients", exist_ok=True)
+os.makedirs("encounters", exist_ok=True)
+os.makedirs("lab_results", exist_ok=True)
+os.makedirs("prescriptions", exist_ok=True)
+
+# Initialize database
+DATABASE_URL = "sqlite:///./ehr_database.db"
+engine = create_engine(DATABASE_URL)
+Base = declarative_base()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Initialize GCS client - keep existing configuration
+credentials_path = "op8imize-58b8c4ee316b.json"  # Replace with your actual path
+storage_client = storage.Client.from_service_account_json(credentials_path)
+BUCKET_NAME = "persist-ai"
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+
+# API Keys - keep existing configuration
+XAI_API_KEY = "your-xai-api-key-here"
+OPENAI_API_KEY = "your-openai-api-key-here"
+os.environ["XAI_API_KEY"] = XAI_API_KEY
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+
+# Setting LLMs - keep existing configuration
+llm = Gemini(
+    model="models/gemini-1.5-flash",
+    api_key=GOOGLE_API_KEY,  
+)
+openai_llm = OpenAI(model="gpt-3.5-turbo", api_key=OPENAI_API_KEY, logprobs=False, default_headers={})
+LLM_MODELS = {
+    "Gemini-Pro": llm,
+    "Chat Gpt o3-mini": openai_llm,
+}
+
+Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+Settings.llm = llm
+
+# Chroma Client - keep existing configuration
+chroma_client = chromadb.PersistentClient(path="./chroma_data")
+
+# FastAPI App Setup
+app = FastAPI(title="Professional EHR and MedRAG Analysis System")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For development - restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+
+# Authentication components
+SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Global Storage - keep existing configuration
+index_storage: Dict[str, Any] = {}
+processing_status: Dict[str, Dict[str, Any]] = {}
+index_metadata: Dict[str, Dict[str, Any]] = {}
+document_index_mapping: Dict[str, str] = {}
+
+# Add new prompt templates for different analysis types
+diagnosis_system_prompt = '''You are a clinical diagnostician. Based on the following patient data, relevant medical literature, and web-sourced information, provide a thorough differential diagnosis. Consider the patient's symptoms, medical history, vital signs, lab results, imaging findings, and identified medical entities. Return your response as a JSON formatted string with: 1) "primary_diagnosis" (most likely diagnosis), 2) "differential_diagnoses" (list of other possible diagnoses with brief explanations), 3) "reasoning" (detailed explanation for the primary diagnosis), and 4) "confidence" (percentage estimate for the primary diagnosis).
+Patient Data:
+{{patient_data}}
+Relevant Medical Information:
+{{context}}
+'''
+
+risk_assessment_system_prompt = '''You are a clinical risk assessment specialist. Based on the following patient data, relevant medical literature, and web-sourced information, provide a comprehensive risk assessment. Evaluate the patient's risk factors for cardiovascular disease, stroke, diabetes complications, and other relevant conditions based on their clinical presentation. Return your response as a JSON formatted string with: 1) "risk_areas" (list of risk categories and their levels: high, moderate, low), 2) "risk_factors" (specific factors contributing to risk), 3) "mitigation_strategies" (recommended interventions), and 4) "follow_up_recommendations" (suggested monitoring and follow-up timeline).
+Patient Data:
+{{patient_data}}
+Relevant Medical Information:
+{{context}}
+'''
+# MedRAG Templates - keep existing configuration
+general_cot_system = '''You are a helpful medical expert, and your task is to answer a multi-choice medical question. Please first think step-by-step and then choose the answer from the provided options. Organize your output in a json formatted as Dict{"step_by_step_thinking": Str(explanation), "answer_choice": Str{A/B/C/...}}. Your responses will be used for research purposes only, so please have a definite answer.'''
+general_cot = Template(''' Here is the question: {{question}}
+Here are the potential choices: {{options}}
+Please think step-by-step and generate your output in json: ''')
+general_medrag_system = '''You are a helpful medical expert, and your task is to analyze patient data using relevant medical documents. Please think step-by-step and provide a recommendation on whether genetic testing is needed for a potential rare disease. Organize your output in a JSON formatted string with "testing_recommendation" ("recommended" or "not recommended"), "reasoning" (detailed explanation), and "confidence" (percentage estimate).'''
+general_medrag = Template(''' Here is the patient's clinical note: {{question}}
+Here are relevant medical literatures you can use to assess whether the patient needs genetic testing: {{context}}
+Please think step-by-step and generate your output in json with recommendation, reasoning, and confidence: ''')
+
+ehr_system_prompt = '''You are a clinical expert on rare genetic diseases. Based on the following patient data and relevant medical literature, determine if the patient needs genetic testing for a potential undiagnosed rare genetic disease (e.g., Marfan syndrome) or syndrome based on their past and present symptoms and medical history. Provide your reasoning and an estimated confidence level (percentage) that the patient might be suffering from a specific disease. Return your response as a JSON formatted string with three parts: 1) "testing_recommendation" ("recommended" or "not recommended"), 2) "reasoning" (detailed explanation based on clinical summary and literature), and 3) "confidence" (e.g., "80%") indicating the likelihood of the identified condition.
+Patient Data:
+{{patient_data}}
+Relevant Medical Literature:
+{{context}}
+'''
+ehr_prompt = Template(ehr_system_prompt)
+diagnosis_prompt = Template(diagnosis_system_prompt)
+risk_assessment_prompt = Template(risk_assessment_system_prompt)
+
+# Corpus and retriever configurations - keep existing configuration
+corpus_names = {
+    "Marfan": ["marfan"]
+}
+
+retriever_names = {
+    "BM25": ["bm25"],
+    "Contriever": ["facebook/contriever"],
+    "SPECTER": ["allenai/specter"],
+    "MedCPT": ["ncbi/MedCPT-Query-Encoder"],
+    "RRF-2": ["bm25", "ncbi/MedCPT-Query-Encoder"],
+    "RRF-4": ["bm25", "facebook/contriever", "allenai/specter", "ncbi/MedCPT-Query-Encoder"]
+}
+
+# Database models for new EHR components
+class Organization(Base):
+    __tablename__ = "organizations"
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(String, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    full_name = Column(String)
+    hashed_password = Column(String)
+    is_active = Column(Boolean, default=True)
+    is_doctor = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    telephone_ai_token = Column(String, nullable=True)
+    telephone_ai_user_id = Column(String, nullable=True)
+    organization_id = Column(String, ForeignKey("organizations.id"), nullable=False)
+    role = Column(String, default="staff")  # e.g., "doctor", "administrator", "staff"
+
+class UserPatientAccess(Base):
+    __tablename__ = "user_patient_access"
+    
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"), index=True)
+    patient_id = Column(String, ForeignKey("patients.id"), index=True)
+    access_level = Column(String)  # "read", "write", "admin"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, ForeignKey("users.id"))
+    access_level = Column(String)  # "read", "write", "admin"
+
+    
+
+class Patient(Base):
+    __tablename__ = "patients"
+    
+    id = Column(String, primary_key=True, index=True)
+    mrn = Column(String, unique=True, index=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    date_of_birth = Column(String)
+    gender = Column(String)
+    address = Column(String)
+    phone = Column(String)
+    email = Column(String)
+    insurance_provider = Column(String)
+    insurance_id = Column(String)
+    primary_care_provider = Column(String)
+    emergency_contact_name = Column(String)
+    emergency_contact_phone = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    organization_id = Column(String, ForeignKey("organizations.id"), nullable=False)
+
+class Encounter(Base):
+    __tablename__ = "encounters"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    provider_id = Column(String, ForeignKey("users.id"))
+    encounter_date = Column(DateTime, default=datetime.utcnow)
+    encounter_type = Column(String)  # e.g., "Office Visit", "Telehealth", "Emergency"
+    chief_complaint = Column(String)
+    vital_signs = Column(String, default="{}")  # Store as JSON string
+    hpi = Column(String)  # History of Present Illness
+    ros = Column(String)  # Review of Systems
+    physical_exam = Column(String)
+    assessment = Column(String)
+    plan = Column(String)
+    diagnosis_codes = Column(String)  # ICD-10 codes
+    followup_instructions = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class MedicalHistory(Base):
+    __tablename__ = "medical_histories"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    condition = Column(String)
+    onset_date = Column(String)
+    status = Column(String)  # "Active", "Resolved", "Chronic"
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class FamilyHistory(Base):
+    __tablename__ = "family_histories"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    relation = Column(String)  # e.g., "Mother", "Father", "Sibling"
+    condition = Column(String)
+    onset_age = Column(Integer, nullable=True)
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Medication(Base):
+    __tablename__ = "medications"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    name = Column(String)
+    dosage = Column(String)
+    frequency = Column(String)
+    route = Column(String)  # e.g., "Oral", "IV", "Topical"
+    start_date = Column(String)
+    end_date = Column(String, nullable=True)
+    prescriber_id = Column(String, ForeignKey("users.id"))
+    indication = Column(String)
+    pharmacy_notes = Column(String)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Allergy(Base):
+    __tablename__ = "allergies"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    allergen = Column(String)
+    reaction = Column(String)
+    severity = Column(String)  # "Mild", "Moderate", "Severe"
+    onset_date = Column(String)
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class LabOrder(Base):
+    __tablename__ = "lab_orders"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    provider_id = Column(String, ForeignKey("users.id"))
+    order_date = Column(DateTime, default=datetime.utcnow)
+    test_name = Column(String)
+    test_code = Column(String)
+    collection_date = Column(DateTime, nullable=True)
+    priority = Column(String, default="Routine")  # "Routine", "STAT", "Urgent"
+    status = Column(String, default="Ordered")  # "Ordered", "Collected", "In Progress", "Completed", "Cancelled"
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class LabResult(Base):
+    __tablename__ = "lab_results"
+    
+    id = Column(String, primary_key=True, index=True)
+    lab_order_id = Column(String, ForeignKey("lab_orders.id"))
+    result_date = Column(DateTime, default=datetime.utcnow)
+    result_value = Column(String)
+    unit = Column(String)
+    reference_range = Column(String)
+    abnormal_flag = Column(String, nullable=True)  # "High", "Low", "Normal"
+    performing_lab = Column(String)
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class AIAnalysis(Base):
+    __tablename__ = "ai_analyses"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    encounter_id = Column(String, ForeignKey("encounters.id"), nullable=True)
+    analysis_type = Column(String)  # e.g., "Genetic Testing", "Diagnosis Suggestion", "Risk Assessment"
+    recommendation = Column(String)
+    reasoning = Column(String)
+    confidence = Column(String)
+    model_used = Column(String)
+    analysis_date = Column(DateTime, default=datetime.utcnow)
+    reviewed_by_provider = Column(Boolean, default=False)
+    reviewer_id = Column(String, ForeignKey("users.id"), nullable=True)
+    review_notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+class PatientScan(Base):
+    __tablename__ = "patient_scans"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    provider_id = Column(String, ForeignKey("users.id"), nullable=True)
+    scan_type = Column(String)  # e.g., "X-ray", "ECG", "EKG", "Chest Scan"
+    scan_date = Column(DateTime, default=datetime.utcnow)
+    description = Column(String)
+    file_name = Column(String)
+    file_size = Column(Integer)
+    storage_url = Column(String)  # GCS URL
+    content_type = Column(String)  # MIME type
+    notes = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MedicalCode(Base):
+    __tablename__ = "medical_codes"
+    
+    id = Column(String, primary_key=True, index=True)
+    code = Column(String, index=True)
+    type = Column(String)  # "ICD-10" or "CPT"
+    description = Column(String)
+    category = Column(String)  # For grouping related codes
+    common_terms = Column(String)  # Store as JSON string with terms that map to this code
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class AutocodeRequest(BaseModel):
+    encounter_id: str
+    use_llm: bool = True
+    update_encounter: bool = False
+
+class AutocodeResponse(BaseModel):
+    encounter_id: str
+    icd10_codes: List[Dict[str, str]]
+    cpt_codes: List[Dict[str, str]]
+    formatted_icd10: str
+    formatted_cpt: str
+    entity_matches: List[str]
+    reasoning: Optional[str] = None
+    updated: bool = False
+
+class PatientInsights(Base):
+    __tablename__ = "patient_insights"
+    
+    id = Column(String, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    insight_type = Column(String)  # "lifestyle", "medication", "screening", "risk"
+    insight_text = Column(String)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Survey(Base):
+    __tablename__ = "surveys"
+    
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String)
+    description = Column(String)
+    category = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    questions_count = Column(Integer, default=0)
+    responses_count = Column(Integer, default=0)
+    organization_id = Column(String, ForeignKey("organizations.id"))
+    created_by = Column(String, ForeignKey("users.id"))
+
+class SurveyQuestion(Base):
+    __tablename__ = "survey_questions"
+    
+    id = Column(String, primary_key=True, index=True)
+    survey_id = Column(String, ForeignKey("surveys.id"))
+    text = Column(String)
+    type = Column(String)
+    options = Column(String)  # Stored as JSON string
+    order = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SurveyCreate(BaseModel):
+    title: str
+    description: str
+    category: str
+    questions: List[dict] = []
+
+class SurveyUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    questions: Optional[List[dict]] = None  # This needs to accept a list of questions
+
+
+
+class QuestionCreate(BaseModel):
+    text: str
+    type: str
+    options: List[str] = []
+
+class SessionAnalytics(Base):
+    __tablename__ = "session_analytics"
+    
+    id = Column(String, primary_key=True, index=True)
+    session_id = Column(String, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    message_text = Column(String)  # User's message
+    assistant_response = Column(String)  # AI's response
+    sentiment = Column(String)  # Positive, Negative, Neutral
+    urgency = Column(String)  # High, Medium, Low
+    intent = Column(String)  # User's intent classification
+    topic = Column(String)  # Topic of conversation
+    keywords = Column(String)  # Extracted keywords as JSON
+    session_duration = Column(Integer)  # Duration in seconds
+    word_count = Column(Integer)  # Word count in message
+    response_time = Column(Integer)  # Time to generate response in ms
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+
+# Create all database tables
+Base.metadata.create_all(bind=engine)
+
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Authentication helpers
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def authenticate_user(db, username: str, password: str):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        print(f"PayLoad",payload)
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+# def user_has_patient_access(db: Session, user_id: str, patient_id: str, required_level: str = "read"):
+#     """Check if a user has the required access level to a patient."""
+#     # Admins and doctors have access to all patients
+#     user = db.query(User).filter(User.id == user_id).first()
+    
+#     if user and user.is_doctor:
+#         return True
+        
+#     # Check explicit access records
+#     access = db.query(UserPatientAccess).filter(
+#         UserPatientAccess.user_id == user_id,
+#         UserPatientAccess.patient_id == patient_id
+#     ).first()
+    
+#     if not access:
+#         return False
+        
+#     # Check access level
+#     if required_level == "read":
+#         return access.access_level in ["read", "write", "admin"]
+#     elif required_level == "write":
+#         return access.access_level in ["write", "admin"]
+#     elif required_level == "admin":
+#         return access.access_level == "admin"
+    
+#     return False
+class OrganizationCreate(BaseModel):
+    name: str
+@app.post("/api/organizations", response_model=dict)
+async def create_organization(org: OrganizationCreate, db: Session = Depends(get_db)):
+    # Check if organization already exists
+    existing_org = db.query(Organization).filter(Organization.name == org.name).first()
+    if existing_org:
+        raise HTTPException(status_code=400, detail="Organization already exists")
+    
+    db_org = Organization(
+        id=str(uuid.uuid4()),
+        name=org.name,
+        created_at=datetime.utcnow()
+    )
+    db.add(db_org)
+    db.commit()
+    db.refresh(db_org)
+    return {"id": db_org.id, "name": db_org.name}
+
+
+@app.get("/api/organizations", response_model=List[dict])
+async def get_organizations(db: Session = Depends(get_db)):
+    orgs = db.query(Organization).all()
+    return [{"id": org.id, "name": org.name} for org in orgs]
+
+def user_has_patient_access(db: Session, user_id: str, patient_id: str, required_level: str = "read"):
+    user = db.query(User).filter(User.id == user_id).first()
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    
+    if not user or not patient:
+        return False
+    
+    # Check organization match first
+    if user.organization_id != patient.organization_id:
+        return False
+    
+    # Doctors have access to all patients in their organization
+    if user.role == "doctor":
+        return True
+    
+    # Check explicit access for non-doctors
+    access = db.query(UserPatientAccess).filter(
+        UserPatientAccess.user_id == user_id,
+        UserPatientAccess.patient_id == patient_id
+    ).first()
+    
+    if not access:
+        return False
+    
+    access_levels = {"read": ["read", "write", "admin"], "write": ["write", "admin"], "admin": ["admin"]}
+    return access.access_level in access_levels.get(required_level, [])
+
+
+# Keep the CustomizeSentenceTransformer class
+class CustomizeSentenceTransformer(SentenceTransformer):
+    def _load_auto_model(self, model_name_or_path, *args, **kwargs):
+        print("No sentence-transformers model found with name {}. Creating a new one with CLS pooling.".format(model_name_or_path))
+        token = kwargs.get('token', None)
+        cache_folder = kwargs.get('cache_folder', None)
+        revision = kwargs.get('revision', None)
+        trust_remote_code = kwargs.get('trust_remote_code', False)
+        transformer_model = Transformer(
+            model_name_or_path,
+            cache_dir=cache_folder,
+            model_args={"token": token, "trust_remote_code": trust_remote_code, "revision": revision},
+            tokenizer_args={"token": token, "trust_remote_code": trust_remote_code, "revision": revision},
+        )
+        pooling_model = Pooling(transformer_model.get_word_embedding_dimension(), 'cls')
+        return [transformer_model, pooling_model]
+
+# Keep all existing MedRAG functions
+def embed(chunk_dir, index_dir, model_name, **kwargs):
+    print(f"[EMBEDDING] Starting embedding process with model {model_name}")
+    save_dir = os.path.join(index_dir, "embedding")
+    if "contriever" in model_name:
+        model = SentenceTransformer(model_name, device="cuda" if torch.cuda.is_available() else "cpu")
+        print(f"[EMBEDDING] Using contriever model: {model_name} on {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    else:
+        model = CustomizeSentenceTransformer(model_name, device="cuda" if torch.cuda.is_available() else "cpu")
+        print(f"[EMBEDDING] Using custom transformer model: {model_name} on {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    model.eval()
+    fnames = sorted([fname for fname in os.listdir(chunk_dir) if fname.endswith(".jsonl")])
+    print(f"[EMBEDDING] Found {len(fnames)} JSONL files to process")
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+        print(f"[EMBEDDING] Created directory: {save_dir}")
+    with torch.no_grad():
+        for fname in tqdm.tqdm(fnames):
+            fpath = os.path.join(chunk_dir, fname)
+            save_path = os.path.join(save_dir, fname.replace(".jsonl", ".npy"))
+            if os.path.exists(save_path):
+                print(f"[EMBEDDING] Skipping {fname} as embedding already exists")
+                continue
+            if not open(fpath).read().strip():
+                print(f"[EMBEDDING] Skipping {fname} as file is empty")
+                continue
+            texts = [json.loads(item)["contents"] for item in open(fpath).read().strip().split('\n')]
+            print(f"[EMBEDDING] Processing {fname} with {len(texts)} text chunks")
+            embed_chunks = model.encode(texts, **kwargs)
+            np.save(save_path, embed_chunks)
+            print(f"[EMBEDDING] Saved embeddings to {save_path}")
+        embed_chunks = model.encode([""], **kwargs)
+    print(f"[EMBEDDING] Completed embedding process, dimension: {embed_chunks.shape[-1]}")
+    return embed_chunks.shape[-1]
+
+def construct_index(index_dir, model_name, h_dim=768):
+    print(f"[INDEX] Constructing index for {model_name} with dimension {h_dim}")
+    with open(os.path.join(index_dir, "metadatas.jsonl"), 'w') as f:
+        f.write("")
+    if "specter" in model_name.lower():
+        index = faiss.IndexFlatL2(h_dim)
+        print(f"[INDEX] Using L2 index for SPECTER")
+    else:
+        index = faiss.IndexFlatIP(h_dim)
+        print(f"[INDEX] Using IP index for {model_name}")
+    for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(index_dir, "embedding")))):
+        print(f"[INDEX] Processing {fname}")
+        curr_embed = np.load(os.path.join(index_dir, "embedding", fname))
+        print(f"[INDEX] Loaded embedding of shape {curr_embed.shape}")
+        index.add(curr_embed)
+        with open(os.path.join(index_dir, "metadatas.jsonl"), 'a+') as f:
+            metadata_entries = [json.dumps({'index': i, 'source': fname.replace(".npy", "")}) for i in range(len(curr_embed))]
+            f.write("\n".join(metadata_entries) + '\n')
+        print(f"[INDEX] Added {len(curr_embed)} vectors to index and updated metadata")
+    faiss.write_index(index, os.path.join(index_dir, "faiss.index"))
+    print(f"[INDEX] Saved index to {os.path.join(index_dir, 'faiss.index')}")
+    return index
+
+class Retriever:
+    def __init__(self, retriever_name="ncbi/MedCPT-Query-Encoder", corpus_name="Marfan", db_dir="./corpus", **kwargs):
+        print(f"[RETRIEVER] Initializing retriever with {retriever_name} for corpus {corpus_name}")
+        self.retriever_name = retriever_name
+        self.corpus_name = corpus_name
+        self.db_dir = db_dir
+        if not os.path.exists(self.db_dir):
+            os.makedirs(self.db_dir)
+            print(f"[RETRIEVER] Created directory: {self.db_dir}")
+        self.chunk_dir = os.path.join(self.db_dir, self.corpus_name, "chunk")
+        if not os.path.exists(self.chunk_dir):
+            os.makedirs(self.chunk_dir)
+            print(f"[RETRIEVER] Created chunk directory: {self.chunk_dir}")
+        self.index_dir = os.path.join(self.db_dir, self.corpus_name, "index", self.retriever_name.replace("Query-Encoder", "Article-Encoder"))
+        if "bm25" in self.retriever_name.lower():
+            from pyserini.search.lucene import LuceneSearcher
+            print(f"[RETRIEVER] Using BM25 retriever")
+            self.metadatas = None
+            self.embedding_function = None
+            if os.path.exists(self.index_dir):
+                print(f"[RETRIEVER] Loading existing BM25 index from {self.index_dir}")
+                self.index = LuceneSearcher(os.path.join(self.index_dir))
+            else:
+                print("[In progress] Building BM25 index for {:s}...".format(self.corpus_name))
+                os.system("python -m pyserini.index.lucene --collection JsonCollection --input {:s} --index {:s} --generator DefaultLuceneDocumentGenerator --threads 16".format(self.chunk_dir, self.index_dir))
+                self.index = LuceneSearcher(os.path.join(self.index_dir))
+                print("[Finished] BM25 index created!")
+        else:
+            if os.path.exists(os.path.join(self.index_dir, "faiss.index")):
+                print(f"[RETRIEVER] Loading existing FAISS index from {self.index_dir}")
+                self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
+                print(f"[RETRIEVER] Loaded index with {self.index.ntotal} vectors")
+                self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
+                print(f"[RETRIEVER] Loaded {len(self.metadatas)} metadata entries")
+            else:
+                print("[In progress] Embedding the {:s} corpus with {:s}...".format(self.corpus_name, self.retriever_name))
+                h_dim = embed(self.chunk_dir, self.index_dir, self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwargs)
+                self.index = construct_index(self.index_dir, self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim)
+                self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
+                print(f"[RETRIEVER] Created new index with {len(self.metadatas)} metadata entries")
+            if "contriever" in self.retriever_name.lower():
+                print(f"[RETRIEVER] Using Contriever embedding model")
+                self.embedding_function = SentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
+            else:
+                print(f"[RETRIEVER] Using Custom transformer embedding model")
+                self.embedding_function = CustomizeSentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
+            self.embedding_function.eval()
+            print(f"[RETRIEVER] Embedding function initialized")
+
+    def get_relevant_documents(self, question, k=32, id_only=False, **kwargs):
+        print(f"[RETRIEVAL] Getting relevant documents for query: '{question[:50]}...' with k={k}")
+        assert isinstance(question, str)
+        question = [question]
+        if "bm25" in self.retriever_name.lower():
+            print("[RETRIEVAL] Using BM25 search")
+            res_ = [[]]
+            hits = self.index.search(question[0], k=k)
+            print(f"[RETRIEVAL] BM25 returned {len(hits)} hits")
+            res_[0].append(np.array([h.score for h in hits]))
+            ids = [h.docid for h in hits]
+            indices = [{"source": '_'.join(h.docid.split('_')[:-1]), "index": eval(h.docid.split('_')[-1])} for h in hits]
+            print(f"[RETRIEVAL] Processed {len(indices)} indices from BM25 results")
+        else:
+            print("[RETRIEVAL] Using dense retrieval with embeddings")
+            with torch.no_grad():
+                query_embed = self.embedding_function.encode(question, **kwargs)
+                print(f"[RETRIEVAL] Generated query embedding of shape {query_embed.shape}")
+            res_ = self.index.search(query_embed, k=k)
+            print(f"[RETRIEVAL] FAISS returned {len(res_[1][0])} results")
+            ids = ['_'.join([self.metadatas[i]["source"], str(self.metadatas[i]["index"])]) for i in res_[1][0]]
+            indices = [self.metadatas[i] for i in res_[1][0]]
+            print(f"[RETRIEVAL] Processed {len(indices)} indices from dense results")
+        scores = res_[0][0].tolist()
+        if id_only:
+            print(f"[RETRIEVAL] Returning {len(ids)} document IDs")
+            return [{"id": i} for i in ids], scores
+        else:
+            texts = self.idx2txt(indices)
+            print(f"[RETRIEVAL] Returning {len(texts)} document texts")
+            return texts, scores
+
+    def idx2txt(self, indices):
+        print(f"[RETRIEVAL] Converting {len(indices)} indices to text")
+        def remove_extension(filename):
+            if filename[-3:] == "tei":
+                return filename
+            return os.path.splitext(filename)[0]
+        texts = []
+        for i in indices:
+            source_file = os.path.join(self.chunk_dir, remove_extension(i["source"]) + ".jsonl")
+            print(f"[RETRIEVAL] Reading from {source_file}")
+            try:
+                with open(source_file) as f:
+                    content = f.read().strip().split('\n')
+                    if i["index"] < len(content):
+                        text = json.loads(content[i["index"]])
+                        texts.append(text)
+                    else:
+                        print(f"[RETRIEVAL] WARNING: Index {i['index']} out of range for {source_file} with {len(content)} items")
+                        texts.append({"id": "error", "contents": "Index out of range"})
+            except Exception as e:
+                print(f"[RETRIEVAL] ERROR: Could not read {source_file}: {str(e)}")
+                texts.append({"id": "error", "contents": f"Error reading file: {str(e)}"})
+        print(f"[RETRIEVAL] Converted {len(texts)} indices to text")
+        return texts
+
+class RetrievalSystem:
+    def __init__(self, retriever_name="MedCPT", corpus_name="Marfan", db_dir="./corpus"):
+        print(f"[RETRIEVAL_SYSTEM] Initializing system with retriever={retriever_name}, corpus={corpus_name}")
+        self.retriever_name = retriever_name
+        self.corpus_name = corpus_name
+        assert self.corpus_name in corpus_names
+        assert self.retriever_name in retriever_names
+        self.retrievers = []
+        for retriever in retriever_names[self.retriever_name]:
+            print(f"[RETRIEVAL_SYSTEM] Setting up retriever: {retriever}")
+            self.retrievers.append([])
+            for corpus in corpus_names[self.corpus_name]:
+                print(f"[RETRIEVAL_SYSTEM] Setting up corpus: {corpus}")
+                self.retrievers[-1].append(Retriever(retriever, corpus, db_dir))
+        print(f"[RETRIEVAL_SYSTEM] Initialized with {len(self.retrievers)} retrievers")
+
+    def retrieve(self, question, k=32, rrf_k=100):
+        print(f"[RETRIEVAL_SYSTEM] Retrieving for question: '{question[:50]}...' with k={k}")
+        assert isinstance(question, str)
+        texts = []
+        scores = []
+        if "RRF" in self.retriever_name:
+            k_ = max(k * 2, 100)
+            print(f"[RETRIEVAL_SYSTEM] Using RRF with expanded k={k_}")
+        else:
+            k_ = k
+        for i in range(len(retriever_names[self.retriever_name])):
+            retriever_type = retriever_names[self.retriever_name][i]
+            print(f"[RETRIEVAL_SYSTEM] Using retriever {i}: {retriever_type}")
+            texts.append([])
+            scores.append([])
+            for j in range(len(corpus_names[self.corpus_name])):
+                corpus_type = corpus_names[self.corpus_name][j]
+                print(f"[RETRIEVAL_SYSTEM] Using corpus {j}: {corpus_type}")
+                t, s = self.retrievers[i][j].get_relevant_documents(question, k=k_)
+                texts[-1].append(t)
+                scores[-1].append(s)
+                print(f"[RETRIEVAL_SYSTEM] Retrieved {len(t)} documents with scores ranging from {min(s) if s else 'N/A'} to {max(s) if s else 'N/A'}")
+        merged_texts, merged_scores = self.merge(texts, scores, k=k, rrf_k=rrf_k)
+        print(f"[RETRIEVAL_SYSTEM] Merged results: {len(merged_texts)} documents")
+        return merged_texts, merged_scores
+
+    def merge(self, texts, scores, k=32, rrf_k=100):
+        print(f"[RETRIEVAL_SYSTEM] Merging results with k={k}, rrf_k={rrf_k}")
+        RRF_dict = {}
+        for i in range(len(retriever_names[self.retriever_name])):
+            retriever_type = retriever_names[self.retriever_name][i]
+            print(f"[RETRIEVAL_SYSTEM] Merging for retriever {i}: {retriever_type}")
+            texts_all, scores_all = None, None
+            for j in range(len(corpus_names[self.corpus_name])):
+                corpus_type = corpus_names[self.corpus_name][j]
+                print(f"[RETRIEVAL_SYSTEM] Merging corpus {j}: {corpus_type}")
+                if texts_all is None:
+                    texts_all = texts[i][j]
+                    scores_all = scores[i][j]
+                else:
+                    texts_all = texts_all + texts[i][j]
+                    scores_all = scores_all + scores[i][j]
+                print(f"[RETRIEVAL_SYSTEM] Current merged size: {len(texts_all)} documents")
+            if "specter" in retriever_names[self.retriever_name][i].lower():
+                print(f"[RETRIEVAL_SYSTEM] Sorting with SPECTER (ascending)")
+                sorted_index = np.array(scores_all).argsort()
+            else:
+                print(f"[RETRIEVAL_SYSTEM] Sorting with {retriever_type} (descending)")
+                sorted_index = np.array(scores_all).argsort()[::-1]
+            texts[i] = [texts_all[i] for i in sorted_index]
+            scores[i] = [scores_all[i] for i in sorted_index]
+            print(f"[RETRIEVAL_SYSTEM] Sorted {len(texts[i])} documents")
+            for j, item in enumerate(texts[i]):
+                if item["id"] in RRF_dict:
+                    RRF_dict[item["id"]]["score"] += 1 / (rrf_k + j + 1)
+                    RRF_dict[item["id"]]["count"] += 1
+                else:
+                    RRF_dict[item["id"]] = {
+                        "id": item["id"],
+                        "contents": item["contents"],
+                        "score": 1 / (rrf_k + j + 1),
+                        "count": 1
+                    }
+        print(f"[RETRIEVAL_SYSTEM] RRF dict has {len(RRF_dict)} unique documents")
+        RRF_list = sorted(RRF_dict.items(), key=lambda x: x[1]["score"], reverse=True)
+        if len(texts) == 1:
+            print(f"[RETRIEVAL_SYSTEM] Single retriever, taking top {k} from {len(texts[0])} documents")
+            texts = texts[0][:k]
+            scores = scores[0][:k]
+        else:
+            print(f"[RETRIEVAL_SYSTEM] Multiple retrievers, taking top {k} from {len(RRF_list)} RRF-ranked documents")
+            texts = [dict((key, item[1][key]) for key in ("id", "contents")) for item in RRF_list[:k]]
+            scores = [item[1]["score"] for item in RRF_list[:k]]
+        print(f"[RETRIEVAL_SYSTEM] Final merged result: {len(texts)} documents")
+        return texts, scores
+
+class MedRAG:
+    def __init__(self, llm_name="Gemini-Pro", rag=True, retriever_name="MedCPT", corpus_name="Marfan", db_dir="./corpus", cache_dir=None):
+        print(f"[MEDRAG] Initializing with llm={llm_name}, rag={rag}, retriever={retriever_name}, corpus={corpus_name}")
+        self.llm_name = llm_name
+        self.rag = rag
+        self.retriever_name = retriever_name
+        self.corpus_name = corpus_name
+        self.db_dir = db_dir
+        self.cache_dir = cache_dir
+        if rag:
+            print(f"[MEDRAG] Setting up retrieval system")
+            self.retrieval_system = RetrievalSystem(self.retriever_name, self.corpus_name, self.db_dir)
+        else:
+            print(f"[MEDRAG] No retrieval system needed")
+            self.retrieval_system = None
+        self.templates = {"cot_system": general_cot_system, "cot_prompt": general_cot,
+                          "medrag_system": general_medrag_system, "medrag_prompt": general_medrag}
+        if self.llm_name.lower().startswith("openai"):
+            self.model = self.llm_name.split('/')[-1]
+            if "gpt-3.5" in self.model or "gpt-35" in self.model:
+                self.max_length = 16384
+                self.context_length = 14500
+            elif "gpt-4" in self.model:
+                self.max_length = 32768
+                self.context_length = 29500
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+            print(f"[MEDRAG] Using OpenAI model {self.model} with max_length={self.max_length}, context_length={self.context_length}")
+        else:
+            self.max_length = 16384  # Adjusted for Gemini-Pro
+            self.context_length = 14500
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")  # Default for Gemini
+            print(f"[MEDRAG] Using Gemini model with max_length={self.max_length}, context_length={self.context_length}")
+
+    def split(self, question, chunk_size=512):
+        print(f"[MEDRAG] Splitting question of length {len(question)} with chunk_size={chunk_size}")
+        splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
+        chunks = splitter.split_text(question)
+        print(f"[MEDRAG] Split into {len(chunks)} chunks")
+        return chunks
+
+    def createMessage(self, question, options=None, k=32, sub_k=None, total_k=None, rrf_k=100, save_dir=None, split=False, curated_note=None):
+        print(f"[MEDRAG] Creating message for question: '{question[:50]}...'")
+        origin_note = question
+        if curated_note:
+            print(f"[MEDRAG] Using curated note instead of original")
+            question = curated_note
+        if options is not None:
+            print(f"[MEDRAG] Options provided: {list(options.keys())}")
+            options = '\n'.join([key + ". " + options[key] for key in sorted(options.keys())])
+        else:
+            options = ''
+        if split:
+            print(f"[MEDRAG] Splitting question")
+            sub_questions = self.split(question)
+        else:
+            sub_questions = [question]
+            print(f"[MEDRAG] Using question as is (no splitting)")
+        if sub_k is None:
+            sub_k = k
+        if total_k is not None and len(sub_questions) > 0:
+            adjusted_sub_k = min(sub_k, (total_k * 2) // len(sub_questions))
+            print(f"[MEDRAG] Adjusted sub_k from {sub_k} to {adjusted_sub_k} based on total_k={total_k} and {len(sub_questions)} questions")
+        else:
+            adjusted_sub_k = sub_k
+        all_contexts = []
+        all_retrieved_snippets = []
+        all_scores = []
+        total_tokens = 0
+        seen_documents = {}
+        sub_question_results = []
+        for idx, sub_question in enumerate(sub_questions):
+            print(f"[MEDRAG] Processing sub-question {idx+1}/{len(sub_questions)}: '{sub_question[:50]}...'")
+            if self.rag:
+                print(f"[MEDRAG] Retrieving documents for sub-question {idx+1}")
+                assert self.retrieval_system is not None
+                retrieved_snippets, scores = self.retrieval_system.retrieve(sub_question, k=adjusted_sub_k, rrf_k=rrf_k)
+                print(f"[MEDRAG] Retrieved {len(retrieved_snippets)} snippets")
+                current_snippets = []
+                current_scores = []
+                current_contexts = []
+                for idx, (snippet, score) in enumerate(zip(retrieved_snippets, scores)):
+                    doc_content = snippet["contents"]
+                    if doc_content in seen_documents:
+                        prev_idx, prev_score = seen_documents[doc_content]
+                        if score > prev_score:
+                            print(f"[MEDRAG] Document already seen but with better score now: {score} > {prev_score}")
+                            seen_documents[doc_content] = (len(seen_documents), score)
+                    else:
+                        print(f"[MEDRAG] New document found with score {score}")
+                        seen_documents[doc_content] = (len(seen_documents), score)
+                        current_snippets.append(snippet)
+                        current_scores.append(score)
+                        current_contexts.append(f"Document [{len(seen_documents)-1}]: {doc_content}")
+                    if total_k and len(seen_documents) >= total_k:
+                        print(f"[MEDRAG] Reached total_k limit of {total_k} documents")
+                        break
+                if not current_contexts:
+                    print(f"[MEDRAG] No contexts found, adding empty string")
+                    current_contexts = [""]
+                context_text = "\n".join(current_contexts)
+                tokens = len(self.tokenizer.encode(context_text))
+                print(f"[MEDRAG] Context has {tokens} tokens")
+                sub_question_results.append({
+                    'contexts': current_contexts,
+                    'retrieved_snippets': current_snippets,
+                    'scores': current_scores,
+                    'tokens': tokens
+                })
+                total_tokens += tokens
+            else:
+                print(f"[MEDRAG] No RAG requested, skipping retrieval")
+                sub_question_results.append({
+                    'contexts': [],
+                    'retrieved_snippets': [],
+                    'scores': [],
+                    'tokens': 0
+                })
+        if total_tokens > self.context_length and sub_question_results:
+            excess_tokens = total_tokens - self.context_length
+            tokens_to_reduce_per_question = excess_tokens // len(sub_question_results)
+            print(f"[MEDRAG] Total tokens {total_tokens} exceeds limit {self.context_length}, reducing by {tokens_to_reduce_per_question} per question")
+            for result in sub_question_results:
+                if result['tokens'] > 0:
+                    keep_ratio = max(0, (result['tokens'] - tokens_to_reduce_per_question) / result['tokens'])
+                    keep_contexts = max(1, int(len(result['contexts']) * keep_ratio))
+                    print(f"[MEDRAG] Keeping {keep_contexts}/{len(result['contexts'])} contexts (ratio: {keep_ratio:.2f})")
+                    result['contexts'] = result['contexts'][:keep_contexts]
+                    result['retrieved_snippets'] = result['retrieved_snippets'][:keep_contexts]
+                    result['scores'] = result['scores'][:keep_contexts]
+        for result in sub_question_results:
+            all_contexts.extend(result['contexts'])
+            all_retrieved_snippets.extend(result['retrieved_snippets'])
+            all_scores.extend(result['scores'])
+        print(f"[MEDRAG] Combined {len(all_contexts)} contexts across all sub-questions")
+        combined_context = "\n".join(all_contexts)
+        combined_context = self.tokenizer.decode(self.tokenizer.encode(combined_context)[:self.context_length])
+        print(f"[MEDRAG] Final context length: {len(self.tokenizer.encode(combined_context))} tokens")
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+            print(f"[MEDRAG] Created directory: {save_dir}")
+        if not self.rag:
+            print(f"[MEDRAG] Creating COT prompt (no RAG)")
+            prompt_cot = self.templates["cot_prompt"].render(question=origin_note, options=options)
+            messages = [
+                {"role": "system", "content": self.templates["cot_system"]},
+                {"role": "user", "content": prompt_cot}
+            ]
+        else:
+            print(f"[MEDRAG] Creating MedRAG prompt with context")
+            prompt_medrag = self.templates["medrag_prompt"].render(context=combined_context, question=origin_note)
+            messages = [
+                {"role": "system", "content": self.templates["medrag_system"]},
+                {"role": "user", "content": prompt_medrag}
+            ]
+        if save_dir:
+            print(f"[MEDRAG] Saving snippets to {os.path.join(save_dir, 'snippets.json')}")
+            with open(os.path.join(save_dir, "snippets.json"), 'w') as f:
+                json.dump(all_retrieved_snippets, f, indent=4)
+        print(f"[MEDRAG] Message creation complete, returning {len(messages)} messages and {len(all_retrieved_snippets)} snippets")
+        return messages, all_retrieved_snippets, all_scores
+
+class MedicalLiteratureManager:
+    """Manager for retrieving, processing, and storing medical literature for RAG."""
+    
+    def __init__(self, literature_dir=MEDICAL_LITERATURE_DIR, corpus_dir=MEDICAL_CORPUS_DIR):
+        """Initialize the medical literature manager."""
+        self.literature_dir = literature_dir
+        self.corpus_dir = corpus_dir
+        self.diagnosis_dir = os.path.join(corpus_dir, "diagnosis")
+        self.risk_dir = os.path.join(corpus_dir, "risk_assessment")
+        
+        # Create necessary directories
+        os.makedirs(self.literature_dir, exist_ok=True)
+        os.makedirs(self.corpus_dir, exist_ok=True)
+        os.makedirs(self.diagnosis_dir, exist_ok=True)
+        os.makedirs(self.risk_dir, exist_ok=True)
+        
+        # Initialize Chroma clients for vector storage
+        self.diagnosis_chroma = chromadb.PersistentClient(path=os.path.join(self.diagnosis_dir, "chroma"))
+        self.risk_chroma = chromadb.PersistentClient(path=os.path.join(self.risk_dir, "chroma"))
+        
+        # Set up vector stores
+        self.diagnosis_vector_store = ChromaVectorStore(chroma_collection=self.diagnosis_chroma.get_or_create_collection("diagnosis_literature"))
+        self.risk_vector_store = ChromaVectorStore(chroma_collection=self.risk_chroma.get_or_create_collection("risk_literature"))
+        
+        # Set up storage contexts
+        self.diagnosis_storage_context = StorageContext.from_defaults(vector_store=self.diagnosis_vector_store)
+        self.risk_storage_context = StorageContext.from_defaults(vector_store=self.risk_vector_store)
+        
+        # Indices for retrieval
+        self._diagnosis_index = None
+        self._risk_index = None
+        
+        print(f"[MEDICAL_LIT] Initialized MedicalLiteratureManager with literature_dir={literature_dir}, corpus_dir={corpus_dir}")
+    
+    def retrieve_perplexity_articles(self, query: str, max_results: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve article links from Perplexity AI based on a query."""
+        print(f"[MEDICAL_LIT] Retrieving articles from Perplexity AI for query: '{query}'")
+        
+        # Perplexity API endpoint and headers
+        perplexity_url = "https://api.perplexity.ai/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Construct the prompt for Perplexity to fetch article links
+        prompt = f"Provide a list of the top {max_results} articles, webpages, or books related to the following medical query: '{query}'. Return the results in a JSON format with each entry containing 'title' and 'url'. Focus on reputable medical sources such as peer-reviewed journals, medical books, or trusted health websites."
+        
+        payload = {
+            "model": "sonar",
+            "messages": [
+                {"role": "system", "content": "You are a medical research assistant tasked with finding relevant articles from reputable sources."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7
+        }
+        
+        try:
+            response = requests.post(perplexity_url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract the response content
+            if "choices" not in data or not data["choices"]:
+                print(f"[MEDICAL_LIT] No results returned from Perplexity AI: {data}")
+                return []
+            
+            content = data["choices"][0]["message"]["content"]
+            
+            # Parse the JSON content
+            try:
+                articles = json.loads(content)
+                if not isinstance(articles, list):
+                    articles = articles.get("articles", [])
+            except json.JSONDecodeError:
+                # If JSON parsing fails, attempt to extract URLs manually
+                print(f"[MEDICAL_LIT] Failed to parse JSON from Perplexity response, attempting manual extraction")
+                articles = []
+                urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', content)
+                for idx, url in enumerate(urls[:max_results]):
+                    articles.append({
+                        "title": f"Article {idx + 1}",
+                        "url": url
+                    })
+            
+            print(f"[MEDICAL_LIT] Retrieved {len(articles)} article links from Perplexity AI")
+            return articles
+            
+        except Exception as e:
+            print(f"[MEDICAL_LIT] Error retrieving articles from Perplexity AI: {str(e)}")
+            return []
+    
+    def extract_article_content(self, article: Dict[str, str]) -> Dict[str, Any]:
+        """Extract full content from an article URL using the universal extractor."""
+        url = article.get("url")
+        if not url:
+            print(f"[MEDICAL_LIT] No URL found for article: {article}")
+            return None
+        
+        print(f"[MEDICAL_LIT] Extracting content from URL: {url}")
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Add a delay to avoid rate limiting
+                time.sleep(1)  # 1-second delay between requests
+                
+                # Use the universal_extractor from test.py
+                extracted_data = universal_extractor(url)
+                
+                if "Access Denied" in extracted_data.get("full_text", ""):
+                    print(f"[MEDICAL_LIT] Access denied for URL: {url}")
+                    return None
+                
+                metadata = extracted_data.get("metadata", {})
+                full_text = extracted_data.get("full_text", "")
+                
+                article_data = {
+                    "title": metadata.get("title", article.get("title", "Unknown Title")),
+                    "abstract": full_text[:500],
+                    "journal": metadata.get("journal", "Unknown Source"),
+                    "year": metadata.get("date", "Unknown Year"),
+                    "source": metadata.get("journal", "Perplexity AI"),
+                    "url": url,
+                    "full_text": full_text
+                }
+                
+                print(f"[MEDICAL_LIT] Successfully extracted content for {article_data['title']}")
+                return article_data
+                
+            except Exception as e:
+                if "429 Client Error" in str(e):
+                    if attempt < max_retries - 1:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        print(f"[MEDICAL_LIT] Rate limit exceeded for {url}, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"[MEDICAL_LIT] Max retries reached for {url} due to rate limiting")
+                        return None
+                elif "403 Client Error" in str(e):
+                    print(f"[MEDICAL_LIT] Access denied (403) for URL: {url}")
+                    return None
+                print(f"[MEDICAL_LIT] Error extracting content from {url}: {str(e)}")
+                return None
+    
+    def retrieve_medical_articles(self, entity_groups: Dict[str, List[str]], analysis_type: str = "diagnosis", max_results: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve medical articles based on extracted entity groups using Perplexity AI."""
+        print(f"[MEDICAL_LIT] Retrieving medical articles for {analysis_type} based on {len(entity_groups)} entity groups")
+        
+        query_parts = []
+        
+        if analysis_type == "diagnosis":
+            # Build diagnosis-focused query
+            if "SIGN_SYMPTOM" in entity_groups:
+                symptoms = entity_groups["SIGN_SYMPTOM"][:5]  # Limit to top 5 symptoms
+                if symptoms:
+                    query_parts.append(" OR ".join([f'"{symptom}"' for symptom in symptoms]))
+            
+            if "DISEASE_DISORDER" in entity_groups:
+                diseases = entity_groups["DISEASE_DISORDER"][:3]  # Limit to top 3 diseases
+                if diseases:
+                    query_parts.append(" OR ".join([f'"{disease}"' for disease in diseases]))
+            
+            # Add diagnostic terms
+            query_parts.append("diagnosis OR differential diagnosis OR clinical presentation")
+            
+        elif analysis_type == "risk_assessment":
+            # Build risk assessment-focused query
+            if "DISEASE_DISORDER" in entity_groups:
+                diseases = entity_groups["DISEASE_DISORDER"][:3]
+                if diseases:
+                    query_parts.append(" OR ".join([f'"{disease}"' for disease in diseases]))
+            
+            if "SIGN_SYMPTOM" in entity_groups:
+                symptoms = entity_groups["SIGN_SYMPTOM"][:3]
+                if symptoms:
+                    query_parts.append(" OR ".join([f'"{symptom}"' for symptom in symptoms]))
+            
+            # Add risk assessment terms
+            query_parts.append("risk factor OR risk assessment OR prognosis OR prevention")
+        
+        # Fall back to generic query if no entities found
+        if not query_parts:
+            if analysis_type == "diagnosis":
+                query_parts = ["common diagnosis differential diagnosis clinical presentation"]
+            else:
+                query_parts = ["common risk factors prevention screening"]
+        
+        # Create final query
+        full_query = " AND ".join([f"({part})" for part in query_parts])
+        print(f"[MEDICAL_LIT] Generated query: {full_query}")
+        
+        # Compute hash for caching
+        query_hash = hashlib.md5(full_query.encode()).hexdigest()
+        cache_file = os.path.join(self.literature_dir, f"{analysis_type}_{query_hash}.json")
+        
+        # Check cache
+        if os.path.exists(cache_file) and (datetime.now() - datetime.fromtimestamp(os.path.getmtime(cache_file))).days < 7:
+            print(f"[MEDICAL_LIT] Using cached results from {cache_file}")
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        
+        # Retrieve article links from Perplexity AI
+        article_links = self.retrieve_perplexity_articles(full_query, max_results)
+        
+        # Extract content from each article
+        articles = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_article = {executor.submit(self.extract_article_content, article): article for article in article_links}
+            for future in future_to_article:
+                article_data = future.result()
+                if article_data:
+                    articles.append(article_data)
+        
+        # Cache results
+        if articles:
+            with open(cache_file, 'w') as f:
+                json.dump(articles, f, indent=2)
+        
+        print(f"[MEDICAL_LIT] Retrieved and extracted {len(articles)} articles")
+        return articles
+    
+    def add_articles_to_corpus(self, articles: List[Dict[str, Any]], analysis_type: str = "diagnosis") -> None:
+        """Add retrieved articles to the appropriate corpus with vector embeddings."""
+        print(f"[MEDICAL_LIT] Adding {len(articles)} articles to {analysis_type} corpus")
+        
+        if not articles:
+            print("[MEDICAL_LIT] No articles to add")
+            return
+        
+        # Choose the appropriate storage context and vector store
+        if analysis_type == "diagnosis":
+            storage_context = self.diagnosis_storage_context
+            vector_store = self.diagnosis_vector_store
+            index_ref = "_diagnosis_index"
+        else:
+            storage_context = self.risk_storage_context
+            vector_store = self.risk_vector_store
+            index_ref = "_risk_index"
+        
+        # Get existing document IDs from the vector store to avoid duplicates
+        
+        existing_ids = set()
+        if getattr(self, index_ref) is not None:
+            collection_name = "diagnosis_literature" if analysis_type == "diagnosis" else "risk_literature"
+            # Access through the chroma client
+            collection = self.diagnosis_chroma.get_collection(collection_name) if analysis_type == "diagnosis" else self.risk_chroma.get_collection(collection_name)
+            
+            existing_docs = collection.get(include=["metadatas"])
+            for metadata in existing_docs["metadatas"]:
+                if metadata and "url" in metadata:
+                    existing_ids.add(metadata["url"])
+        
+        # Convert articles to documents, skipping duplicates
+        documents = []
+        for article in articles:
+            article_url = article.get("url", "N/A")
+            if article_url in existing_ids:
+                print(f"[MEDICAL_LIT] Skipping duplicate article: {article['title']} (URL: {article_url})")
+                continue
+            
+            text = f"Title: {article['title']}\n\n"
+            text += f"Source: {article['source']}, Year: {article['year']}\n\n"
+            text += f"Abstract: {article['abstract']}\n\n"
+            text += f"Full Text: {article.get('full_text', article['abstract'])}\n\n"
+            text += f"URL: {article_url}"
+            
+            doc = Document(
+                text=text,
+                metadata={
+                    "title": article['title'],
+                    "source": article['source'],
+                    "year": article['year'],
+                    "url": article_url
+                }
+            )
+            documents.append(doc)
+            existing_ids.add(article_url)  # Add to set to prevent duplicates in this batch
+        
+        if not documents:
+            print("[MEDICAL_LIT] No new documents to add after deduplication")
+            return
+        
+        # Create or update the index
+        if getattr(self, index_ref) is None:
+            print(f"[MEDICAL_LIT] Creating new index for {analysis_type}")
+            pipeline = IngestionPipeline(
+                transformations=[
+                    SentenceSplitter(chunk_size=512, chunk_overlap=50),
+                    Settings.embed_model
+                ],
+                vector_store=vector_store
+            )
+            nodes = pipeline.run(documents=documents)
+            index = VectorStoreIndex(nodes, storage_context=storage_context)
+            setattr(self, index_ref, index)
+        else:
+            print(f"[MEDICAL_LIT] Updating existing index for {analysis_type}")
+            index = getattr(self, index_ref)
+            for doc in documents:
+                index.insert(doc)
+        
+        print(f"[MEDICAL_LIT] Added {len(documents)} documents to {analysis_type} corpus")
+        
+    def get_relevant_context(self, query: str, analysis_type: str = "diagnosis", k: int = 5) -> str:
+        """Retrieve relevant context from the corpus based on a query."""
+        print(f"[MEDICAL_LIT] Retrieving context for query: '{query}' (type: {analysis_type})")
+        
+        # Choose the appropriate index based on analysis type
+        if analysis_type == "diagnosis":
+            index = self._diagnosis_index
+        else:  # risk_assessment
+            index = self._risk_index
+        
+        if index is None:
+            print(f"[MEDICAL_LIT] No index available for {analysis_type}")
+            return ""
+        
+        # Query the index
+        retriever = index.as_retriever(similarity_top_k=k)
+        nodes = retriever.retrieve(query)
+        
+        # Format the retrieved context
+        context_parts = []
+        for idx, node in enumerate(nodes):
+            context_parts.append(f"Document [{idx}]: {node.text}")
+        
+        context = "\n\n".join(context_parts)
+        print(f"[MEDICAL_LIT] Retrieved {len(nodes)} relevant documents")
+        return context
+    
+    def process_entity_groups_for_retrieval(self, entity_groups: Dict[str, List[str]], analysis_type: str = "diagnosis") -> str:
+        """Process entity groups to create a retrieval query for the vector database."""
+        print(f"[MEDICAL_LIT] Processing entity groups for retrieval (type: {analysis_type})")
+        
+        query_parts = []
+        
+        if analysis_type == "diagnosis":
+            if "SIGN_SYMPTOM" in entity_groups:
+                symptoms = entity_groups["SIGN_SYMPTOM"][:5]
+                if symptoms:
+                    query_parts.extend(symptoms)
+            
+            if "DISEASE_DISORDER" in entity_groups:
+                diseases = entity_groups["DISEASE_DISORDER"][:3]
+                if diseases:
+                    query_parts.extend(diseases)
+            
+            query_parts.extend(["diagnosis", "differential diagnosis", "clinical presentation"])
+        
+        elif analysis_type == "risk_assessment":
+            if "DISEASE_DISORDER" in entity_groups:
+                diseases = entity_groups["DISEASE_DISORDER"][:3]
+                if diseases:
+                    query_parts.extend(diseases)
+            
+            if "SIGN_SYMPTOM" in entity_groups:
+                symptoms = entity_groups["SIGN_SYMPTOM"][:3]
+                if symptoms:
+                    query_parts.extend(symptoms)
+            
+            query_parts.extend(["risk factor", "risk assessment", "prognosis", "prevention"])
+        
+        if not query_parts:
+            if analysis_type == "diagnosis":
+                query_parts = ["diagnosis", "differential diagnosis", "clinical presentation"]
+            else:
+                query_parts = ["risk factor", "prevention", "screening"]
+        
+        retrieval_query = " ".join(query_parts)
+        print(f"[MEDICAL_LIT] Generated retrieval query: {retrieval_query}")
+        return retrieval_query
+
+    def retrieve_relevant_literature(self, query: str, analysis_type: str = "diagnosis", top_k: int = 5) -> List[Any]:
+        """Retrieve relevant literature chunks from the vector database."""
+        print(f"[MEDICAL_LIT] Retrieving relevant literature for query: '{query}' (type: {analysis_type})")
+        
+        if analysis_type == "diagnosis":
+            index = self._diagnosis_index
+        else:
+            index = self._risk_index
+        
+        if index is None:
+            print(f"[MEDICAL_LIT] No index available for {analysis_type}")
+            return []
+        
+        retriever = index.as_retriever(similarity_top_k=top_k)
+        nodes = retriever.retrieve(query)
+        
+        print(f"[MEDICAL_LIT] Retrieved {len(nodes)} relevant literature chunks")
+        return nodes
+
+    def prepare_literature_context(self, relevant_literature: List[Any]) -> str:
+        """Format retrieved literature chunks into a context string."""
+        if not relevant_literature:
+            print("[MEDICAL_LIT] No relevant literature to format")
+            return "No relevant medical literature found."
+        
+        context_parts = []
+        for idx, node in enumerate(relevant_literature):
+            context_parts.append(f"Document [{idx}]: {node.text}")
+        
+        context = "\n\n".join(context_parts)
+        print(f"[MEDICAL_LIT] Prepared context with {len(context)} characters")
+        return context
+
+medical_literature_manager = MedicalLiteratureManager()
+
+class DiseaseDetectionSystem:
+    """
+    Disease Detection System using a structured medical corpus and LLM-based analysis.
+    """
+    
+    def __init__(self, corpus_dir: str = "./medical_corpus"):
+        """
+        Initialize the disease detection system.
+        
+        Args:
+            corpus_dir: Directory containing the medical corpus
+        """
+        self.corpus_dir = corpus_dir
+        self.diagnosis_dir = os.path.join(corpus_dir, "diagnosis")
+        self.corpus = self._load_corpus()
+        print(f"Initialized Disease Detection System with {len(self.corpus)} conditions in corpus")
+    
+    def _load_corpus(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load the medical corpus from the corpus directory.
+        
+        Returns:
+            Dictionary mapping ICD codes to disease definitions
+        """
+        corpus = {}  # Initialize as a dictionary
+        
+        # If corpus directory doesn't exist, initialize it with sample data
+        if not os.path.exists(self.corpus_dir):
+            os.makedirs(self.corpus_dir, exist_ok=True)
+            os.makedirs(self.diagnosis_dir, exist_ok=True)
+            self._initialize_sample_corpus()
+        
+        # Load corpus from files
+        for filename in os.listdir(self.corpus_dir):
+            print(f'[CORPUS] {filename}')
+            if filename.endswith('.json'):
+                try:
+                    with open(os.path.join(self.corpus_dir, filename), 'r') as f:
+                        disease_def = json.load(f)
+                        print(f'[DISEASE DEF] {disease_def}')
+                        # Store by ICD code for efficient lookup
+                        corpus[disease_def["icd_code"]] = disease_def
+                except Exception as e:
+                    print(f"Error loading corpus file {filename}: {str(e)}")
+        
+        return corpus
+
+    def _initialize_sample_corpus(self):
+        """Create sample corpus with common conditions for testing."""
+        # Sample: Congestive Heart Failure
+        chf = {
+            "disease": "Congestive Heart Failure",
+            "icd_code": "I50.9",
+            "parameters": {
+                "symptoms": [
+                    {"name": "dyspnea", "severity": ["mild", "moderate", "severe"], "onset_pattern": ["exertional", "nocturnal", "at rest"]},
+                    {"name": "edema", "location": ["lower extremity", "generalized"], "timing": ["evening", "persistent"]},
+                    {"name": "fatigue", "pattern": ["with exertion", "persistent"]}
+                ],
+                "vital_signs": {
+                    "blood_pressure": {"high": ">140/90", "low": "<90/60"},
+                    "heart_rate": {"high": ">100 bpm", "irregular": True},
+                    "respiratory_rate": {"high": ">20 breaths/min"}
+                },
+                "physical_findings": [
+                    "jugular venous distention",
+                    "pulmonary rales",
+                    "S3 heart sound"
+                ],
+                "lab_values": {
+                    "BNP": {"high": ">100 pg/mL"},
+                    "troponin": {"high": ">0.04 ng/mL"}
+                },
+                "risk_factors": [
+                    "hypertension",
+                    "coronary artery disease",
+                    "diabetes",
+                    "previous myocardial infarction"
+                ],
+                "imaging_findings": {
+                    "chest_xray": ["cardiomegaly", "pulmonary congestion"],
+                    "echocardiogram": ["reduced ejection fraction", "chamber enlargement"]
+                }
+            },
+            "diagnostic_criteria": {
+                "required": ["dyspnea", "BNP > 100 pg/mL"],
+                "supportive": ["edema", "rales", "cardiomegaly on imaging"]
+            },
+            "differential_diagnoses": [
+                "pneumonia",
+                "COPD exacerbation",
+                "pulmonary embolism"
+            ]
+        }
+        
+        # Sample: Type 2 Diabetes
+        t2dm = {
+            "disease": "Type 2 Diabetes Mellitus",
+            "icd_code": "E11",
+            "parameters": {
+                "symptoms": [
+                    {"name": "polyuria", "severity": ["mild", "moderate", "severe"]},
+                    {"name": "polydipsia", "severity": ["mild", "moderate", "severe"]},
+                    {"name": "unexplained weight loss", "severity": ["mild", "moderate", "severe"]},
+                    {"name": "fatigue", "pattern": ["persistent"]}
+                ],
+                "vital_signs": {},
+                "physical_findings": [
+                    "acanthosis nigricans",
+                    "poor wound healing",
+                    "peripheral neuropathy"
+                ],
+                "lab_values": {
+                    "fasting glucose": {"high": ">126 mg/dL"},
+                    "HbA1c": {"high": ">6.5%"},
+                    "random glucose": {"high": ">200 mg/dL"}
+                },
+                "risk_factors": [
+                    "obesity",
+                    "family history of diabetes",
+                    "sedentary lifestyle",
+                    "history of gestational diabetes",
+                    "hypertension"
+                ],
+                "imaging_findings": {}
+            },
+            "diagnostic_criteria": {
+                "required": ["fasting glucose > 126 mg/dL", "HbA1c > 6.5%", "random glucose > 200 mg/dL with symptoms"],
+                "supportive": ["polyuria", "polydipsia", "unexplained weight loss"]
+            },
+            "differential_diagnoses": [
+                "type 1 diabetes",
+                "LADA (Latent Autoimmune Diabetes in Adults)",
+                "medication-induced hyperglycemia"
+            ]
+        }
+        
+        # Sample: Community-Acquired Pneumonia
+        cap = {
+            "disease": "Community-Acquired Pneumonia",
+            "icd_code": "J18.9",
+            "parameters": {
+                "symptoms": [
+                    {"name": "cough", "severity": ["mild", "moderate", "severe"], "pattern": ["productive", "non-productive"]},
+                    {"name": "fever", "severity": ["low-grade", "high-grade"]},
+                    {"name": "dyspnea", "severity": ["mild", "moderate", "severe"]},
+                    {"name": "chest pain", "pattern": ["pleuritic", "constant"]}
+                ],
+                "vital_signs": {
+                    "temperature": {"high": ">38°C"},
+                    "respiratory_rate": {"high": ">20 breaths/min"},
+                    "heart_rate": {"high": ">100 bpm"},
+                    "oxygen_saturation": {"low": "<95%"}
+                },
+                "physical_findings": [
+                    "crackles",
+                    "bronchial breath sounds",
+                    "dullness to percussion",
+                    "increased tactile fremitus"
+                ],
+                "lab_values": {
+                    "WBC": {"high": ">11,000/μL", "pattern": "neutrophil predominant"},
+                    "CRP": {"high": ">10 mg/L"},
+                    "procalcitonin": {"high": ">0.25 ng/mL"}
+                },
+                "risk_factors": [
+                    "advanced age",
+                    "smoking",
+                    "COPD",
+                    "immunosuppression",
+                    "alcoholism"
+                ],
+                "imaging_findings": {
+                    "chest_xray": ["infiltrate", "consolidation", "air bronchograms"],
+                    "ct_chest": ["ground-glass opacities", "consolidation"]
+                }
+            },
+            "diagnostic_criteria": {
+                "required": ["clinical symptoms of pneumonia", "radiographic evidence of infiltrate"],
+                "supportive": ["fever", "elevated inflammatory markers", "leukocytosis"]
+            },
+            "differential_diagnoses": [
+                "acute bronchitis",
+                "COPD exacerbation",
+                "pulmonary embolism",
+                "heart failure",
+                "lung cancer"
+            ]
+        }
+        
+        # Save sample corpus
+        with open(os.path.join(self.diagnosis_dir, "chf.json"), 'w') as f:
+            json.dump(chf, f, indent=2)
+        
+        with open(os.path.join(self.diagnosis_dir, "t2dm.json"), 'w') as f:
+            json.dump(t2dm, f, indent=2)
+            
+        with open(os.path.join(self.diagnosis_dir, "cap.json"), 'w') as f:
+            json.dump(cap, f, indent=2)
+    
+    def extract_patient_parameters(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract structured parameters from patient data in EHR format.
+        
+        Args:
+            patient_data: Dictionary containing patient clinical data
+            
+        Returns:
+            Dictionary with structured parameters extracted from the patient data
+        """
+        structured_parameters = {
+            "symptoms": {},
+            "vital_signs": {},
+            "physical_findings": [],
+            "lab_values": {},
+            "risk_factors": [],
+            "imaging_findings": {},
+            "demographics": {}
+        }
+        
+        # Extract patient demographics
+        if "first_name" in patient_data and "last_name" in patient_data:
+            structured_parameters["demographics"]["name"] = f"{patient_data.get('first_name', '')} {patient_data.get('last_name', '')}"
+        
+        if "date_of_birth" in patient_data:
+            structured_parameters["demographics"]["dob"] = patient_data["date_of_birth"]
+            # Calculate age if DOB is available
+            try:
+                dob = datetime.strptime(patient_data["date_of_birth"], "%Y-%m-%d")
+                today = datetime.now()
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                structured_parameters["demographics"]["age"] = age
+            except:
+                pass
+        
+        if "gender" in patient_data:
+            structured_parameters["demographics"]["gender"] = patient_data["gender"]
+        
+        # Extract vitals from encounters
+        if "encounter" in patient_data and isinstance(patient_data["encounter"], dict):
+            encounter = patient_data["encounter"]
+            
+            # Extract symptoms from chief complaint and HPI
+            if "chief_complaint" in encounter:
+                structured_parameters["chief_complaint"] = encounter["chief_complaint"]
+            
+            if "hpi" in encounter:
+                structured_parameters["history_present_illness"] = encounter["hpi"]
+            
+            # Extract vital signs
+            if "vital_signs" in encounter and isinstance(encounter["vital_signs"], dict):
+                vitals = encounter["vital_signs"]
+                structured_parameters["vital_signs"] = vitals
+            
+            # Extract physical findings
+            if "physical_exam" in encounter:
+                structured_parameters["physical_findings"] = encounter["physical_exam"]
+            
+            # Extract assessment and plan
+            if "assessment" in encounter:
+                structured_parameters["assessment"] = encounter["assessment"]
+            
+            if "plan" in encounter:
+                structured_parameters["plan"] = encounter["plan"]
+                
+            # Extract diagnosis codes if available
+            if "diagnosis_codes" in encounter:
+                structured_parameters["diagnosis_codes"] = encounter["diagnosis_codes"]
+        
+        # Extract medical history as risk factors
+        if "medical_history" in patient_data and isinstance(patient_data["medical_history"], list):
+            for condition in patient_data["medical_history"]:
+                if isinstance(condition, dict) and "condition" in condition:
+                    structured_parameters["risk_factors"].append(condition["condition"])
+        
+        # Extract lab values
+        if "lab_results" in patient_data and isinstance(patient_data["lab_results"], list):
+            for lab in patient_data["lab_results"]:
+                if isinstance(lab, dict) and "test_name" in lab and "result_value" in lab:
+                    structured_parameters["lab_values"][lab["test_name"]] = {
+                        "value": lab["result_value"],
+                        "unit": lab.get("unit", ""),
+                        "reference_range": lab.get("reference_range", ""),
+                        "abnormal_flag": lab.get("abnormal_flag", "")
+                    }
+        
+        # Extract imaging findings
+        if "scans" in patient_data and isinstance(patient_data["scans"], list):
+            for scan in patient_data["scans"]:
+                if isinstance(scan, dict) and "scan_type" in scan and "analysis" in scan:
+                    scan_type = scan["scan_type"].lower()
+                    if "chest" in scan_type or "x-ray" in scan_type:
+                        category = "chest_xray"
+                    elif "ct" in scan_type:
+                        category = "ct_scan"
+                    elif "mri" in scan_type:
+                        category = "mri"
+                    elif "ultrasound" in scan_type:
+                        category = "ultrasound"
+                    elif "echocardiogram" in scan_type or "echo" in scan_type:
+                        category = "echocardiogram"
+                    else:
+                        category = scan_type
+                    
+                    if category not in structured_parameters["imaging_findings"]:
+                        structured_parameters["imaging_findings"][category] = []
+                    
+                    structured_parameters["imaging_findings"][category].append(scan["analysis"])
+        
+        # Extract medications as they might indicate conditions
+        if "medications" in patient_data and isinstance(patient_data["medications"], list):
+            structured_parameters["medications"] = []
+            for medication in patient_data["medications"]:
+                if isinstance(medication, dict) and "name" in medication:
+                    med_info = {
+                        "name": medication["name"]
+                    }
+                    if "dosage" in medication:
+                        med_info["dosage"] = medication["dosage"]
+                    if "frequency" in medication:
+                        med_info["frequency"] = medication["frequency"]
+                    
+                    structured_parameters["medications"].append(med_info)
+        
+        # Extract allergies
+        if "allergies" in patient_data and isinstance(patient_data["allergies"], list):
+            structured_parameters["allergies"] = []
+            for allergy in patient_data["allergies"]:
+                if isinstance(allergy, dict) and "allergen" in allergy:
+                    structured_parameters["allergies"].append(allergy["allergen"])
+        
+        return structured_parameters
+    
+    
+    def identify_potential_icd_codes(self, patient_data: Dict[str, Any]) -> List[str]:
+        """
+        First stage: Use LLM to identify potential ICD-10 codes based on patient data.
+        
+        Args:
+            patient_data: Dictionary containing patient data
+            
+        Returns:
+            List of potential ICD-10 codes
+        """
+        # Extract structured parameters from patient data
+        patient_parameters = self.extract_patient_parameters(patient_data)
+        
+        # Create prompt for ICD code identification
+        prompt = f"""
+        You are a clinical coding expert specializing in ICD-10 diagnosis codes. 
+        Based on the following patient information, identify the most likely ICD-10 codes that match this patient's presentation.
+        
+        PATIENT INFORMATION:
+        {json.dumps(patient_parameters, indent=2)}
+        
+        Analyze the patient's symptoms, vital signs, physical findings, lab results, and other clinical data.
+        Identify the most likely ICD-10 codes that match this patient's presentation.
+        
+        Return ONLY a JSON array of ICD-10 codes, like this:
+        ["I50.9", "E11", "J18.9"]
+        
+        Include only the codes themselves, no explanations. Limit to the top 3-5 most relevant codes.
+        """
+        
+        # Get LLM response
+        print(f"Sending prompt to LLM for ICD code identification...")
+        response = Settings.llm.complete(prompt)
+        
+        # Process response
+        try:
+            # Clean up response in case it includes markdown code block formatting
+            response_text = response.text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            
+            # Parse the JSON array
+            icd_codes = json.loads(response_text.strip())
+            
+            if not isinstance(icd_codes, list):
+                raise ValueError("Response is not a list of ICD codes")
+            
+            print(f"Identified potential ICD codes: {icd_codes}")
+            return icd_codes
+            
+        except Exception as e:
+            print(f"Error processing LLM response for ICD codes: {str(e)}")
+            print(f"Raw response: {response.text}")
+            
+            # Return empty list on error
+            return []
+    
+    async def detect_diseases_with_icd_codes(self, patient_data: Dict[str, Any], icd_codes: List[str]) -> Dict[str, Any]:
+        """
+        Second stage: Match patient against specific diseases identified by ICD codes.
+        
+        Args:
+            patient_data: Dictionary containing patient data
+            icd_codes: List of ICD-10 codes to match against
+            
+        Returns:
+            Dictionary with detection results
+        """
+        # Extract structured parameters from patient data
+        patient_parameters = self.extract_patient_parameters(patient_data)
+        print(f'[DISEASE DETECTION] Patient Parameters {patient_parameters}')
+
+        patient_data_str = json.dumps(patient_parameters, indent=2)
+        entity_results = extract_medical_entities(patient_data_str)
+        
+        # Get literature context using the imported function
+        literature_context = await enhanced_literature_retrieval(
+            entity_groups=entity_results.get("entity_groups", {}),
+            analysis_type="diagnosis"
+        )
+        # Get relevant diseases from corpus based on ICD codes
+        relevant_diseases = []
+        for code in icd_codes:
+            # Check for exact match first
+            print(f'[CODES FOUND] {code}')
+            if code in self.corpus:
+                relevant_diseases.append(self.corpus[code])
+                print(f'[RELEVANT DISEASE] {code}')
+            else:
+                # Check for partial matches (e.g., I50 matches I50.9)
+                for icd_code, disease in self.corpus.items():
+                    if code.startswith(icd_code) or icd_code.startswith(code):
+                        relevant_diseases.append(disease)
+        
+        # If no matches found, fall back to a subset of common diseases
+        if not relevant_diseases:
+            print("No matching diseases found in corpus, using common diseases as fallback")
+            relevant_diseases = list(self.corpus.values())[:5]  # First 5 diseases as fallback
+        
+        # Convert corpus to simplified form for LLM context
+        simplified_corpus = []
+        for disease in relevant_diseases:
+            simplified = {
+                "disease": disease["disease"],
+                "icd_code": disease["icd_code"],
+                "key_symptoms": [symptom["name"] for symptom in disease["parameters"].get("symptoms", [])],
+                "key_findings": disease["parameters"].get("physical_findings", []),
+                "key_labs": list(disease["parameters"].get("lab_values", {}).keys()),
+                "diagnostic_criteria": disease["diagnostic_criteria"],
+                "differential_diagnoses": disease["differential_diagnoses"]
+            }
+            simplified_corpus.append(simplified)
+        print(f'[DISEASE DETECTION] Simplified Corpus {simplified_corpus}')
+        # Create prompt for LLM for the second stage
+        prompt = f"""
+You are a clinical diagnostic expert. Based on the following patient information and focused set of potential diseases, evaluate the patient for these specific conditions.
+
+PATIENT INFORMATION:
+{json.dumps(patient_parameters, indent=2)}
+
+POTENTIAL DISEASES (FILTERED BY ICD CODES {', '.join(icd_codes)}):
+{json.dumps(simplified_corpus, indent=2)}
+
+RELEVANT MEDICAL LITERATURE:
+{literature_context}
+
+Analyze the patient's symptoms, vital signs, physical findings, lab results, and other clinical data against these specific diseases.
+Identify which of these diseases best match the patient's presentation and provide your clinical reasoning.
+Use the provided medical literature to enhance your analysis and reasoning.
+
+Return your response as a JSON object with the following structure:
+{{
+    "matched_diseases": [
+        {{
+            "disease": "Name of Disease",
+            "icd_code": "ICD-10 Code",
+            "probability": 85,
+            "reasoning": "Clinical reasoning explaining why this disease matches"
+        }}
+    ],
+    "differential_diagnoses": [
+        {{
+            "disease": "Name of Disease",
+            "icd_code": "ICD-10 Code",
+            "probability": 60,
+            "reasoning": "Brief explanation"
+        }}
+    ],
+    "additional_testing_recommended": [
+        "List of recommended tests to confirm diagnosis or rule out differentials"
+    ],
+    "clinical_summary": "Overall clinical assessment and diagnostic impression"
+}}
+Note: For 'probability', provide a number between 0 and 100 representing confidence percentage.
+"""
+        # Get LLM response
+        start_time = time.time()
+        print(f"Sending prompt to LLM for disease detection (second stage)...")
+        
+        response = Settings.llm.complete(prompt)
+        
+        print(f"LLM response received in {time.time() - start_time:.2f} seconds")
+        
+        # Process response - same as original implementation
+        try:
+            # Clean up response in case it includes markdown code block formatting
+            response_text = response.text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            
+            result = json.loads(response_text.strip())
+            
+            # Ensure we have the expected structure
+            if not isinstance(result, dict):
+                raise ValueError("Response is not a dictionary")
+            
+            if "matched_diseases" not in result:
+                result["matched_diseases"] = []
+            
+            if "differential_diagnoses" not in result:
+                result["differential_diagnoses"] = []
+                
+            if "additional_testing_recommended" not in result:
+                result["additional_testing_recommended"] = []
+                
+            if "clinical_summary" not in result:
+                result["clinical_summary"] = "No clinical summary provided."
+            
+            # Add timestamp
+            result["timestamp"] = datetime.now().isoformat()
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error processing LLM response: {str(e)}")
+            print(f"Raw response: {response.text}")
+            
+            # Return error result
+            return {
+                "error": f"Failed to process LLM response: {str(e)}",
+                "matched_diseases": [],
+                "differential_diagnoses": [],
+                "additional_testing_recommended": [],
+                "clinical_summary": "Error in disease detection process.",
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    def detect_diseases_llm(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Use LLM to detect diseases based on patient data and medical corpus.
+        
+        Args:
+            patient_data: Dictionary containing patient data
+            
+        Returns:
+            Dictionary with detection results including matched diseases, probabilities, and reasoning
+        """
+        # Extract structured parameters from patient data
+        patient_parameters = self.extract_patient_parameters(patient_data)
+        
+        # Convert corpus to simplified form for LLM context
+        simplified_corpus = []
+        for disease in self.corpus.values():  # Use .values() to iterate over dictionary values
+            simplified = {
+                "disease": disease["disease"],
+                "icd_code": disease["icd_code"],
+                "key_symptoms": [symptom["name"] for symptom in disease["parameters"].get("symptoms", [])],
+                "key_findings": disease["parameters"].get("physical_findings", []),
+                "key_labs": list(disease["parameters"].get("lab_values", {}).keys()),
+                "diagnostic_criteria": disease["diagnostic_criteria"],
+                "differential_diagnoses": disease["differential_diagnoses"]
+            }
+            simplified_corpus.append(simplified)
+        
+        # Create prompt for LLM
+        prompt = f"""
+        You are a clinical diagnostic expert. Based on the following patient information and medical corpus, evaluate the patient for potential diseases.
+
+        PATIENT INFORMATION:
+        {json.dumps(patient_parameters, indent=2)}
+
+        MEDICAL CORPUS (REFERENCE DISEASES):
+        {json.dumps(simplified_corpus, indent=2)}
+
+        Analyze the patient's symptoms, vital signs, physical findings, lab results, and other clinical data against the provided medical corpus.
+        Identify the most likely diseases/conditions and provide your clinical reasoning.
+
+        Return your response as a JSON object with the following structure:
+        {{
+            "matched_diseases": [
+                {{
+                    "disease": "Name of Disease",
+                    "icd_code": "ICD-10 Code",
+                    "probability": 0-100 (confidence percentage),
+                    "reasoning": "Clinical reasoning explaining why this disease matches"
+                }}
+            ],
+            "differential_diagnoses": [
+                {{
+                    "disease": "Name of Disease",
+                    "icd_code": "ICD-10 Code",
+                    "probability": 0-100 (confidence percentage),
+                    "reasoning": "Brief explanation"
+                }}
+            ],
+            "additional_testing_recommended": [
+                "List of recommended tests to confirm diagnosis or rule out differentials"
+            ],
+            "clinical_summary": "Overall clinical assessment and diagnostic impression"
+        }}
+
+        Focus on the most clinically relevant matches rather than trying to match every possible condition.
+        """
+        
+        # Get LLM response
+        start_time = time.time()
+        print(f"Sending prompt to LLM for disease detection...")
+        
+        response = Settings.llm.complete(prompt)
+        
+        print(f"LLM response received in {time.time() - start_time:.2f} seconds")
+        
+        # Process response
+        try:
+            # Clean up response in case it includes markdown code block formatting
+            response_text = response.text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            
+            result = json.loads(response_text.strip())
+            
+            # Ensure we have the expected structure
+            if not isinstance(result, dict):
+                raise ValueError("Response is not a dictionary")
+            
+            if "matched_diseases" not in result:
+                result["matched_diseases"] = []
+            
+            if "differential_diagnoses" not in result:
+                result["differential_diagnoses"] = []
+                
+            if "additional_testing_recommended" not in result:
+                result["additional_testing_recommended"] = []
+                
+            if "clinical_summary" not in result:
+                result["clinical_summary"] = "No clinical summary provided."
+            
+            # Add timestamp
+            result["timestamp"] = datetime.now().isoformat()
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error processing LLM response: {str(e)}")
+            print(f"Raw response: {response.text}")
+            
+            # Return error result
+            return {
+                "error": f"Failed to process LLM response: {str(e)}",
+                "matched_diseases": [],
+                "differential_diagnoses": [],
+                "additional_testing_recommended": [],
+                "clinical_summary": "Error in disease detection process.",
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    def save_detection_result(self, patient_id: str, result: Dict[str, Any]) -> str:
+        """
+        Save the disease detection result to a file.
+        
+        Args:
+            patient_id: Patient identifier
+            result: Disease detection result dictionary
+            
+        Returns:
+            Path to the saved result file
+        """
+        # Create results directory if it doesn't exist
+        results_dir = os.path.join(self.corpus_dir, "results")
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir, exist_ok=True)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{patient_id}_{timestamp}.json"
+        filepath = os.path.join(results_dir, filename)
+        
+        # Save result to file
+        with open(filepath, 'w') as f:
+            json.dump(result, f, indent=2)
+        
+        print(f"Detection result saved to {filepath}")
+        return filepath
+    
+    async def analyze_patient(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Main method to analyze a patient using the two-stage approach.
+        
+        Args:
+            patient_data: Dictionary containing patient data
+            
+        Returns:
+            Dictionary with detection results
+        """
+        # Get patient ID if available
+        patient_id = patient_data.get("id", "unknown_patient")
+        
+        # STAGE 1: Identify potential ICD codes
+        print(f"STAGE 1: Identifying potential ICD codes for patient {patient_id}")
+        icd_codes = self.identify_potential_icd_codes(patient_data)
+        
+        # STAGE 2: Match against specific diseases
+        print(f"STAGE 2: Matching patient against diseases with ICD codes: {icd_codes}")
+        detection_result = await self.detect_diseases_with_icd_codes(patient_data, icd_codes)
+        
+        # Add the identified ICD codes to the result
+        detection_result["identified_icd_codes"] = icd_codes
+        
+        # Save result if valid
+        if "error" not in detection_result:
+            self.save_detection_result(patient_id, detection_result)
+        
+        return detection_result
+
+# Pydantic Models for input validation
+class OrganizationCreate(BaseModel):
+    name: str
+
+class PatientAnalysisRequest(BaseModel):
+    patient_input: Dict[str, Any]
+    llm_model: str
+
+class VitalSigns(BaseModel):
+    temperature: Optional[float] = None
+    heart_rate: Optional[int] = None
+    blood_pressure_systolic: Optional[int] = None
+    blood_pressure_diastolic: Optional[int] = None
+    respiratory_rate: Optional[int] = None
+    oxygen_saturation: Optional[int] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    bmi: Optional[float] = None
+    pain_score: Optional[int] = None
+
+class PatientCreate(BaseModel):
+    first_name: str
+    last_name: str
+    date_of_birth: str
+    gender: str
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    insurance_provider: Optional[str] = None
+    insurance_id: Optional[str] = None
+    primary_care_provider: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+
+class EncounterCreate(BaseModel):
+    patient_id: str
+    encounter_type: str
+    chief_complaint: str
+    vital_signs: Optional[VitalSigns] = None
+    hpi: str
+    ros: Optional[str] = None
+    physical_exam: Optional[str] = None
+    assessment: Optional[str] = None
+    plan: Optional[str] = None
+    diagnosis_codes: Optional[str] = None
+    followup_instructions: Optional[str] = None
+
+class MedicalHistoryCreate(BaseModel):
+    patient_id: str
+    condition: str
+    onset_date: Optional[str] = None
+    status: str
+    notes: Optional[str] = None
+
+
+class FamilyHistoryCreate(BaseModel):
+    patient_id: str
+    relation: str
+    condition: str
+    onset_age: Optional[int] = None
+    notes: Optional[str] = None
+
+class MedicationCreate(BaseModel):
+    patient_id: str
+    name: str
+    dosage: str
+    frequency: str
+    route: str
+    start_date: str
+    end_date: Optional[str] = None
+    indication: Optional[str] = None
+    pharmacy_notes: Optional[str] = None
+
+class AllergyCreate(BaseModel):
+    patient_id: str
+    allergen: str
+    reaction: str
+    severity: str
+    onset_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class LabOrderCreate(BaseModel):
+    patient_id: str
+    test_name: str
+    test_code: Optional[str] = None
+    priority: str = "Routine"
+    collection_date: Optional[datetime] = None  # Add this
+    notes: Optional[str] = None
+
+class LabOrderUpdate(BaseModel):
+    test_code: Optional[str] = None
+    priority: Optional[str] = None
+    collection_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None  # Allow status updates like "Collected"
+
+class LabResultCreate(BaseModel):
+    lab_order_id: str
+    result_value: str
+    unit: Optional[str] = None
+    reference_range: Optional[str] = None
+    abnormal_flag: Optional[str] = None
+    performing_lab: Optional[str] = None
+    notes: Optional[str] = None
+
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: str
+    is_doctor: bool = False
+    organization_id: str
+    role: str = "staff"
+
+class AIAnalysisCreate(BaseModel):
+    patient_id: str
+    encounter_id: Optional[str] = None
+    analysis_type: str
+    input_text: str
+    llm_model: str
+    scan_ids: List[str] = []  # Add this field to accept scan IDs
+
+
+# Data processing functions
+def load_data_from_frontend_input(user_input: Dict[str, Any], index_type: str = "") -> List[Document]:
+    print(f"[LOAD_DATA] Loading data from frontend input of type: {user_input.get('type', 'unknown')}")
+    input_type = user_input.get("type")
+    payload = user_input.get("payload", "")
+    if not isinstance(payload, dict):
+        payload = {"data": payload}
+        print(f"[LOAD_DATA] Converted non-dict payload to dict with 'data' key")
+    data = payload.get("data", "")
+    print(f"[LOAD_DATA] Payload data length: {len(str(data))}")
+    context_str = user_input.get("context_str", f"Data from {input_type}")
+    docs: List[Document] = []
+    if input_type == "raw_text":
+        print(f"[LOAD_DATA] Processing raw text input")
+        doc = Document(text=data, metadata={"source": "raw_text", "context_str": context_str})
+        docs.append(doc)
+        print(f"[LOAD_DATA] Created document with text length: {len(doc.text)}")
+    elif input_type == "local_file":
+        print(f"[LOAD_DATA] Processing local file input: {data}")
+        file_path = data
+        if not os.path.exists(file_path):
+            print(f"[LOAD_DATA] ERROR: File not found: {file_path}")
+            return []
+        reader = SimpleDirectoryReader(input_files=[file_path])
+        docs = reader.load_data()
+        print(f"[LOAD_DATA] Loaded {len(docs)} documents from file")
+        for doc in docs:
+            doc.metadata.update({"source": "local_file", "file_path": file_path, "context_str": context_str})
+    print(f"[LOAD_DATA] Returning {len(docs)} documents")
+    return docs
+
+def build_ingestion_pipeline(vector_store=None, chunk_size=512, chunk_overlap=50):
+    print(f"[PIPELINE] Building ingestion pipeline with chunk_size={chunk_size}, chunk_overlap={chunk_overlap}")
+    splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    transformations = [splitter, Settings.embed_model]
+    pipeline = IngestionPipeline(transformations=transformations, vector_store=vector_store)
+    print(f"[PIPELINE] Pipeline created with {len(transformations)} transformations")
+    return pipeline
+
+def process_user_inputs_and_build_index(
+    user_inputs: List[Dict[str, Any]],
+    index_type: str,
+    index_params: Dict[str, Any],
+    index_id: str,
+    document_name: str
+):
+    print(f"[INDEX_BUILD] Processing user inputs to build {index_type} index with ID {index_id} for {document_name}")
+    all_docs = [doc for ui in user_inputs for doc in load_data_from_frontend_input(ui, index_type)]
+    print(f"[INDEX_BUILD] Loaded {len(all_docs)} documents")
+    vector_store = ChromaVectorStore(chroma_collection=chroma_client.get_or_create_collection("ehr_data"))
+    print(f"[INDEX_BUILD] Created/loaded Chroma collection 'ehr_data'")
+    pipeline = build_ingestion_pipeline(vector_store=vector_store)
+    print(f"[INDEX_BUILD] Running ingestion pipeline")
+    nodes = pipeline.run(documents=all_docs)
+    print(f"[INDEX_BUILD] Created {len(nodes)} nodes")
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    index = VectorStoreIndex(nodes, storage_context=storage_context)
+    print(f"[INDEX_BUILD] Created vector store index")
+    query_engine = index.as_query_engine(similarity_top_k=5, llm=Settings.llm)
+    print(f"[INDEX_BUILD] Created query engine with similarity_top_k=5")
+    return {"type": "vector_store", "engine": query_engine}
+
+def summarize_patient_data(docs: List[Document]) -> str:
+    print(f"[SUMMARIZE] Summarizing {len(docs)} patient documents")
+    full_text = " ".join([doc.text for doc in docs])
+    print(f"[SUMMARIZE] Combined text length: {len(full_text)}")
+    prompt = f"Summarize the following patient data in 50-100 words:\n\n{full_text}"
+    print(f"[SUMMARIZE] Sending summarization prompt to LLM")
+    summary = Settings.llm.complete(prompt).text.strip()
+    print(f"[SUMMARIZE] Generated summary of length {len(summary)}")
+    return summary
+
+def generate_clinical_note(patient_data: Dict[str, Any], format_type: str = "soap") -> str:
+    print(f"[CLINICAL_NOTE] Generating {format_type.upper()} note from patient data")
+    
+    # Extract patient info
+    patient_info = f"Patient: {patient_data.get('first_name', '')} {patient_data.get('last_name', '')}"
+    if patient_data.get('date_of_birth'):
+        patient_info += f", DOB: {patient_data.get('date_of_birth')}"
+    if patient_data.get('gender'):
+        patient_info += f", Gender: {patient_data.get('gender')}"
+    
+    # Extract encounter info
+    encounter_info = ""
+    if 'encounter' in patient_data:
+        enc = patient_data['encounter']
+        if enc.get('chief_complaint'):
+            encounter_info += f"\nChief Complaint: {enc.get('chief_complaint')}"
+        
+        # Add vital signs if available
+        if enc.get('vital_signs'):
+            vitals = enc['vital_signs']
+            vital_info = "\nVital Signs:"
+            if vitals.get('temperature'):
+                vital_info += f" Temp: {vitals.get('temperature')}°F,"
+            if vitals.get('heart_rate'):
+                vital_info += f" HR: {vitals.get('heart_rate')} bpm,"
+            if vitals.get('blood_pressure_systolic') and vitals.get('blood_pressure_diastolic'):
+                vital_info += f" BP: {vitals.get('blood_pressure_systolic')}/{vitals.get('blood_pressure_diastolic')} mmHg,"
+            if vitals.get('respiratory_rate'):
+                vital_info += f" RR: {vitals.get('respiratory_rate')} breaths/min,"
+            if vitals.get('oxygen_saturation'):
+                vital_info += f" O2 Sat: {vitals.get('oxygen_saturation')}%,"
+            encounter_info += vital_info.rstrip(',')
+    
+    # Format based on note type
+    if format_type == "soap":
+        subjective = f"S: {patient_data.get('encounter', {}).get('hpi', 'No HPI recorded.')}"
+        
+        objective = "O: "
+        if patient_data.get('encounter', {}).get('physical_exam'):
+            objective += patient_data['encounter']['physical_exam']
+        else:
+            objective += "No physical exam documented."
+            
+        assessment = "A: "
+        if patient_data.get('encounter', {}).get('assessment'):
+            assessment += patient_data['encounter']['assessment']
+        else:
+            assessment += "No assessment documented."
+            
+        plan = "P: "
+        if patient_data.get('encounter', {}).get('plan'):
+            plan += patient_data['encounter']['plan']
+        else:
+            plan += "No plan documented."
+            
+        note = f"{patient_info}\n{encounter_info}\n\n{subjective}\n\n{objective}\n\n{assessment}\n\n{plan}"
+    
+    else:  # narrative format
+        narrative = f"{patient_info}\n{encounter_info}\n\n"
+        
+        if patient_data.get('encounter', {}).get('hpi'):
+            narrative += f"History of Present Illness: {patient_data['encounter']['hpi']}\n\n"
+            
+        if patient_data.get('encounter', {}).get('physical_exam'):
+            narrative += f"Physical Examination: {patient_data['encounter']['physical_exam']}\n\n"
+            
+        if patient_data.get('encounter', {}).get('assessment'):
+            narrative += f"Assessment: {patient_data['encounter']['assessment']}\n\n"
+            
+        if patient_data.get('encounter', {}).get('plan'):
+            narrative += f"Plan: {patient_data['encounter']['plan']}\n"
+            
+        note = narrative
+    
+    print(f"[CLINICAL_NOTE] Generated note of length {len(note)}")
+    return note
+
+def generate_mrn() -> str:
+    """Generate a unique medical record number."""
+    return f"MRN{uuid.uuid4().hex[:8].upper()}"
+
+async def analyze_image_with_qwen_api(image_bytes, prompt="Describe this medical scan in detail, including any visible abnormalities or findings:"):
+    """Analyze an image using the Qwen 2.5 VL model via Hugging Face API"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {HUGGINGFACE_API_KEY}"
+        }
+        
+        # Encode the image as base64
+        image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        # Prepare the payload
+        payload = {
+            "inputs": {
+                "image": image_b64,
+                "text": prompt
+            },
+            "parameters": {
+                "max_new_tokens": 512,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "do_sample": True
+            }
+        }
+        
+        # Make the API request
+        response = requests.post(QWEN_API_URL, headers=headers, json=payload)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get("generated_text", "Failed to generate description")
+            return result.get("generated_text", "Failed to generate description")
+        else:
+            print(f"Error from Hugging Face API: {response.status_code}, {response.text}")
+            return f"Failed to analyze image: API error {response.status_code}"
+            
+    except Exception as e:
+        print(f"Error analyzing image with Qwen API: {str(e)}")
+        return f"Failed to analyze image: {str(e)}"
+
+def init_gemma_model():
+    """Initialize the Gemma 3 12B IT model locally"""
+    global gemma_model, gemma_tokenizer
+    
+    if not USE_LOCAL_MODEL:
+        return
+    
+    try:
+        print("Loading Gemma model locally...")
+        gemma_tokenizer = AutoProcessor.from_pretrained(
+            LOCAL_MODEL_NAME,
+            token=HUGGINGFACE_ACCESS_TOKEN
+        )
+        gemma_model = Gemma3ForConditionalGeneration.from_pretrained(
+            LOCAL_MODEL_NAME,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            token=HUGGINGFACE_ACCESS_TOKEN
+        ).eval()
+        print("Gemma model loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Gemma model locally: {str(e)}")
+        print("Will fall back to API calls")
+
+# Add this function to initialize the Medical NER model
+def init_medical_ner_model():
+    """Initialize the Medical NER model for entity extraction"""
+    global medical_ner_pipeline
+    try:
+        print("Loading Medical NER model...")
+        medical_ner_pipeline = pipeline("token-classification", 
+                                      model=MEDICAL_NER_MODEL, 
+                                      aggregation_strategy='simple')
+        print("Medical NER model loaded successfully!")
+    except Exception as e:
+        print(f"Error loading Medical NER model: {str(e)}")
+        medical_ner_pipeline = None
+
+def extract_medical_entities(text):
+    """Extract medical entities from clinical text using DeBERTa model"""
+    global medical_ner_pipeline
+    
+    if medical_ner_pipeline is None:
+        print("Medical NER pipeline not initialized. Initializing now...")
+        init_medical_ner_model()
+        if medical_ner_pipeline is None:
+            return {"error": "Failed to initialize Medical NER model", "entities": []}
+    
+    try:
+        # Split text into chunks if it's too long (to prevent tokenizer overflow)
+        max_chunk_length = 400  # Tokens
+        chunks = []
+        words = text.split()
+        current_chunk = []
+        
+        for word in words:
+            current_chunk.append(word)
+            if len(current_chunk) >= max_chunk_length:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+        
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+            
+        # Process each chunk
+        all_results = []
+        for chunk in chunks:
+            results = medical_ner_pipeline(chunk)
+            all_results.extend(results)
+        
+        # Format results
+        entities = []
+        for entity in all_results:
+            entities.append({
+                "entity_group": entity["entity_group"],
+                "word": entity["word"],
+                "score": round(entity["score"], 4),
+                "start": entity.get("start", 0),
+                "end": entity.get("end", 0)
+            })
+        
+        # Group entities by type
+        entity_groups = {}
+        for entity in entities:
+            group = entity["entity_group"]
+            if group not in entity_groups:
+                entity_groups[group] = []
+            
+            # Add word if not already in the list
+            word = entity["word"]
+            if word not in entity_groups[group]:
+                entity_groups[group].append(word)
+        
+        return {
+            "success": True,
+            "entities": entities,
+            "entity_groups": entity_groups
+        }
+    except Exception as e:
+        print(f"Error extracting medical entities: {str(e)}")
+        return {"error": str(e), "entities": []}
+       
+def analyze_image_with_gemma_local(image_pil, prompt="Describe this medical scan in detail, including any visible abnormalities or findings:"):
+    global gemma_model, gemma_tokenizer
+    
+    if gemma_model is None or gemma_tokenizer is None:
+        logger.warning("Local Gemma model not initialized. Falling back to API.")
+        return "Local Gemma model not initialized. Please use API version instead."
+    
+    try:
+        logger.info("Saving image to temporary file")
+        with tempfile.NamedTemporaryFile(suffix=".jpeg", delete=False) as temp_file:
+            # Convert RGBA to RGB if needed before saving as JPEG
+            if image_pil.mode == 'RGBA':
+                logger.info("Converting RGBA image to RGB format")
+                # Create a white background
+                background = Image.new('RGB', image_pil.size, (255, 255, 255))
+                # Paste the image on the background (using alpha channel as mask)
+                background.paste(image_pil, mask=image_pil.split()[3])
+                # Save the RGB image
+                background.save(temp_file, format="JPEG")
+                temp_path = temp_file.name
+            else:
+                # For RGB or other modes compatible with JPEG
+                image_pil.save(temp_file, format="JPEG")
+                temp_path = temp_file.name
+        
+        logger.info("Preparing messages with image path")
+        messages = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": "You are a medical imaging expert."}]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": temp_path},
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+        
+        logger.info("Tokenizing input")
+        inputs = gemma_tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt"
+        ).to(gemma_model.device, dtype=torch.bfloat16)
+        
+        logger.info(f"Input IDs shape: {inputs['input_ids'].shape}")
+        input_len = inputs["input_ids"].shape[-1]
+        
+        logger.info("Generating response")
+        with torch.inference_mode():
+            generation = gemma_model.generate(
+                **inputs,
+                max_new_tokens=512,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9
+            )
+            generation = generation[0][input_len:]
+        
+        logger.info("Decoding response")
+        response = gemma_tokenizer.decode(generation, skip_special_tokens=True)
+        
+        logger.info("Cleaning up temporary file")
+        os.unlink(temp_path)
+        
+        return response
+    except Exception as e:
+        logger.error(f"Error analyzing image with local Gemma model: {str(e)}", exc_info=True)
+        return f"Failed to analyze image locally: {str(e)}"
+      
+async def analyze_scan(scan, bucket):
+    """Download a scan from GCS and analyze it with the configured model"""
+    try:
+        print(f"[SCAN_ANALYSIS] Downloading scan {scan.file_name} from GCS")
+        blob = bucket.blob(scan.storage_url)
+        image_bytes = blob.download_as_bytes()
+        
+        # Prepare prompt based on scan type
+        prompt = f"This is a {scan.scan_type} medical scan. Describe in detail what you see, including any visible abnormalities, findings, or relevant medical observations:"
+        
+        if scan.description:
+            prompt += f" Note that the scan was taken for: {scan.description}"
+            
+        if USE_LOCAL_MODEL and gemma_model is not None:
+            # Use local Gemma model
+            print(f"[SCAN_ANALYSIS] Analyzing {scan.scan_type} with local Gemma model")
+            image_pil = Image.open(BytesIO(image_bytes))
+            result = analyze_image_with_gemma_local(image_pil, prompt)
+        else:
+            # Use Qwen API
+            print(f"[SCAN_ANALYSIS] Analyzing {scan.scan_type} with Qwen VL API")
+            result = await analyze_image_with_qwen_api(image_bytes, prompt)
+            
+        print(f"[SCAN_ANALYSIS] Analysis complete for {scan.file_name}")
+        print(f"[SCAN RESULTS] {scan.description}")
+        print(f"[SCAN RESULTS] {result}")
+        return {
+            "scan_type": scan.scan_type,
+            "scan_date": scan.scan_date.isoformat(),
+            "file_name": scan.file_name,
+            "description": scan.description,
+            "analysis": result
+        }
+        
+    except Exception as e:
+        print(f"[SCAN_ANALYSIS] Error analyzing scan {scan.file_name}: {str(e)}")
+        return {
+            "scan_type": scan.scan_type,
+            "scan_date": scan.scan_date.isoformat() if hasattr(scan, 'scan_date') else "Unknown",
+            "file_name": scan.file_name,
+            "description": scan.description if hasattr(scan, 'description') else "No description",
+            "analysis": f"Error analyzing scan: {str(e)}"
+        }
+
+async def fetch_web_context_from_perplexity(entity_groups, scan_analyses=None, analysis_type="diagnosis"):
+    """
+    Fetch relevant web context from Perplexity API based on extracted entities and scan analyses
+    """
+    try:
+        # Create a query based on the entity groups and analysis type
+        if analysis_type == "diagnosis":
+            # Focus query on symptoms, signs, and diagnostic findings
+            query_parts = []
+            
+            # Add symptoms and signs
+            if "SIGN_SYMPTOM" in entity_groups:
+                symptoms = ", ".join(entity_groups["SIGN_SYMPTOM"][:10])  # Limit to top 10
+                query_parts.append(f"symptoms: {symptoms}")
+                
+            # Add diseases if present
+            if "DISEASE_DISORDER" in entity_groups:
+                diseases = ", ".join(entity_groups["DISEASE_DISORDER"][:5])  # Limit to top 5
+                query_parts.append(f"possible conditions: {diseases}")
+                
+            # Add diagnostic findings
+            if "DIAGNOSTIC_PROCEDURE" in entity_groups and "LAB_VALUE" in entity_groups:
+                query_parts.append("with abnormal laboratory findings")
+                
+            # Add scan findings if available
+            if scan_analyses:
+                query_parts.append("with imaging findings showing abnormalities")
+                
+            # Build the query
+            base_query = "What are the most likely diagnoses for a patient with "
+            refined_query = base_query + " and ".join(query_parts) + "? Provide differential diagnosis with medical reasoning."
+        elif analysis_type == "risk_assessment":
+            # Focus query on risk factors and preventive measures
+            risk_factors = []
+            
+            # Add known diseases as risk factors
+            if "DISEASE_DISORDER" in entity_groups:
+                # Filter out generic or uninformative terms
+                relevant_diseases = [d for d in entity_groups["DISEASE_DISORDER"] 
+                                    if len(d) > 3 and d.lower() not in ["off", "pain", "drug", "type", "allergies"]]
+                if relevant_diseases:
+                    diseases = ", ".join(relevant_diseases[:5])
+                    risk_factors.append(f"conditions: {diseases}")
+            
+            # Add medications that might indicate conditions
+            if "MEDICATION" in entity_groups:
+                medications = ", ".join(entity_groups["MEDICATION"][:5])
+                risk_factors.append(f"medications: {medications}")
+            
+            # Add diagnostic results and signs/symptoms
+            clinical_findings = []
+            
+            if "SIGN_SYMPTOM" in entity_groups:
+                # Filter out generic terms
+                relevant_symptoms = [s for s in entity_groups["SIGN_SYMPTOM"] 
+                                    if len(s) > 3 and s.lower() not in ["pain", "soft", "oriented"]]
+                if relevant_symptoms:
+                    clinical_findings.extend(relevant_symptoms[:5])
+            
+            if "DIAGNOSTIC_PROCEDURE" in entity_groups and "LAB_VALUE" in entity_groups:
+                clinical_findings.append("abnormal laboratory values")
+            
+            if clinical_findings:
+                risk_factors.append(f"clinical findings: {', '.join(clinical_findings)}")
+            
+            # Extract demographic info if available (often in DETAILED_DESCRIPTION)
+            demographics = []
+            if "DETAILED_DESCRIPTION" in entity_groups:
+                # Look for age
+                for desc in entity_groups["DETAILED_DESCRIPTION"]:
+                    if desc.isdigit() and 18 <= int(desc) <= 100:
+                        demographics.append(f"age {desc}")
+                        break
+            
+            # Add any findings from scans
+            if scan_analyses:
+                for scan in scan_analyses:
+                    if "ECG" in scan.get("scan_type", ""):
+                        risk_factors.append("ECG findings suggestive of cardiac issues")
+                        break
+                    elif "X-ray" in scan.get("scan_type", ""):
+                        risk_factors.append("abnormal imaging findings")
+                        break
+            
+            # Build the query - make it more specific and medically focused
+            if risk_factors:
+                base_query = "What are the cardiovascular, metabolic, and overall health risks for a patient with "
+                refined_query = base_query + " and ".join(risk_factors) + "? Provide a specific clinical risk assessment with risk levels (high/moderate/low) and evidence-based preventive measures."
+            else:
+                # Fallback if we couldn't extract meaningful risk factors
+                refined_query = "What are the common cardiovascular and metabolic risk factors and their associated preventive measures? Include risk assessment guidelines and preventive strategies."    
+                
+
+
+        else:  # Genetic testing (default)
+            # Focus query on genetic conditions related to findings
+            condition_clues = []
+            
+            # Add sign/symptoms that might suggest genetic conditions
+            if "SIGN_SYMPTOM" in entity_groups:
+                condition_clues.append(f"symptoms: {', '.join(entity_groups['SIGN_SYMPTOM'][:8])}")
+                
+            # Add any known diseases
+            if "DISEASE_DISORDER" in entity_groups:
+                condition_clues.append(f"conditions: {', '.join(entity_groups['DISEASE_DISORDER'][:5])}")
+                
+            # Add family history
+            if "FAMILY_HISTORY" in entity_groups:
+                condition_clues.append(f"family history: {', '.join(entity_groups['FAMILY_HISTORY'])}")
+                
+            # Build the query
+            base_query = "What rare genetic conditions should be considered for a patient with "
+            refined_query = base_query + " and ".join(condition_clues) + "? Focus on conditions requiring genetic testing."
+            
+        print(f"[PERPLEXITY] Generated query for {analysis_type}: {refined_query}")
+            
+        # Call Perplexity API
+        perplexity_url = "https://api.perplexity.ai/chat/completions"
+        perplexity_payload = {
+            "model": "sonar",
+            "messages": [
+                {"role": "system", "content": "Provide a comprehensive answer with relevant web sources for this query. Include citations in your response."},
+                {"role": "user", "content": refined_query}
+            ],
+            "max_tokens": 1000,
+            "temperature": 0.2,
+            "return_related_questions": True,
+            "stream": False
+        }
+        
+        perplexity_headers = {
+            "Authorization": f"Bearer {PERPLEXITY_API_KEY}", 
+            "Content-Type": "application/json"
+        }
+        
+        perplexity_response = requests.post(perplexity_url, json=perplexity_payload, headers=perplexity_headers)
+        
+        if perplexity_response.status_code == 200:
+            response_data = perplexity_response.json()
+            
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                main_content = response_data["choices"][0]["message"]["content"]
+                citations = response_data.get("citations", [])
+                related_questions = response_data.get("related_questions", [])
+                
+                # Format the response for better integration with our system
+                formatted_response = f"--- WEB CONTEXT FROM PERPLEXITY AI ---\n\n{main_content}\n\n"
+                
+                if citations:
+                    formatted_response += "SOURCES:\n" + "\n".join([f"- {cite}" for cite in citations]) + "\n\n"
+                
+                print(f"[PERPLEXITY] Retrieved RESULTS {formatted_response}")
+                print(f"[PERPLEXITY] Retrieved {len(main_content)} characters of web context")
+                return formatted_response
+            else:
+                print(f"[PERPLEXITY] No content in response: {response_data}")
+                return "No relevant information found from web search."
+        else:
+            print(f"[PERPLEXITY] API error: {perplexity_response.status_code} - {perplexity_response.text}")
+            return f"Error retrieving web information: {perplexity_response.status_code}"
+            
+    except Exception as e:
+        print(f"[PERPLEXITY] Exception: {str(e)}")
+        return f"Error retrieving web information: {str(e)}"
+
+async def enhanced_literature_retrieval(entity_groups, analysis_type, scan_analyses=None):
+    """
+    Perform enhanced literature retrieval using vector database instead of Perplexity API
+    """
+    print(f"[LIT_RETRIEVAL] Starting enhanced literature retrieval for {analysis_type}")
+    
+    try:
+        # 1. Fetch medical articles based on entity groups
+        articles = medical_literature_manager.retrieve_medical_articles(
+            entity_groups=entity_groups,
+            analysis_type=analysis_type,
+            max_results=20
+        )
+        
+        if not articles:
+            print(f"[LIT_RETRIEVAL] No articles found, returning empty context")
+            return "No relevant medical literature found for this case."
+        
+        print(f"[LIT_RETRIEVAL] Retrieved {len(articles)} articles")
+        
+        # 2. Add articles to corpus if not already present
+        medical_literature_manager.add_articles_to_corpus(
+            articles=articles,
+            analysis_type=analysis_type
+        )
+        
+        # 3. Create retrieval query from entity groups
+        retrieval_query = medical_literature_manager.process_entity_groups_for_retrieval(
+            entity_groups=entity_groups,
+            analysis_type=analysis_type
+        )
+        
+        # 4. Retrieve relevant literature chunks
+        relevant_literature = medical_literature_manager.retrieve_relevant_literature(
+            query=retrieval_query,
+            analysis_type=analysis_type,
+            top_k=7
+        )
+        
+        # 5. Format retrieved literature into context
+        context = medical_literature_manager.prepare_literature_context(relevant_literature)
+        
+        print(f"[LIT_RETRIEVAL] Generated context with {len(context)} characters")
+        return context
+        
+    except Exception as e:
+        print(f"[LIT_RETRIEVAL] Error in enhanced literature retrieval: {str(e)}")
+        return f"Error retrieving medical literature: {str(e)}"
+
+# Add this function to load common ICD-10 and CPT codes into the database
+def generate_medical_codes(clinical_text, entity_groups=None, use_llm=True):
+    """
+    Generate ICD-10 and CPT codes from clinical text and extracted entities.
+    
+    Args:
+        clinical_text (str): The clinical text from the encounter
+        entity_groups (dict, optional): Pre-extracted entity groups. If None, will extract entities.
+        use_llm (bool): Whether to use LLM for more accurate code generation
+        
+    Returns:
+        dict: Dictionary with 'icd10_codes' and 'cpt_codes' lists
+    """
+    print(f"[AUTOCODING] Generating medical codes for text of length {len(clinical_text)}")
+    
+    # If entity groups not provided, extract them
+    if not entity_groups:
+        entity_results = extract_medical_entities(clinical_text)
+        if "entity_groups" in entity_results:
+            entity_groups = entity_results["entity_groups"]
+        else:
+            entity_groups = {}
+            print(f"[AUTOCODING] Warning: Failed to extract entities, continuing with direct mapping")
+    
+    # Initialize response structure
+    result = {
+        "icd10_codes": [],
+        "cpt_codes": [],
+        "entity_matches": []
+    }
+    
+    # Connect to database
+    db = SessionLocal()
+    
+    try:
+        # 1. First approach: Direct database mapping of entities to codes
+        if "DISEASE_DISORDER" in entity_groups:
+            for disease in entity_groups["DISEASE_DISORDER"]:
+                # Look for matching ICD-10 codes in the database
+                db_codes = db.query(MedicalCode).filter(
+                    MedicalCode.type == "ICD-10",
+                    MedicalCode.common_terms.like(f"%{disease}%")
+                ).all()
+                
+                for code in db_codes:
+                    if code.code not in [c["code"] for c in result["icd10_codes"]]:
+                        result["icd10_codes"].append({
+                            "code": code.code,
+                            "description": code.description,
+                            "matched_term": disease,
+                            "confidence": "high" if disease.lower() in code.description.lower() else "medium"
+                        })
+                        result["entity_matches"].append(f"Matched '{disease}' to ICD-10: {code.code} ({code.description})")
+        
+        # Map procedures to CPT codes        
+        if "PROCEDURE" in entity_groups or "DIAGNOSTIC_PROCEDURE" in entity_groups:
+            procedures = entity_groups.get("PROCEDURE", []) + entity_groups.get("DIAGNOSTIC_PROCEDURE", [])
+            for procedure in procedures:
+                # Look for matching CPT codes in the database
+                db_codes = db.query(MedicalCode).filter(
+                    MedicalCode.type == "CPT",
+                    MedicalCode.common_terms.like(f"%{procedure}%")
+                ).all()
+                
+                for code in db_codes:
+                    if code.code not in [c["code"] for c in result["cpt_codes"]]:
+                        result["cpt_codes"].append({
+                            "code": code.code,
+                            "description": code.description,
+                            "matched_term": procedure,
+                            "confidence": "high" if procedure.lower() in code.description.lower() else "medium"
+                        })
+                        result["entity_matches"].append(f"Matched '{procedure}' to CPT: {code.code} ({code.description})")
+        
+        # 2. If use_llm is True and we don't have enough codes, use LLM to generate codes
+        if use_llm and (len(result["icd10_codes"]) < 2 or len(entity_groups.get("DISEASE_DISORDER", [])) > len(result["icd10_codes"])):
+            print(f"[AUTOCODING] Using LLM to generate more accurate codes")
+            
+            # Create a structured prompt for the LLM
+            diagnoses = entity_groups.get("DISEASE_DISORDER", [])
+            symptoms = entity_groups.get("SIGN_SYMPTOM", [])
+            procedures = entity_groups.get("PROCEDURE", []) + entity_groups.get("DIAGNOSTIC_PROCEDURE", [])
+            
+            clinical_data = {
+                "diagnoses": diagnoses,
+                "symptoms": symptoms,
+                "procedures": procedures,
+                "clinical_text_excerpt": clinical_text[:500] + "..." if len(clinical_text) > 500 else clinical_text
+            }
+            
+            # Create the prompt
+            prompt = f"""
+            You are a professional medical coder. Based on the provided clinical information, generate appropriate ICD-10 and CPT codes.
+            
+            Clinical Information:
+            Diagnoses: {", ".join(diagnoses) if diagnoses else "None explicitly mentioned"}
+            Symptoms: {", ".join(symptoms) if symptoms else "None explicitly mentioned"}
+            Procedures: {", ".join(procedures) if procedures else "None explicitly mentioned"}
+            
+            Clinical Note Excerpt:
+            {clinical_data['clinical_text_excerpt']}
+            
+            Return your response in the following JSON format:
+            {{
+                "icd10_codes": [
+                    {{"code": "A00.0", "description": "Description of the code", "confidence": "high/medium/low"}}
+                ],
+                "cpt_codes": [
+                    {{"code": "00100", "description": "Description of the code", "confidence": "high/medium/low"}}
+                ],
+                "reasoning": "Brief explanation of your code selection"
+            }}
+            
+            For each code, include only codes that are clearly supported by the provided information.
+            """
+            
+            # Call the LLM (using the default model set in Settings)
+            try:
+                response = Settings.llm.complete(prompt).text
+                response = response.strip()
+                
+                # Try to extract JSON from the response
+                if response.startswith("```json"):
+                    response = response[7:]
+                if response.endswith("```"):
+                    response = response[:-3]
+                response = response.strip()
+                
+                llm_result = json.loads(response)
+                
+                # Merge results, avoiding duplicates
+                existing_icd10_codes = [c["code"] for c in result["icd10_codes"]]
+                for code in llm_result.get("icd10_codes", []):
+                    if code["code"] not in existing_icd10_codes:
+                        result["icd10_codes"].append(code)
+                        result["entity_matches"].append(f"LLM generated ICD-10: {code['code']} ({code['description']})")
+                
+                existing_cpt_codes = [c["code"] for c in result["cpt_codes"]]
+                for code in llm_result.get("cpt_codes", []):
+                    if code["code"] not in existing_cpt_codes:
+                        result["cpt_codes"].append(code)
+                        result["entity_matches"].append(f"LLM generated CPT: {code['code']} ({code['description']})")
+                
+                # Add reasoning if available
+                if "reasoning" in llm_result:
+                    result["reasoning"] = llm_result["reasoning"]
+                    
+            except Exception as e:
+                print(f"[AUTOCODING] Error using LLM for code generation: {str(e)}")
+                result["error"] = f"LLM code generation failed: {str(e)}"
+    
+    finally:
+        db.close()
+    
+    # Format the final result for display
+    result["formatted_icd10"] = "; ".join([f"{c['code']} ({c['description']})" for c in result["icd10_codes"]])
+    result["formatted_cpt"] = "; ".join([f"{c['code']} ({c['description']})" for c in result["cpt_codes"]])
+    
+    print(f"[AUTOCODING] Generated {len(result['icd10_codes'])} ICD-10 codes and {len(result['cpt_codes'])} CPT codes")
+    return result
+
+def load_sample_medical_codes(db: Session):
+    """Load a set of common ICD-10 and CPT codes into the database for testing."""
+    print("[SETUP] Loading sample medical codes into database")
+    
+    # Check if we already have codes in the database
+    existing_codes = db.query(MedicalCode).count()
+    if existing_codes > 0:
+        print(f"[SETUP] Database already contains {existing_codes} medical codes, skipping import")
+        return
+    
+    # Common ICD-10 codes with descriptions and search terms
+    icd10_codes = [
+        {
+            "code": "I10", 
+            "description": "Essential (primary) hypertension",
+            "category": "Cardiovascular",
+            "common_terms": json.dumps(["hypertension", "high blood pressure", "HTN", "elevated blood pressure"])
+        },
+        {
+            "code": "E11.9", 
+            "description": "Type 2 diabetes mellitus without complications",
+            "category": "Endocrine",
+            "common_terms": json.dumps(["diabetes", "type 2 diabetes", "diabetes mellitus", "T2DM", "diabetic"])
+        },
+        {
+            "code": "J44.9", 
+            "description": "Chronic obstructive pulmonary disease, unspecified",
+            "category": "Respiratory",
+            "common_terms": json.dumps(["COPD", "chronic obstructive pulmonary disease", "chronic bronchitis", "emphysema"])
+        },
+        {
+            "code": "M54.5", 
+            "description": "Low back pain",
+            "category": "Musculoskeletal",
+            "common_terms": json.dumps(["back pain", "lower back pain", "lumbago", "lumbar pain", "LBP"])
+        },
+        {
+            "code": "F41.9", 
+            "description": "Anxiety disorder, unspecified",
+            "category": "Mental Health",
+            "common_terms": json.dumps(["anxiety", "anxious", "anxiety disorder", "nervousness", "panic"])
+        },
+        {
+            "code": "F32.9", 
+            "description": "Major depressive disorder, single episode, unspecified",
+            "category": "Mental Health",
+            "common_terms": json.dumps(["depression", "depressive", "depressed", "MDD", "depressive disorder"])
+        },
+        {
+            "code": "J45.909", 
+            "description": "Unspecified asthma, uncomplicated",
+            "category": "Respiratory",
+            "common_terms": json.dumps(["asthma", "asthmatic", "reactive airway", "bronchial asthma"])
+        },
+        {
+            "code": "R50.9", 
+            "description": "Fever, unspecified",
+            "category": "Symptoms",
+            "common_terms": json.dumps(["fever", "febrile", "pyrexia", "elevated temperature", "high temperature"])
+        },
+        {
+            "code": "R07.9", 
+            "description": "Chest pain, unspecified",
+            "category": "Symptoms",
+            "common_terms": json.dumps(["chest pain", "chest discomfort", "chest pressure", "chest tightness"])
+        },
+        {
+            "code": "R51", 
+            "description": "Headache",
+            "category": "Symptoms",
+            "common_terms": json.dumps(["headache", "head pain", "cephalgia", "cephalic pain"])
+        },
+        {
+            "code": "N39.0", 
+            "description": "Urinary tract infection, site not specified",
+            "category": "Infectious",
+            "common_terms": json.dumps(["UTI", "urinary tract infection", "bladder infection", "cystitis"])
+        },
+        {
+            "code": "K21.9", 
+            "description": "Gastro-esophageal reflux disease without esophagitis",
+            "category": "Digestive",
+            "common_terms": json.dumps(["GERD", "acid reflux", "reflux", "heartburn", "gastroesophageal reflux"])
+        },
+        {
+            "code": "R10.9", 
+            "description": "Unspecified abdominal pain",
+            "category": "Symptoms",
+            "common_terms": json.dumps(["abdominal pain", "stomach pain", "belly pain", "abd pain"])
+        },
+        {
+            "code": "J00", 
+            "description": "Acute nasopharyngitis [common cold]",
+            "category": "Respiratory",
+            "common_terms": json.dumps(["common cold", "cold", "upper respiratory infection", "URI", "nasopharyngitis"])
+        },
+        {
+            "code": "E78.5", 
+            "description": "Hyperlipidemia, unspecified",
+            "category": "Endocrine",
+            "common_terms": json.dumps(["hyperlipidemia", "high cholesterol", "elevated lipids", "dyslipidemia", "hypercholesterolemia"])
+        }
+    ]
+    
+    # Common CPT codes with descriptions and search terms
+    cpt_codes = [
+        {
+            "code": "99213", 
+            "description": "Office or other outpatient visit, established patient, low to moderate complexity",
+            "category": "Evaluation & Management",
+            "common_terms": json.dumps(["office visit", "outpatient visit", "follow-up", "check-up"])
+        },
+        {
+            "code": "99214", 
+            "description": "Office or other outpatient visit, established patient, moderate to high complexity",
+            "category": "Evaluation & Management",
+            "common_terms": json.dumps(["complex visit", "detailed visit", "comprehensive visit"])
+        },
+        {
+            "code": "99203", 
+            "description": "Office or other outpatient visit, new patient, detailed history and exam",
+            "category": "Evaluation & Management",
+            "common_terms": json.dumps(["new patient", "initial visit", "first office visit"])
+        },
+        {
+            "code": "80053", 
+            "description": "Comprehensive metabolic panel",
+            "category": "Laboratory",
+            "common_terms": json.dumps(["CMP", "metabolic panel", "comprehensive metabolic", "chemistry panel"])
+        },
+        {
+            "code": "85025", 
+            "description": "Complete blood count (CBC) with differential",
+            "category": "Laboratory",
+            "common_terms": json.dumps(["CBC", "complete blood count", "blood count", "differential"])
+        },
+        {
+            "code": "82607", 
+            "description": "Vitamin B-12 (Cyanocobalamin) level",
+            "category": "Laboratory",
+            "common_terms": json.dumps(["vitamin B12", "B12 level", "cobalamin", "cyanocobalamin"])
+        },
+        {
+            "code": "71045", 
+            "description": "X-ray, chest, single view",
+            "category": "Radiology",
+            "common_terms": json.dumps(["chest x-ray", "CXR", "chest radiograph", "chest film"])
+        },
+        {
+            "code": "71046", 
+            "description": "X-ray, chest, 2 views",
+            "category": "Radiology",
+            "common_terms": json.dumps(["chest x-ray 2 views", "CXR 2 views", "PA and lateral chest"])
+        },
+        {
+            "code": "93000", 
+            "description": "Electrocardiogram, complete",
+            "category": "Cardiology",
+            "common_terms": json.dumps(["ECG", "EKG", "electrocardiogram", "cardiac rhythm", "heart tracing"])
+        },
+        {
+            "code": "93306", 
+            "description": "Echocardiography, complete",
+            "category": "Cardiology",
+            "common_terms": json.dumps(["echo", "echocardiogram", "heart ultrasound", "cardiac echo"])
+        },
+        {
+            "code": "20610", 
+            "description": "Arthrocentesis, major joint or bursa",
+            "category": "Procedures",
+            "common_terms": json.dumps(["joint injection", "joint aspiration", "knee injection", "shoulder injection"])
+        },
+        {
+            "code": "96372", 
+            "description": "Therapeutic, prophylactic, or diagnostic injection; subcutaneous or intramuscular",
+            "category": "Procedures",
+            "common_terms": json.dumps(["injection", "IM injection", "shot", "intramuscular", "subcutaneous"])
+        },
+        {
+            "code": "90471", 
+            "description": "Immunization administration, one vaccine",
+            "category": "Preventive",
+            "common_terms": json.dumps(["vaccine", "vaccination", "immunization", "vaccine administration"])
+        },
+        {
+            "code": "99397", 
+            "description": "Periodic comprehensive preventive E/M, established patient, 65+ years",
+            "category": "Preventive",
+            "common_terms": json.dumps(["annual exam", "physical", "preventive visit", "wellness visit", "annual physical"])
+        },
+        {
+            "code": "99213-GT", 
+            "description": "Office or other outpatient visit via telehealth",
+            "category": "Telehealth",
+            "common_terms": json.dumps(["telehealth", "telemedicine", "virtual visit", "video visit", "remote visit"])
+        }
+    ]
+    
+    # Add ICD-10 codes to database
+    for code_data in icd10_codes:
+        db_code = MedicalCode(
+            id=str(uuid.uuid4()),
+            code=code_data["code"],
+            type="ICD-10",
+            description=code_data["description"],
+            category=code_data["category"],
+            common_terms=code_data["common_terms"]
+        )
+        db.add(db_code)
+    
+    # Add CPT codes to database
+    for code_data in cpt_codes:
+        db_code = MedicalCode(
+            id=str(uuid.uuid4()),
+            code=code_data["code"],
+            type="CPT",
+            description=code_data["description"],
+            category=code_data["category"],
+            common_terms=code_data["common_terms"]
+        )
+        db.add(db_code)
+    
+    db.commit()
+    print(f"[SETUP] Added {len(icd10_codes)} ICD-10 codes and {len(cpt_codes)} CPT codes to database")
+
+# Helper function to calculate age from date of birth
+def calculate_age(dob):
+    if not dob:
+        return None
+        
+    try:
+        # Convert string to date if needed
+        if isinstance(dob, str):
+            birth_date = datetime.strptime(dob, '%Y-%m-%d')
+        else:
+            birth_date = dob
+            
+        today = datetime.today()
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        return age
+    except Exception:
+        return None
+
+#Copilot
+async def gather_context_data(db: Session, patient_id: Optional[str] = None, 
+                              encounter_id: Optional[str] = None, 
+                              current_view: str = "unknown",
+                              view_mode: str = "list") -> Dict[str, Any]:
+    """
+    Gather relevant context data based on what the user is currently viewing.
+    Handles both list views (multiple patients) and detail views (specific patient).
+    """
+    context_data = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "current_view": current_view,
+        "view_mode": view_mode
+    }
+    
+    # If in list view mode, gather summary data for the current view
+    if view_mode == "list":
+        print(f'[VIEW MODE COPILOT] {view_mode}')
+        if current_view == "encounters":
+            # Get recent encounters summary
+            recent_encounters = db.query(Encounter).order_by(Encounter.encounter_date.desc()).limit(10).all()
+            
+            context_data["recent_encounters"] = [{
+                "id": encounter.id,
+                "date": encounter.encounter_date.isoformat(),
+                "patient_id": encounter.patient_id,
+                "patient_name": get_patient_name(db, encounter.patient_id),
+                "chief_complaint": encounter.chief_complaint,
+                "encounter_type": encounter.encounter_type
+            } for encounter in recent_encounters]
+            
+            # Get encounter statistics
+            encounter_count = db.query(func.count(Encounter.id)).scalar()
+            encounter_types = db.query(Encounter.encounter_type, func.count(Encounter.id)).\
+                              group_by(Encounter.encounter_type).all()
+            
+            context_data["encounter_stats"] = {
+                "total_count": encounter_count,
+                "by_type": {t[0]: t[1] for t in encounter_types}
+            }
+            
+        elif current_view == "lab-results":
+            # Get recent lab results summary - FIXED: direct join with LabOrder to properly fetch results
+            recent_labs = db.query(LabResult).join(LabOrder, LabResult.lab_order_id == LabOrder.id).\
+                          order_by(LabResult.result_date.desc()).limit(10).all()
+            
+            context_data["recent_lab_results"] = [{
+                "id": lab.id,
+                "date": lab.result_date.isoformat(),
+                "patient_id": get_lab_order_patient_id(db, lab.lab_order_id),
+                "patient_name": get_patient_name_from_lab(db, lab.lab_order_id),
+                "test_name": get_lab_test_name(db, lab.lab_order_id),
+                "result_value": lab.result_value,
+                "unit": lab.unit,
+                "reference_range": lab.reference_range,
+                "abnormal_flag": lab.abnormal_flag
+            } for lab in recent_labs]
+            
+            # Get lab statistics
+            lab_count = db.query(func.count(LabResult.id)).scalar()
+            abnormal_count = db.query(func.count(LabResult.id)).\
+                             filter(LabResult.abnormal_flag.in_(["High", "Low", "Abnormal"])).scalar()
+            
+            context_data["lab_stats"] = {
+                "total_count": lab_count,
+                "abnormal_count": abnormal_count,
+                "abnormal_percentage": round((abnormal_count / lab_count * 100) if lab_count > 0 else 0, 1)
+            }
+    
+        elif current_view == "patients":
+            # Get recent patients summary
+            recent_patients = db.query(Patient).order_by(Patient.created_at.desc()).limit(10).all()
+            
+            context_data["recent_patients"] = [{
+                "id": patient.id,
+                "name": f"{patient.first_name} {patient.last_name}",
+                "mrn": patient.mrn,
+                "gender": patient.gender,
+                "age": calculate_age(patient.date_of_birth),
+                "date_of_birth": patient.date_of_birth.isoformat() if hasattr(patient.date_of_birth, 'isoformat') else patient.date_of_birth
+            } for patient in recent_patients]
+            
+            # Get patient statistics
+            patient_count = db.query(func.count(Patient.id)).scalar()
+            gender_counts = db.query(Patient.gender, func.count(Patient.id)).\
+                            group_by(Patient.gender).all()
+            
+            # Calculate age distribution
+            current_year = datetime.utcnow().year
+            age_ranges = {
+                "0-18": 0,
+                "19-44": 0,
+                "45-64": 0,
+                "65+": 0
+            }
+            
+            all_patients = db.query(Patient.date_of_birth).all()
+            for patient in all_patients:
+                if patient.date_of_birth:
+                    age = calculate_age(patient.date_of_birth)
+                    if age <= 18:
+                        age_ranges["0-18"] += 1
+                    elif age <= 44:
+                        age_ranges["19-44"] += 1
+                    elif age <= 64:
+                        age_ranges["45-64"] += 1
+                    else:
+                        age_ranges["65+"] += 1
+            
+            context_data["patient_stats"] = {
+                "total_count": patient_count,
+                "by_gender": {g[0]: g[1] for g in gender_counts},
+                "age_distribution": age_ranges
+            }
+            
+    # Calculate recent activity
+    recent_encounters_count = db.query(func.count(Encounter.id)).\
+                             filter(Encounter.encounter_date >= datetime.utcnow() - timedelta(days=30)).scalar()
+    recent_labs_count = db.query(func.count(LabResult.id)).\
+                        join(LabOrder).\
+                        filter(LabResult.result_date >= datetime.utcnow() - timedelta(days=30)).scalar()
+    
+    context_data["recent_activity"] = {
+        "encounters_last_30_days": recent_encounters_count,
+        "lab_results_last_30_days": recent_labs_count
+    }
+    
+    # If we have a specific patient, get patient-specific data
+    if patient_id:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if patient:
+            # Add patient basics
+            context_data["patient"] = {
+                "id": patient.id,
+                "name": f"{patient.first_name} {patient.last_name}",
+                "age": calculate_age(patient.date_of_birth),
+                "gender": patient.gender,
+                "mrn": patient.mrn
+            }
+            
+            # Adding encounters details to the logic
+            encounters = db.query(Encounter).filter(Encounter.patient_id == patient_id).order_by(Encounter.encounter_date).all()
+            
+            # Include detailed encounter information
+            context_data["encounters"] = [{
+                "id": encounter.id,
+                "date": encounter.encounter_date.isoformat(),
+                "encounter_type": encounter.encounter_type,
+                "chief_complaint": encounter.chief_complaint,
+                "vital_signs": json.loads(encounter.vital_signs) if encounter.vital_signs else {},
+                "hpi": encounter.hpi,
+                "ros": encounter.ros,
+                "physical_exam": encounter.physical_exam,
+                "assessment": encounter.assessment,
+                "plan": encounter.plan,
+                "diagnosis_codes": encounter.diagnosis_codes,
+                "followup_instructions": encounter.followup_instructions
+            } for encounter in encounters]
+            
+            # Add a latest encounter field for quick reference
+            if encounters:
+                latest_encounter = max(encounters, key=lambda e: e.encounter_date)
+                context_data["latest_encounter"] = {
+                    "id": latest_encounter.id,
+                    "date": latest_encounter.encounter_date.isoformat(),
+                    "encounter_type": latest_encounter.encounter_type,
+                    "chief_complaint": latest_encounter.chief_complaint
+                }
+                
+                # Set specific flags to make it absolutely clear in the prompt
+                context_data["has_latest_encounter"] = True
+                context_data["latest_chief_complaint"] = latest_encounter.chief_complaint
+                context_data["latest_encounter_date"] = latest_encounter.encounter_date.isoformat()
+            
+            # Get medical history
+            medical_history = db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+            context_data["medical_history"] = [{
+                "condition": history.condition,
+                "status": history.status
+            } for history in medical_history]
+            
+            # Get medications
+            medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+            context_data["medications"] = [{
+                "name": med.name,
+                "dosage": med.dosage,
+                "frequency": med.frequency,
+                "active": med.active
+            } for med in medications]
+            
+            # Get allergies
+            allergies = db.query(Allergy).filter(Allergy.patient_id == patient_id).all()
+            context_data["allergies"] = [{
+                "allergen": allergy.allergen,
+                "reaction": allergy.reaction,
+                "severity": allergy.severity
+            } for allergy in allergies]
+            
+            # FIXED: Get lab results directly for this patient
+            # This mirrors how lab results are fetched in other parts of the application
+            lab_results = []
+            
+            # First get all lab orders for the patient
+            lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+            context_data["lab_orders"] = [{
+                "id": order.id,
+                "test_name": order.test_name,
+                "status": order.status,
+                "order_date": order.order_date.isoformat() if order.order_date else None
+            } for order in lab_orders]
+            print(f'[LAB COPILOT] {lab_orders}')
+            # Then get all results for those orders
+            for order in lab_orders:
+                order_results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+                for result in order_results:
+                    lab_results.append({
+                        "id": result.id,
+                        "test_name": order.test_name,
+                        "result_value": result.result_value,
+                        "unit": result.unit,
+                        "reference_range": result.reference_range,
+                        "abnormal_flag": result.abnormal_flag,
+                        "result_date": result.result_date.isoformat() if result.result_date else None
+                    })
+            print(f'[LAB COPILOT] {lab_results}')
+            # Store both raw data and processed summary
+            context_data["lab_results"] = lab_results
+            
+            # Add a summary field that matches what's checked in the Copilot response
+            context_data["has_lab_results"] = len(lab_results) > 0
+            context_data["lab_results_count"] = len(lab_results)
+    
+    # If we have an encounter ID but no patient ID, extract the patient ID from the encounter
+    elif encounter_id and not patient_id:
+        encounter = db.query(Encounter).filter(Encounter.id == encounter_id).first()
+        if encounter:
+            # Add encounter data
+            context_data["encounter"] = {
+                "id": encounter.id,
+                "date": encounter.encounter_date.isoformat(),
+                "chief_complaint": encounter.chief_complaint,
+                "encounter_type": encounter.encounter_type,
+                "vital_signs": json.loads(encounter.vital_signs) if encounter.vital_signs else {},
+                "assessment": encounter.assessment,
+                "plan": encounter.plan
+            }
+            
+            # Get patient data for this encounter
+            patient = db.query(Patient).filter(Patient.id == encounter.patient_id).first()
+            if patient:
+                context_data["patient"] = {
+                    "id": patient.id,
+                    "name": f"{patient.first_name} {patient.last_name}",
+                    "age": calculate_age(patient.date_of_birth),
+                    "gender": patient.gender,
+                    "mrn": patient.mrn
+                }
+                
+                # Add this for convenience
+                context_data["patient_id"] = patient.id
+                
+                # FIXED: Get lab results for this patient as well
+                lab_results = []
+                lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient.id).all()
+                
+                for order in lab_orders:
+                    results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+                    for result in results:
+                        lab_results.append({
+                            "test_name": order.test_name,
+                            "result_value": result.result_value,
+                            "unit": result.unit,
+                            "reference_range": result.reference_range,
+                            "abnormal_flag": result.abnormal_flag,
+                            "result_date": result.result_date.isoformat()
+                        })
+                
+                context_data["lab_results"] = lab_results
+    
+    # Add view-specific data
+    if current_view == "encounters" and encounter_id:
+        # Get the specific encounter
+        encounter = db.query(Encounter).filter(Encounter.id == encounter_id).first()
+        if encounter:
+            context_data["current_encounter"] = {
+                "id": encounter.id,
+                "date": encounter.encounter_date.isoformat(),
+                "chief_complaint": encounter.chief_complaint,
+                "vital_signs": json.loads(encounter.vital_signs) if encounter.vital_signs else {},
+                "hpi": encounter.hpi,
+                "assessment": encounter.assessment,
+                "plan": encounter.plan
+            }
+    
+    elif current_view == "lab-results" and view_mode == "detail" and patient_id:
+        # FIXED: Get lab results for specific patient using the same approach as other parts of the app
+        lab_results = []
+        lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+        
+        for order in lab_orders:
+            results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+            for result in results:
+                lab_results.append({
+                    "test_name": order.test_name,
+                    "result_value": result.result_value,
+                    "unit": result.unit,
+                    "reference_range": result.reference_range,
+                    "abnormal_flag": result.abnormal_flag,
+                    "result_date": result.result_date.isoformat()
+                })
+        print(f'[FETCHED LAB RESULTS COPILOT] {lab_results}')
+        # Sort by date and take most recent 10
+        lab_results.sort(key=lambda x: x.get("result_date", ""), reverse=True)
+        context_data["patient_lab_results"] = lab_results[:10]
+    
+    return context_data
+
+# survey
+
+
+# Endpoint to get all surveys
+@app.get("/api/surveys", response_model=List[dict])
+async def get_surveys(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get all surveys for the current user's organization"""
+    surveys = db.query(Survey).filter(Survey.organization_id == current_user.organization_id).all()
+    
+    return [{
+        "id": survey.id,
+        "title": survey.title,
+        "description": survey.description,
+        "category": survey.category,
+        "created_at": survey.created_at.isoformat(),
+        "questions_count": survey.questions_count,
+        "responses_count": survey.responses_count
+    } for survey in surveys]
+
+# Create new survey
+@app.post("/api/surveys", response_model=dict)
+async def create_survey(survey: SurveyCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Create a new survey"""
+    survey_id = str(uuid.uuid4())
+    
+    # Create survey record
+    db_survey = Survey(
+        id=survey_id,
+        title=survey.title,
+        description=survey.description,
+        category=survey.category,
+        questions_count=len(survey.questions),
+        responses_count=0,
+        organization_id=current_user.organization_id,
+        created_by=current_user.id
+    )
+    
+    db.add(db_survey)
+    
+    # Create questions if provided
+    for i, question_data in enumerate(survey.questions):
+        question_id = str(uuid.uuid4())
+        options_json = json.dumps(question_data.get("options", []))
+        
+        db_question = SurveyQuestion(
+            id=question_id,
+            survey_id=survey_id,
+            text=question_data.get("text", ""),
+            type=question_data.get("type", "text"),
+            options=options_json,
+            order=i
+        )
+        
+        db.add(db_question)
+    
+    db.commit()
+    db.refresh(db_survey)
+    
+    return {
+        "id": db_survey.id,
+        "title": db_survey.title,
+        "description": db_survey.description,
+        "category": db_survey.category,
+        "created_at": db_survey.created_at.isoformat(),
+        "questions_count": db_survey.questions_count,
+        "responses_count": db_survey.responses_count
+    }
+
+# Get a specific survey with questions
+@app.get("/api/surveys/{survey_id}", response_model=dict)
+async def get_survey(survey_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get a specific survey with its questions"""
+    survey = db.query(Survey).filter(Survey.id == survey_id, Survey.organization_id == current_user.organization_id).first()
+    
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    
+    # Get questions
+    questions = db.query(SurveyQuestion).filter(SurveyQuestion.survey_id == survey_id).order_by(SurveyQuestion.order).all()
+    
+    questions_list = []
+    for question in questions:
+        # Parse options from JSON
+        try:
+            options = json.loads(question.options) if question.options else []
+        except:
+            options = []
+            
+        questions_list.append({
+            "id": question.id,
+            "text": question.text,
+            "type": question.type,
+            "options": options
+        })
+    
+    return {
+        "id": survey.id,
+        "title": survey.title,
+        "description": survey.description,
+        "category": survey.category,
+        "created_at": survey.created_at.isoformat(),
+        "questions_count": survey.questions_count,
+        "responses_count": survey.responses_count,
+        "questions": questions_list
+    }
+
+# Update a survey
+@app.put("/api/surveys/{survey_id}", response_model=dict)
+async def update_survey(
+    survey_id: str, 
+    survey_update: SurveyUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    """Update a survey's basic information and questions"""
+    print(f"Received update for survey {survey_id}")
+    print(f"Update data: {survey_update}")
+    print(f"Update data: {survey_update.questions}")
+    print(f"Questions included: {hasattr(survey_update, 'questions')}")
+    
+    survey = db.query(Survey).filter(Survey.id == survey_id, Survey.organization_id == current_user.organization_id).first()
+    
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    
+    # Update fields if provided
+    if survey_update.title is not None:
+        survey.title = survey_update.title
+    
+    if survey_update.description is not None:
+        survey.description = survey_update.description
+    
+    if survey_update.category is not None:
+        survey.category = survey_update.category
+    
+    # Update questions if provided
+    if hasattr(survey_update, 'questions') and survey_update.questions is not None:
+        # First, clear existing questions
+        db.query(SurveyQuestion).filter(SurveyQuestion.survey_id == survey_id).delete()
+        
+        # Then add new questions
+        for i, question_data in enumerate(survey_update.questions):
+            question_id = str(uuid.uuid4())
+            
+            # Handle options format - ensure it's a JSON string
+            options = question_data.get("options", [])
+            options_json = json.dumps(options) if isinstance(options, list) else options
+            
+            db_question = SurveyQuestion(
+                id=question_id,
+                survey_id=survey_id,
+                text=question_data.get("text", ""),
+                type=question_data.get("type", "text"),
+                options=options_json,
+                order=i
+            )
+            
+            db.add(db_question)
+        
+        # Update the questions_count
+        survey.questions_count = len(survey_update.questions)
+    
+    survey.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(survey)
+    
+    # Get questions and format for response
+    questions = db.query(SurveyQuestion).filter(
+        SurveyQuestion.survey_id == survey_id
+    ).order_by(SurveyQuestion.order).all()
+    
+    formatted_questions = []
+    for question in questions:
+        try:
+            options = json.loads(question.options) if question.options else []
+        except:
+            options = []
+            
+        formatted_questions.append({
+            "id": question.id,
+            "text": question.text,
+            "type": question.type,
+            "options": options
+        })
+    
+    return {
+        "id": survey.id,
+        "title": survey.title,
+        "description": survey.description,
+        "category": survey.category,
+        "questions": formatted_questions,
+        "questions_count": survey.questions_count,
+        "updated_at": survey.updated_at.isoformat(),
+        "message": "Survey updated successfully"
+    }
+
+# Add a question to a survey
+@app.post("/api/surveys/{survey_id}/questions", response_model=dict)
+async def add_survey_question(
+    survey_id: str,
+    question: QuestionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a new question to a survey"""
+    # Check if survey exists and belongs to user's organization
+    survey = db.query(Survey).filter(Survey.id == survey_id, Survey.organization_id == current_user.organization_id).first()
+    
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    
+    # Get current max order
+    max_order_result = db.query(func.max(SurveyQuestion.order)).filter(SurveyQuestion.survey_id == survey_id).first()
+    next_order = (max_order_result[0] or -1) + 1
+    
+    # Create question
+    question_id = str(uuid.uuid4())
+    options_json = json.dumps(question.options)
+    
+    db_question = SurveyQuestion(
+        id=question_id,
+        survey_id=survey_id,
+        text=question.text,
+        type=question.type,
+        options=options_json,
+        order=next_order
+    )
+    
+    db.add(db_question)
+    
+    # Update question count
+    survey.questions_count += 1
+    survey.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    # Get updated survey with questions
+    questions = db.query(SurveyQuestion).filter(SurveyQuestion.survey_id == survey_id).order_by(SurveyQuestion.order).all()
+    
+    questions_list = []
+    for q in questions:
+        try:
+            options = json.loads(q.options) if q.options else []
+        except:
+            options = []
+            
+        questions_list.append({
+            "id": q.id,
+            "text": q.text,
+            "type": q.type,
+            "options": options
+        })
+    
+    return {
+        "id": survey.id,
+        "title": survey.title,
+        "description": survey.description,
+        "category": survey.category,
+        "questions_count": survey.questions_count,
+        "questions": questions_list
+    }
+
+# Delete a question from a survey
+@app.delete("/api/surveys/{survey_id}/questions/{question_id}", response_model=dict)
+async def delete_survey_question(
+    survey_id: str,
+    question_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a question from a survey"""
+    # Check if survey exists and belongs to user's organization
+    survey = db.query(Survey).filter(Survey.id == survey_id, Survey.organization_id == current_user.organization_id).first()
+    
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    
+    # Check if question exists
+    question = db.query(SurveyQuestion).filter(SurveyQuestion.id == question_id, SurveyQuestion.survey_id == survey_id).first()
+    
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    
+    # Delete question
+    db.delete(question)
+    
+    # Update question count
+    survey.questions_count -= 1
+    survey.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {
+        "message": "Question deleted successfully",
+        "survey_id": survey_id,
+        "question_id": question_id
+    }
+
+# Send survey (placeholder endpoint)
+@app.post("/api/surveys/{survey_id}/send", response_model=dict)
+async def send_survey(
+    survey_id: str,
+    recipients: List[str] = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Send a survey to specified recipients"""
+    # Check if survey exists and belongs to user's organization
+    survey = db.query(Survey).filter(Survey.id == survey_id, Survey.organization_id == current_user.organization_id).first()
+    
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    
+    # In a real implementation, you would send emails or notifications here
+    # For now, we'll just return a success message
+    
+    return {
+        "message": f"Survey sent to {len(recipients)} recipients",
+        "survey_id": survey_id,
+        "recipients": recipients
+    }
+
+# Helper functions
+def get_patient_name(db: Session, patient_id: str) -> str:
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if patient:
+        return f"{patient.first_name} {patient.last_name}"
+    return "Unknown Patient"
+
+def get_lab_order_patient_id(db: Session, lab_order_id: str) -> str:
+    lab_order = db.query(LabOrder).filter(LabOrder.id == lab_order_id).first()
+    if lab_order:
+        return lab_order.patient_id
+    return None
+
+def get_patient_name_from_lab(db: Session, lab_order_id: str) -> str:
+    lab_order = db.query(LabOrder).filter(LabOrder.id == lab_order_id).first()
+    if lab_order:
+        return get_patient_name(db, lab_order.patient_id)
+    return "Unknown Patient"
+
+def get_lab_test_name(db: Session, lab_order_id: str) -> str:
+    lab_order = db.query(LabOrder).filter(LabOrder.id == lab_order_id).first()
+    if lab_order:
+        return lab_order.test_name
+    return "Unknown Test"
+
+def create_query_prompt(context_data: Dict[str, Any], query: str, view_mode: str) -> str:
+    """
+    Create a prompt for the LLM based on the user's specific query and context,
+    handling both list and detail views.
+    """
+    # Base prompt structure
+    prompt = f"""
+    You are an AI assistant for healthcare professionals using an Electronic Health Record (EHR) system.
+    Answer the following question based on the available data and clinical context provided.
+    
+    CURRENT VIEW: {context_data.get('current_view', 'unknown')}
+    VIEW MODE: {view_mode}
+    TIMESTAMP: {context_data.get('timestamp', datetime.utcnow().isoformat())}
+    """
+    
+    # Add patient-specific information if available
+    if 'patient' in context_data:
+        prompt += f"\nPATIENT INFORMATION:\n{json.dumps(context_data.get('patient', {}), indent=2)}"
+    
+    # Add view-specific relevant data
+    if view_mode == "list":
+        if context_data.get('current_view') == "encounters" and 'recent_encounters' in context_data:
+            prompt += f"\n\nRECENT ENCOUNTERS:\n{json.dumps(context_data.get('recent_encounters', []), indent=2)}"
+            prompt += f"\n\nENCOUNTER STATISTICS:\n{json.dumps(context_data.get('encounter_stats', {}), indent=2)}"
+        
+        elif context_data.get('current_view') == "lab-results" and 'recent_lab_results' in context_data:
+            prompt += f"\n\nRECENT LAB RESULTS:\n{json.dumps(context_data.get('recent_lab_results', []), indent=2)}"
+            prompt += f"\n\nLAB STATISTICS:\n{json.dumps(context_data.get('lab_stats', {}), indent=2)}"
+        elif context_data.get('current_view') == "patients" and 'recent_patients' in context_data:
+            prompt += f"\n\nRECENT PATIENTS:\n{json.dumps(context_data.get('recent_patients', []), indent=2)}"
+            prompt += f"\n\nPATIENT STATISTICS:\n{json.dumps(context_data.get('patient_stats', {}), indent=2)}"
+            prompt += f"\n\nRECENT ACTIVITY:\n{json.dumps(context_data.get('recent_activity', {}), indent=2)}"
+
+    else:
+        # For patient detail mode, add more specific context
+        if 'current_encounter' in context_data:
+            prompt += f"\n\nCURRENT ENCOUNTER:\n{json.dumps(context_data.get('current_encounter', {}), indent=2)}"
+        
+        if 'medical_history' in context_data:
+            prompt += f"\n\nMEDICAL HISTORY:\n{json.dumps(context_data.get('medical_history', []), indent=2)}"
+        
+        if 'medications' in context_data:
+            prompt += f"\n\nMEDICATIONS:\n{json.dumps(context_data.get('medications', []), indent=2)}"
+        
+        if 'allergies' in context_data:
+            prompt += f"\n\nALLERGIES:\n{json.dumps(context_data.get('allergies', []), indent=2)}"
+        
+        if 'patient_lab_results' in context_data:
+            prompt += f"\n\nLABORATORY RESULTS:\n{json.dumps(context_data.get('patient_lab_results', []), indent=2)}"
+
+        if 'encounters' in context_data:
+            encounters = context_data.get('encounters', [])
+            prompt += f"\n\nPATIENT ENCOUNTERS ({len(encounters)} total):"
+            for i, enc in enumerate(encounters):
+                prompt += f"\n\nEncounter {i+1} - {enc.get('date')}:"
+                prompt += f"\n  Type: {enc.get('encounter_type', 'Unknown')}"
+                prompt += f"\n  Chief Complaint: {enc.get('chief_complaint', 'None documented')}"
+                if enc.get('assessment'):
+                    prompt += f"\n  Assessment: {enc.get('assessment')}"
+                if enc.get('plan'):
+                    prompt += f"\n  Plan: {enc.get('plan')}"
+        
+        if 'lab_results' in context_data:
+            lab_results = context_data.get('lab_results', [])
+            prompt += f"\n\nLAB RESULTS: This patient has {len(lab_results)} lab result(s) available.\n"
+            prompt += f"{json.dumps(context_data.get('lab_results', []), indent=2)}" 
+    # Add the user's query
+    prompt += f"\n\nUSER QUESTION: {query}"
+    
+    # Add response formatting instructions
+    prompt += """
+    
+    Please respond with clinically relevant and accurate information. Format your response as a JSON with these fields:
+    1. "answer": Your direct answer to the question
+    2. "suggestions": List of follow-up actions or questions (max 3)
+    3. "references": Any specific data points you referenced (e.g., "Glucose level from 2023-04-05")
+    
+    Only include factual information you can determine from the provided data. If you cannot answer with certainty, say so clearly.
+    """
+    
+    return prompt
+
+def create_insight_prompt(context_data: Dict[str, Any], current_view: str) -> str:
+    """
+    Create a prompt for the LLM to generate proactive insights based on context.
+    """
+    prompt = f"""
+    You are an AI assistant for healthcare professionals using an Electronic Health Record (EHR) system.
+    Generate helpful insights based on the patient data and current view in the EHR.
+    
+    CURRENT VIEW: {current_view}
+    
+    PATIENT INFORMATION:
+    {json.dumps(context_data.get('patient', {}), indent=2)}
+    
+    RELEVANT CLINICAL DATA:
+    {json.dumps({k: v for k, v in context_data.items() if k not in ['current_view', 'patient', 'timestamp']}, indent=2)}
+    
+    Based on the current view ({current_view}) and available patient data, provide:
+    
+    1. A key observation that might be helpful to the healthcare provider
+    2. Potential action items or considerations
+    3. Any relevant clinical insights (e.g., potential drug interactions, concerning lab trends, etc.)
+    
+    Format your response as a JSON with these fields:
+    1. "key_observation": One important observation based on the data
+    2. "suggestions": List of actionable suggestions (max 3)
+    3. "insights": Any clinical patterns or issues to be aware of
+    4. "references": Specific data points you referenced
+    
+    Only include factual information you can determine from the provided data. Focus on being clinically relevant and practical.
+    """
+    return prompt
+
+def parse_copilot_response(response: str) -> Dict[str, Any]:
+    """
+    Parse the LLM response into a structured format.
+    """
+    # Clean up response if it's wrapped in markdown code blocks or similar
+    response = response.strip()
+    if response.startswith("```json"):
+        response = response[7:]
+    if response.endswith("```"):
+        response = response[:-3]
+    response = response.strip()
+    
+    try:
+        # Parse as JSON
+        result = json.loads(response)
+        return result
+    except json.JSONDecodeError:
+        # If not valid JSON, create a simple structure
+        return {
+            "answer": response,
+            "suggestions": [],
+            "references": []
+        }
+
+
+# API endpoints: Authentication
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db = Depends(get_db)):
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Users
+# Modified version of the create_user endpoint
+# Modified version of the create_user endpoint
+@app.post("/api/users", response_model=dict)
+async def create_user(user: UserCreate, db = Depends(get_db)):
+    # Check if user already exists
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Hash the password for Homosapiens
+    hashed_password = get_password_hash(user.password)
+    
+     # Register the user with Telephone AI in the background
+    # This won't block the response
+    telephone_result = await register_with_telephone_ai(
+        email=user.email,
+        password=user.password,
+        name=user.full_name, 
+        organization_id=user.organization_id  # Add this parameter
+
+    )
+    # Create user in Homosapiens database
+    db_user = User(
+        id=str(uuid.uuid4()),
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        hashed_password=hashed_password,
+        is_doctor=user.is_doctor,
+        organization_id=user.organization_id,
+        role=user.role,
+        telephone_ai_token= telephone_result.get("telephone_ai_token"),
+        telephone_ai_user_id= telephone_result.get("telephone_ai_user_id")
+        
+    )
+    
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+   
+    
+    # Return response immediately without waiting for Telephone AI registration
+    return {
+        "id": db_user.id,
+        "username": db_user.username,
+        "email": db_user.email,
+        "full_name": db_user.full_name,
+        "is_doctor": db_user.is_doctor,
+        "organization_id": db_user.organization_id,
+        "telephone_ai_token": telephone_result.get("telephone_ai_token"),  # Include this!
+        "telephone_ai_user_id": telephone_result.get("telephone_ai_user_id")  # Include this!
+
+    }
+
+
+# Make sure to add this import at the top of the file with other imports
+
+@app.get("/api/users/me", response_model=dict)
+async def read_users_me(current_user = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "is_doctor": current_user.is_doctor,
+                "organization_id": current_user.organization_id,  # Add this line
+          "telephone_ai_token": current_user.telephone_ai_token,
+        "telephone_ai_user_id": current_user.telephone_ai_user_id
+    }
+
+# Patients
+@app.post("/api/patients", response_model=dict)
+async def create_patient(patient: PatientCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+    mrn = generate_mrn()
+    
+    db_patient = Patient(
+        id=str(uuid.uuid4()),
+        mrn=mrn,
+        first_name=patient.first_name,
+        last_name=patient.last_name,
+        date_of_birth=patient.date_of_birth,
+        gender=patient.gender,
+        address=patient.address,
+        phone=patient.phone,
+        email=patient.email,
+        insurance_provider=patient.insurance_provider,
+        insurance_id=patient.insurance_id,
+        primary_care_provider=patient.primary_care_provider,
+        emergency_contact_name=patient.emergency_contact_name,
+        emergency_contact_phone=patient.emergency_contact_phone,
+        organization_id=current_user.organization_id
+
+    )
+    
+    db.add(db_patient)
+    db.commit()
+    db.refresh(db_patient)
+    
+    # Save as JSON for reference
+    patient_path = f"patients/{db_patient.id}.json"
+    with open(patient_path, "w") as f:
+        patient_dict = {
+            "id": db_patient.id,
+            "mrn": db_patient.mrn,
+            "first_name": db_patient.first_name,
+            "last_name": db_patient.last_name,
+            "date_of_birth": db_patient.date_of_birth,
+            "gender": db_patient.gender,
+            "address": db_patient.address,
+            "phone": db_patient.phone,
+            "email": db_patient.email,
+            "insurance_provider": db_patient.insurance_provider,
+            "insurance_id": db_patient.insurance_id,
+            "primary_care_provider": db_patient.primary_care_provider,
+            "emergency_contact_name": db_patient.emergency_contact_name,
+            "emergency_contact_phone": db_patient.emergency_contact_phone,
+            "created_at": db_patient.created_at.isoformat(),
+            "updated_at": db_patient.updated_at.isoformat(),
+            "organization_id": db_patient.organization_id
+
+        }
+        json.dump(patient_dict, f, indent=2)
+    
+    return {
+        "id": db_patient.id,
+        "mrn": db_patient.mrn,
+        "first_name": db_patient.first_name,
+        "last_name": db_patient.last_name,
+        "date_of_birth": db_patient.date_of_birth,
+        "gender": db_patient.gender,
+        "message": "Patient created successfully"
+    }
+
+@app.get("/api/patients", response_model=List[dict])
+async def get_patients(db = Depends(get_db), current_user = Depends(get_current_user)):
+    # Doctors and admins can see all patients
+    if current_user.is_doctor:
+        # patients = db.query(Patient).all()
+        patients = db.query(Patient).filter(Patient.organization_id == current_user.organization_id).all()
+
+    else:
+        # Regular users can only see patients they have access to
+        access_records = db.query(UserPatientAccess).filter(
+            UserPatientAccess.user_id == current_user.id
+        ).all()
+        
+        patient_ids = [record.patient_id for record in access_records]
+        # patients = db.query(Patient).filter(Patient.id.in_(patient_ids)).all()
+        patients = db.query(Patient).filter(
+            Patient.id.in_(patient_ids),
+            Patient.organization_id == current_user.organization_id
+        ).all()
+    
+    return [{
+        "id": patient.id,
+        "mrn": patient.mrn,
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "date_of_birth": patient.date_of_birth,
+        "gender": patient.gender
+    } for patient in patients]
+
+@app.get("/api/patients/{patient_id}", response_model=dict)
+async def get_patient(patient_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Check if user has access to this patient
+    if not current_user.is_doctor and not user_has_patient_access(db, current_user.id, patient_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this patient")
+    
+    # Get related data
+    encounters = db.query(Encounter).filter(Encounter.patient_id == patient_id).all()
+    medical_history = db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+    family_history = db.query(FamilyHistory).filter(FamilyHistory.patient_id == patient_id).all()
+    medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+    allergies = db.query(Allergy).filter(Allergy.patient_id == patient_id).all()
+    scans = db.query(PatientScan).filter(PatientScan.patient_id == patient_id).all()
+
+    # Get lab orders and results
+    lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+    lab_results = []
+    for order in lab_orders:
+        results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+        lab_results.extend(results)
+    
+    return {
+        "id": patient.id,
+        "mrn": patient.mrn,
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "date_of_birth": patient.date_of_birth,
+        "gender": patient.gender,
+        "address": patient.address,
+        "phone": patient.phone,
+        "email": patient.email,
+        "insurance_provider": patient.insurance_provider,
+        "insurance_id": patient.insurance_id,
+        "primary_care_provider": patient.primary_care_provider,
+        "emergency_contact_name": patient.emergency_contact_name,
+        "emergency_contact_phone": patient.emergency_contact_phone,
+        "encounters": [{
+            "id": encounter.id,
+            "encounter_date": encounter.encounter_date.isoformat(),
+            "encounter_type": encounter.encounter_type,
+            "chief_complaint": encounter.chief_complaint
+        } for encounter in encounters],
+        "medical_history": [{
+            "id": history.id,
+            "condition": history.condition,
+            "onset_date": history.onset_date,
+            "status": history.status
+        } for history in medical_history],
+        "family_history": [{
+            "id": history.id,
+            "relation": history.relation,
+            "condition": history.condition,
+            "onset_age": history.onset_age
+        } for history in family_history],
+        "medications": [{
+  "id": med.id,
+  "name": med.name,
+  "dosage": med.dosage,
+  "frequency": med.frequency,
+  "route": med.route,  # Already added in previous fix
+  "start_date": med.start_date,  # Add this
+  "indication": med.indication,  # Add this if needed
+  "active": med.active
+} for med in medications],
+        "allergies": [{
+            "id": allergy.id,
+            "allergen": allergy.allergen,
+            "reaction": allergy.reaction,
+            "severity": allergy.severity
+        } for allergy in allergies],
+            "scans": [{
+        "id": scan.id,
+        "scan_type": scan.scan_type,
+        "scan_date": scan.scan_date.isoformat(),
+        "file_name": scan.file_name
+    } for scan in scans],
+        "lab_orders": [{
+            "id": order.id,
+            "test_name": order.test_name,
+            "order_date": order.order_date.isoformat(),
+            "status": order.status
+        } for order in lab_orders]
+    }
+
+@app.post("/api/medications", response_model=dict)
+async def create_medication(medication: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    if not current_user.is_doctor:
+        raise HTTPException(status_code=403, detail="Only doctors can add medications")
+    
+    db_medication = Medication(
+        id=str(uuid.uuid4()),
+        patient_id=medication["patient_id"],
+        name=medication["name"],
+        dosage=medication.get("dosage"),
+        frequency=medication.get("frequency"),
+        route=medication.get("route"),
+        start_date=medication.get("start_date"),
+        indication=medication.get("indication"),
+        prescriber_id=current_user.id,
+        active=medication.get("active", True),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+    
+    db.add(db_medication)
+    db.commit()
+    db.refresh(db_medication)
+    
+    return {
+        "id": db_medication.id,
+        "name": db_medication.name,
+        "dosage": db_medication.dosage,
+        "frequency": db_medication.frequency,
+        "route": db_medication.route,
+        "start_date": db_medication.start_date,
+        "indication": db_medication.indication,
+        "active": db_medication.active,
+        "message": "Medication added successfully"
+    }
+
+#scans
+@app.post("/api/scans", response_model=dict)
+async def upload_patient_scan(
+    patient_id: str = Form(...),
+    scan_type: str = Form(...),
+    description: str = Form(None),
+    notes: str = Form(None),
+    file: UploadFile = File(...),
+    db = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Read file content
+    file_content = await file.read()
+    file_size = len(file_content)
+    scan_id = str(uuid.uuid4())
+    
+    # Upload to GCS
+    bucket = storage_client.bucket(BUCKET_NAME)
+    file_path = f"patient_scans/{patient_id}/{scan_id}/{file.filename}"
+    blob = bucket.blob(file_path)
+    blob.upload_from_string(
+        file_content, 
+        content_type=file.content_type
+    )
+    
+    # Create database record
+    scan = PatientScan(
+        id=scan_id,
+        patient_id=patient_id,
+        provider_id=current_user.id,
+        scan_type=scan_type,
+        description=description,
+        file_name=file.filename,
+        file_size=file_size,
+        storage_url=file_path,
+        content_type=file.content_type,
+        notes=notes
+    )
+    
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    
+    # Generate a signed URL for temporary access
+    signed_url = blob.generate_signed_url(
+        expiration=datetime.utcnow() + timedelta(hours=1),
+        method="GET"
+    )
+    
+    return {
+        "id": scan.id,
+        "patient_id": scan.patient_id,
+        "scan_type": scan.scan_type,
+        "file_name": scan.file_name,
+        "scan_date": scan.scan_date.isoformat(),
+        "url": signed_url,
+        "message": "Scan uploaded successfully"
+    }
+
+@app.get("/api/patients/{patient_id}/scans", response_model=List[dict])
+async def get_patient_scans(
+    patient_id: str,
+    db = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Get all scans for the patient
+    scans = db.query(PatientScan).filter(PatientScan.patient_id == patient_id).all()
+    
+    result = []
+    for scan in scans:
+        # Generate a signed URL for each scan
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(scan.storage_url)
+        signed_url = blob.generate_signed_url(
+            expiration=datetime.utcnow() + timedelta(hours=1),
+            method="GET"
+        )
+        
+        result.append({
+            "id": scan.id,
+            "scan_type": scan.scan_type,
+            "scan_date": scan.scan_date.isoformat(),
+            "description": scan.description,
+            "file_name": scan.file_name,
+            "file_size": scan.file_size,
+            "content_type": scan.content_type,
+            "notes": scan.notes,
+            "url": signed_url,
+            "created_at": scan.created_at.isoformat()
+        })
+    
+    return result
+
+@app.get("/api/scans/{scan_id}", response_model=dict)
+async def get_scan(
+    scan_id: str,
+    db = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    scan = db.query(PatientScan).filter(PatientScan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    
+    # Generate a signed URL
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(scan.storage_url)
+    signed_url = blob.generate_signed_url(
+        expiration=datetime.utcnow() + timedelta(hours=1),
+        method="GET"
+    )
+    
+    return {
+        "id": scan.id,
+        "patient_id": scan.patient_id,
+        "provider_id": scan.provider_id,
+        "scan_type": scan.scan_type,
+        "scan_date": scan.scan_date.isoformat(),
+        "description": scan.description,
+        "file_name": scan.file_name,
+        "file_size": scan.file_size,
+        "content_type": scan.content_type,
+        "notes": scan.notes,
+        "url": signed_url,
+        "created_at": scan.created_at.isoformat()
+    }
+# Encounters
+@app.post("/api/encounters", response_model=dict)
+async def create_encounter(encounter: EncounterCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+    # Verify patient exists
+    patient = db.query(Patient).filter(Patient.id == encounter.patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Convert vital signs to JSON string if provided
+    vital_signs_json = "{}"
+    if encounter.vital_signs:
+        vital_signs_dict = {k: v for k, v in encounter.vital_signs.dict().items() if v is not None}
+        vital_signs_json = json.dumps(vital_signs_dict)
+    
+    db_encounter = Encounter(
+        id=str(uuid.uuid4()),
+        patient_id=encounter.patient_id,
+        provider_id=current_user.id,
+        encounter_type=encounter.encounter_type,
+        chief_complaint=encounter.chief_complaint,
+        vital_signs=vital_signs_json,
+        hpi=encounter.hpi,
+        ros=encounter.ros,
+        physical_exam=encounter.physical_exam,
+        assessment=encounter.assessment,
+        plan=encounter.plan,
+        diagnosis_codes=encounter.diagnosis_codes,
+        followup_instructions=encounter.followup_instructions
+    )
+    
+    db.add(db_encounter)
+    db.commit()
+    db.refresh(db_encounter)
+    
+    # Generate a clinical note
+    patient_data = {
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "date_of_birth": patient.date_of_birth,
+        "gender": patient.gender,
+        "encounter": {
+            "chief_complaint": encounter.chief_complaint,
+            "vital_signs": encounter.vital_signs.dict() if encounter.vital_signs else {},
+            "hpi": encounter.hpi,
+            "physical_exam": encounter.physical_exam,
+            "assessment": encounter.assessment,
+            "plan": encounter.plan
+        }
+    }
+    
+    clinical_note = generate_clinical_note(patient_data, format_type="soap")
+    
+    # Save encounter as JSON for reference
+    encounter_path = f"encounters/{db_encounter.id}.json"
+    with open(encounter_path, "w") as f:
+        encounter_dict = {
+            "id": db_encounter.id,
+            "patient_id": db_encounter.patient_id,
+            "provider_id": db_encounter.provider_id,
+            "encounter_date": db_encounter.encounter_date.isoformat(),
+            "encounter_type": db_encounter.encounter_type,
+            "chief_complaint": db_encounter.chief_complaint,
+            "vital_signs": json.loads(db_encounter.vital_signs),
+            "hpi": db_encounter.hpi,
+            "ros": db_encounter.ros,
+            "physical_exam": db_encounter.physical_exam,
+            "assessment": db_encounter.assessment,
+            "plan": db_encounter.plan,
+            "diagnosis_codes": db_encounter.diagnosis_codes,
+            "followup_instructions": db_encounter.followup_instructions,
+            "clinical_note": clinical_note,
+            "created_at": db_encounter.created_at.isoformat(),
+            "updated_at": db_encounter.updated_at.isoformat()
+        }
+        json.dump(encounter_dict, f, indent=2)
+    
+    return {
+        "id": db_encounter.id,
+        "patient_id": db_encounter.patient_id,
+        "encounter_date": db_encounter.encounter_date.isoformat(),
+        "encounter_type": db_encounter.encounter_type,
+        "chief_complaint": db_encounter.chief_complaint,
+        "clinical_note": clinical_note,
+        "message": "Encounter created successfully"
+    }
+
+@app.get("/api/encounters/{encounter_id}", response_model=dict)
+async def get_encounter(encounter_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    encounter = db.query(Encounter).filter(Encounter.id == encounter_id).first()
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+    
+    # Get patient info
+    patient = db.query(Patient).filter(Patient.id == encounter.patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Associated patient not found")
+    
+    # Generate clinical note
+    patient_data = {
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "date_of_birth": patient.date_of_birth,
+        "gender": patient.gender,
+        "encounter": {
+            "chief_complaint": encounter.chief_complaint,
+            "vital_signs": json.loads(encounter.vital_signs),
+            "hpi": encounter.hpi,
+            "physical_exam": encounter.physical_exam,
+            "assessment": encounter.assessment,
+            "plan": encounter.plan
+        }
+    }
+    
+    clinical_note = generate_clinical_note(patient_data, format_type="soap")
+    
+    return {
+        "id": encounter.id,
+        "patient": {
+            "id": patient.id,
+            "mrn": patient.mrn,
+            "first_name": patient.first_name,
+            "last_name": patient.last_name,
+            "date_of_birth": patient.date_of_birth,
+            "gender": patient.gender
+        },
+        "encounter_date": encounter.encounter_date.isoformat(),
+        "encounter_type": encounter.encounter_type,
+        "chief_complaint": encounter.chief_complaint,
+        "vital_signs": json.loads(encounter.vital_signs),
+        "hpi": encounter.hpi,
+        "ros": encounter.ros,
+        "physical_exam": encounter.physical_exam,
+        "assessment": encounter.assessment,
+        "plan": encounter.plan,
+        "diagnosis_codes": encounter.diagnosis_codes,
+        "followup_instructions": encounter.followup_instructions,
+        "clinical_note": clinical_note
+    }
+
+@app.post("/api/encounters/{encounter_id}/autocode", response_model=AutocodeResponse)
+async def autocode_encounter(
+    encounter_id: str, 
+    request: AutocodeRequest = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate ICD-10 and CPT codes for an encounter using AI.
+    Optionally updates the encounter with the generated codes.
+    """
+    print(f"[API] Autocoding encounter {encounter_id}")
+    
+    if request is None:
+        # Default values if no request body provided
+        request = AutocodeRequest(
+            encounter_id=encounter_id,
+            use_llm=True,
+            update_encounter=False
+        )
+    
+    # Fetch the encounter
+    encounter = db.query(Encounter).filter(Encounter.id == encounter_id).first()
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+    
+    # Build the clinical text for analysis
+    clinical_text = ""
+    
+    # Add chief complaint
+    if encounter.chief_complaint:
+        clinical_text += f"Chief Complaint: {encounter.chief_complaint}\n\n"
+    
+    # Add HPI
+    if encounter.hpi:
+        clinical_text += f"History of Present Illness: {encounter.hpi}\n\n"
+    
+    # Add physical exam
+    if encounter.physical_exam:
+        clinical_text += f"Physical Examination: {encounter.physical_exam}\n\n"
+    
+    # Add assessment
+    if encounter.assessment:
+        clinical_text += f"Assessment: {encounter.assessment}\n\n"
+    
+    # Add plan
+    if encounter.plan:
+        clinical_text += f"Plan: {encounter.plan}\n\n"
+    
+    # Extract entities
+    entity_results = extract_medical_entities(clinical_text)
+    entity_groups = entity_results.get("entity_groups", {})
+    
+    # Generate codes
+    codes_result = generate_medical_codes(
+        clinical_text=clinical_text,
+        entity_groups=entity_groups,
+        use_llm=request.use_llm
+    )
+    
+    # Update the encounter if requested
+    if request.update_encounter:
+        # Format codes for storing in encounter
+        formatted_codes = []
+        
+        # Add ICD-10 codes
+        for code in codes_result.get("icd10_codes", []):
+            formatted_codes.append(f"{code['code']} ({code['description']})")
+        
+        # Add CPT codes
+        for code in codes_result.get("cpt_codes", []):
+            formatted_codes.append(f"{code['code']} ({code['description']})")
+        
+        # Update encounter
+        encounter.diagnosis_codes = "; ".join(formatted_codes)
+        db.commit()
+        
+        # Add to response
+        codes_result["updated"] = True
+        print(f"[API] Updated encounter {encounter_id} with {len(formatted_codes)} codes")
+    
+    # Ensure we have the encounter_id in the result
+    response = {
+        "encounter_id": encounter_id,
+        **codes_result
+    }
+    
+    return response
+
+# Add an endpoint to get medical codes from the database
+@app.get("/api/medical-codes", response_model=Dict[str, Any])
+async def get_medical_codes(
+    code_type: str = Query(None, description="Filter by code type (ICD-10 or CPT)"),
+    category: str = Query(None, description="Filter by category"),
+    search: str = Query(None, description="Search by code or description"),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get medical codes from the database with optional filtering.
+    """
+    query = db.query(MedicalCode)
+    
+    # Apply filters
+    if code_type:
+        query = query.filter(MedicalCode.type == code_type)
+    
+    if category:
+        query = query.filter(MedicalCode.category == category)
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                MedicalCode.code.like(search_term),
+                MedicalCode.description.like(search_term),
+                MedicalCode.common_terms.like(search_term)
+            )
+        )
+    
+    # Get results
+    total = query.count()
+    codes = query.limit(limit).all()
+    
+    # Format response
+    results = []
+    for code in codes:
+        results.append({
+            "id": code.id,
+            "code": code.code,
+            "type": code.type,
+            "description": code.description,
+            "category": code.category,
+            "common_terms": json.loads(code.common_terms)
+        })
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "results": results
+    }
+# MedRAG Analysis (Keep existing implementation but enhance with EHR integration)
+@app.post("/api/analyze_patient")
+async def analyze_patient(request: PatientAnalysisRequest, db = Depends(get_db)):
+    print(f"[API] Received request to analyze patient with model: {request.llm_model}")
+    try:
+        print(f"[API] Starting patient analysis")
+        # Load and index patient data
+        print(f"[API] Loading patient data")
+        patient_docs = load_data_from_frontend_input(request.patient_input, index_type="vector_store")
+        print(f"[API] Loaded {len(patient_docs)} patient documents")
+        index_id = str(uuid.uuid4())
+        print(f"[API] Generated index ID: {index_id}")
+        
+        print(f"[API] Building index for patient data")
+        index = process_user_inputs_and_build_index(
+            [request.patient_input],
+            "vector_store",
+            {"vector_store_type": "chroma"},
+            index_id,
+            "patient_data"
+        )
+        print(f"[API] Index built successfully")
+        
+        # Generate query from patient data using LLM
+        print(f"[API] Extracting patient data text")
+        patient_data = patient_docs[0].text
+        print(f"[API] Patient data length: {len(patient_data)}")
+        
+        print(f"[API] Generating query from patient data")
+        query = summarize_patient_data(patient_docs)
+        print(f"[API] Generated query: {query}")
+        
+        # Retrieve relevant medical literature using MedRAG
+        print(f"[API] Initializing MedRAG with model: {request.llm_model}")
+        medrag = MedRAG(llm_name=request.llm_model, rag=True)
+        
+        print(f"[API] Retrieving relevant medical literature for query")
+        messages, retrieved_docs, scores = medrag.createMessage(question=query, k=32, split=True)
+        print(f"[API] Retrieved {len(retrieved_docs)} documents")
+        
+        print(f"[API] Building context from retrieved documents")
+        context = "\n".join([doc["contents"] for doc in retrieved_docs])
+        print(f"[API] Context length: {len(context)}")
+        
+        # Create prompt for genetic testing recommendation
+        print(f"[API] Creating prompt with patient data and context")
+        prompt = ehr_prompt.render(patient_data=patient_data, context=context)
+        print(f"[API] Prompt created with length: {len(prompt)}")
+        
+        # Add requested full prompt logging
+        print(f"[API] FULL AUGMENTED PROMPT:\n{'-'*80}\n{prompt}\n{'-'*80}")
+        
+        # Set LLM and get response
+        print(f"[API] Setting LLM to {request.llm_model}")
+        Settings.llm = LLM_MODELS[request.llm_model]
+        
+        print(f"[API] Sending prompt to LLM for completion")
+        response = Settings.llm.complete(prompt).text
+        print(f"[API] Raw LLM Response: {repr(response)}")  # Show exact output
+        response = response.strip()
+        if response.startswith("```json"):
+            print(f"[API] Removing ```json prefix")
+            response = response[7:]  # Remove ```json
+        if response.endswith("```"):
+            print(f"[API] Removing ``` suffix")
+            response = response[:-3]  # Remove ```
+        response = response.strip()
+        
+        # Parse response
+        print(f"[API] Parsing response as JSON")
+        try:
+            result = json.loads(response)
+            print(f"[API] Successfully parsed JSON response: {result.keys()}")
+            recommendation = result["testing_recommendation"]
+            reasoning = result["reasoning"]
+            confidence = result.get("confidence", "80%")
+            print(f"[API] Recommendation: {recommendation}, Confidence: {confidence}")
+        except Exception as e:
+            print(f"[API] ERROR parsing response: {str(e)}")
+            recommendation = "Error"
+            reasoning = f"Failed to parse LLM response: {str(e)}"
+            confidence = "0%"
+        
+        # Add AI note to patient record
+        print(f"[API] Creating AI note")
+        ai_note = {
+            "recommendation": recommendation,
+            "reasoning": reasoning,
+            "confidence": confidence,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        print(f"[API] Creating patient record")
+        patient_record = {
+            "patient_data": patient_data,
+            "ai_note": ai_note,
+            "retrieved_docs": retrieved_docs
+        }
+        
+        # Save to local storage and GCS
+        print(f"[API] Saving record to local storage")
+        record_path = f"ehr_records/{index_id}.json"
+        with open(record_path, "w") as f:
+            json.dump(patient_record, f, indent=2)
+            
+        print(f"[API] Saving record to Google Cloud Storage")
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(f"ehr_records/{index_id}.json")
+        blob.upload_from_filename(record_path)
+        print(f"[API] Generated signed URL for download")
+        
+        # Store analysis in database if patient_id is found
+        try:
+            # Extract patient identifiers if present
+            patient_id = None
+            encounter_id = None
+            
+            # Try to parse a patient ID from the text
+            if "MRN" in patient_data:
+                mrn_search = db.query(Patient).filter(Patient.mrn == patient_data.split("MRN")[1].split()[0]).first()
+                if mrn_search:
+                    patient_id = mrn_search.id
+            
+            if patient_id:
+                ai_analysis = AIAnalysis(
+                    id=index_id,
+                    patient_id=patient_id,
+                    encounter_id=encounter_id,
+                    analysis_type="Genetic Testing",
+                    recommendation=recommendation,
+                    reasoning=reasoning,
+                    confidence=confidence,
+                    model_used=request.llm_model
+                )
+                db.add(ai_analysis)
+                db.commit()
+                print(f"[API] AI analysis saved to database for patient {patient_id}")
+        except Exception as e:
+            print(f"[API] Warning: Could not save analysis to database: {str(e)}")
+        
+        print(f"[API] Patient analysis complete, returning results")
+        return {
+            "record_id": index_id,
+            "recommendation": recommendation,
+            "reasoning": reasoning,
+            "confidence": confidence,
+            "download_url": blob.generate_signed_url(datetime.utcnow() + timedelta(days=7), method="GET", version="v4")
+        }
+    except Exception as e:
+        print(f"[API] ERROR in analyze_patient: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this endpoint to your existing app in paste.txt
+@app.get("/api/patients/{patient_id}/timeline")
+async def get_patient_timeline(
+    patient_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    types: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    print(f"[API] Generating timeline for patient {patient_id}")
+    
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    min_dates = []
+    max_dates = []
+    
+    # Convert to datetime helper
+    def to_datetime(value):
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        elif isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=pytz.utc)
+        return None
+    
+    # Encounters
+    encounter_dates = db.query(func.min(Encounter.encounter_date), func.max(Encounter.encounter_date)).filter(Encounter.patient_id == patient_id).first()
+    if encounter_dates and encounter_dates[0]:
+        min_dates.append(to_datetime(encounter_dates[0]))
+        max_dates.append(to_datetime(encounter_dates[1]))
+    
+    # Lab orders
+    lab_order_dates = db.query(func.min(LabOrder.order_date), func.max(LabOrder.order_date)).filter(LabOrder.patient_id == patient_id).first()
+    if lab_order_dates and lab_order_dates[0]:
+        min_dates.append(to_datetime(lab_order_dates[0]))
+        max_dates.append(to_datetime(lab_order_dates[1]))
+    
+    # Lab results
+    lab_result_dates = db.query(func.min(LabResult.result_date), func.max(LabResult.result_date)).join(LabOrder, LabResult.lab_order_id == LabOrder.id).filter(LabOrder.patient_id == patient_id).first()
+    if lab_result_dates and lab_result_dates[0]:
+        min_dates.append(to_datetime(lab_result_dates[0]))
+        max_dates.append(to_datetime(lab_result_dates[1]))
+    
+    # Medications
+    med_start_min = db.query(func.min(Medication.start_date)).filter(Medication.patient_id == patient_id).scalar()
+    med_start_max = db.query(func.max(Medication.start_date)).filter(Medication.patient_id == patient_id).scalar()
+    med_end_max = db.query(func.max(Medication.end_date)).filter(Medication.patient_id == patient_id).scalar()
+    if med_start_min:
+        min_dates.append(to_datetime(med_start_min))
+    if med_start_max:
+        max_dates.append(to_datetime(med_start_max))
+    if med_end_max:
+        max_dates.append(to_datetime(med_end_max))
+    
+    # Scans
+    scan_dates = db.query(func.min(PatientScan.scan_date), func.max(PatientScan.scan_date)).filter(PatientScan.patient_id == patient_id).first()
+    if scan_dates and scan_dates[0]:
+        min_dates.append(to_datetime(scan_dates[0]))
+        max_dates.append(to_datetime(scan_dates[1]))
+    
+    # AI analyses
+    ai_dates = db.query(func.min(AIAnalysis.analysis_date), func.max(AIAnalysis.analysis_date)).filter(AIAnalysis.patient_id == patient_id).first()
+    if ai_dates and ai_dates[0]:
+        min_dates.append(to_datetime(ai_dates[0]))
+        max_dates.append(to_datetime(ai_dates[1]))
+    
+    # Determine overall min and max dates
+    overall_min = min(min_dates) if min_dates else None
+    overall_max = max(max_dates) if max_dates else None
+    
+    timeline = []
+    
+    parsed_start_date = None
+    parsed_end_date = None
+    
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            print(f"[API] Filtering timeline from {parsed_start_date}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            print(f"[API] Filtering timeline to {parsed_end_date}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
+    
+    type_filters = None
+    if types:
+        type_filters = types.lower().split(',')
+        print(f"[API] Filtering timeline by types: {type_filters}")
+
+    def should_include_event(event_type, event_date):
+        if event_date.tzinfo is None:
+            event_date = event_date.replace(tzinfo=pytz.utc)
+        if type_filters and event_type not in type_filters:
+            return False
+        if parsed_start_date and event_date < parsed_start_date:
+            return False
+        if parsed_end_date and event_date > parsed_end_date:
+            return False
+        return True
+    
+    if not type_filters or "encounter" in type_filters:
+        encounters = db.query(Encounter).filter(Encounter.patient_id == patient_id).all()
+        for encounter in encounters:
+            event_date = encounter.encounter_date
+            if should_include_event("encounter", event_date):
+                timeline.append({
+                    "id": encounter.id,
+                    "date": event_date.isoformat(),
+                    "type": "encounter",
+                    "subtype": encounter.encounter_type,
+                    "title": "Clinical Encounter",
+                    "details": encounter.chief_complaint,
+                    "provider": encounter.provider_id,
+                    "icon": "clipboard"
+                })
+    
+    if not type_filters or "lab" in type_filters:
+        lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+        for order in lab_orders:
+            event_date = order.order_date
+            if should_include_event("lab", event_date):
+                timeline.append({
+                    "id": order.id,
+                    "date": event_date.isoformat(),
+                    "type": "lab",
+                    "subtype": "order",
+                    "title": f"Lab Ordered: {order.test_name}",
+                    "details": f"Status: {order.status}",
+                    "provider": order.provider_id,
+                    "icon": "flask"
+                })
+            
+            results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+            for result in results:
+                result_date = result.result_date
+                if should_include_event("lab", result_date):
+                    abnormal_flag = ""
+                    if result.abnormal_flag:
+                        if result.abnormal_flag.lower() == "high":
+                            abnormal_flag = "⬆️ "
+                        elif result.abnormal_flag.lower() == "low":
+                            abnormal_flag = "⬇️ "
+                    timeline.append({
+                        "id": result.id,
+                        "date": result_date.isoformat(),
+                        "type": "lab",
+                        "subtype": "result",
+                        "title": f"Lab Result: {order.test_name}",
+                        "details": f"{abnormal_flag}{result.result_value} {result.unit} [{result.reference_range}]",
+                        "provider": order.provider_id,
+                        "related_to": order.id,
+                        "icon": "chart-bar"
+                    })
+    
+    if not type_filters or "medication" in type_filters:
+        medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+        for medication in medications:
+            start_date = datetime.fromisoformat(medication.start_date) if isinstance(medication.start_date, str) else medication.start_date
+            if should_include_event("medication", start_date):
+                timeline.append({
+                    "id": medication.id,
+                    "date": start_date.isoformat(),
+                    "type": "medication",
+                    "subtype": "start",
+                    "title": f"Started Medication: {medication.name}",
+                    "details": f"{medication.dosage}, {medication.frequency}, {medication.route}",
+                    "provider": medication.prescriber_id,
+                    "icon": "pill"
+                })
+            
+            if medication.end_date:
+                end_date = datetime.fromisoformat(medication.end_date) if isinstance(medication.end_date, str) else medication.end_date
+                if should_include_event("medication", end_date):
+                    timeline.append({
+                        "id": f"{medication.id}-end",
+                        "date": end_date.isoformat(),
+                        "type": "medication",
+                        "subtype": "end",
+                        "title": f"Stopped Medication: {medication.name}",
+                        "details": f"Completed course or discontinued",
+                        "provider": medication.prescriber_id,
+                        "related_to": medication.id,
+                        "icon": "pill-off"
+                    })
+    
+    if not type_filters or "scan" in type_filters:
+        scans = db.query(PatientScan).filter(PatientScan.patient_id == patient_id).all()
+        for scan in scans:
+            event_date = scan.scan_date
+            if should_include_event("scan", event_date):
+                timeline.append({
+                    "id": scan.id,
+                    "date": event_date.isoformat(),
+                    "type": "scan",
+                    "subtype": scan.scan_type,
+                    "title": f"Imaging: {scan.scan_type}",
+                    "details": scan.description or "No description provided",
+                    "provider": scan.provider_id,
+                    "has_image": True,
+                    "icon": "image"
+                })
+    
+    if not type_filters or "ai_analysis" in type_filters:
+        analyses = db.query(AIAnalysis).filter(AIAnalysis.patient_id == patient_id).all()
+        for analysis in analyses:
+            event_date = analysis.analysis_date
+            if should_include_event("ai_analysis", event_date):
+                analysis_type = analysis.analysis_type
+                timeline.append({
+                    "id": analysis.id,
+                    "date": event_date.isoformat(),
+                    "type": "ai_analysis",
+                    "subtype": analysis_type,
+                    "title": f"AI Analysis: {analysis_type}",
+                    "details": analysis.recommendation,
+                    "confidence": analysis.confidence,
+                    "provider": analysis.reviewer_id,
+                    "related_to": analysis.encounter_id,
+                    "icon": "brain"
+                })
+    
+    sorted_timeline = sorted(timeline, key=lambda x: x["date"], reverse=True)
+    
+    print(f"[API] Generated timeline with {len(sorted_timeline)} events")
+    
+    return {
+        "timeline": sorted_timeline,
+        "date_range": {
+            "start": overall_min.isoformat() if overall_min else None,
+            "end": overall_max.isoformat() if overall_max else None
+        }
+    }
+
+@app.get("/api/patients/{patient_id}/dashboard")
+async def get_patient_dashboard(
+    patient_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive patient dashboard data including trends and summary statistics.
+    """
+    print(f"[API] Generating dashboard for patient {patient_id}")
+    
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Get all encounters in chronological order
+    encounters = db.query(Encounter).filter(Encounter.patient_id == patient_id).order_by(Encounter.encounter_date).all()
+    
+    # Initialize vital sign trend data
+    vital_trends = {
+        "dates": [],
+        "heart_rate": [],
+        "blood_pressure_systolic": [],
+        "blood_pressure_diastolic": [],
+        "respiratory_rate": [],
+        "temperature": [],
+        "oxygen_saturation": []
+    }
+    
+    # Extract vital signs from encounters
+    for encounter in encounters:
+        # Add date to trends
+        vital_trends["dates"].append(encounter.encounter_date.isoformat())
+        
+        # Parse vital signs from JSON
+        vital_signs = json.loads(encounter.vital_signs) if encounter.vital_signs else {}
+        
+        # Add vital sign data points (or null if missing)
+        vital_trends["heart_rate"].append(vital_signs.get("heart_rate"))
+        vital_trends["blood_pressure_systolic"].append(vital_signs.get("blood_pressure_systolic"))
+        vital_trends["blood_pressure_diastolic"].append(vital_signs.get("blood_pressure_diastolic"))
+        vital_trends["respiratory_rate"].append(vital_signs.get("respiratory_rate"))
+        vital_trends["temperature"].append(vital_signs.get("temperature"))
+        vital_trends["oxygen_saturation"].append(vital_signs.get("oxygen_saturation"))
+    
+    # Get lab results and organize them by test name
+    lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+    
+    # Initialize lab trends structure
+    lab_trends = {"dates": []}
+    lab_dates = {}  # Map to track date to index for each lab result
+    
+    # Process lab results
+    for order in lab_orders:
+        results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+        
+        for result in results:
+            # Only process results with numerical values
+            try:
+                result_value = float(result.result_value)
+                test_name = order.test_name
+                
+                # Initialize array for this test if not exists
+                if test_name not in lab_trends:
+                    lab_trends[test_name] = []
+                
+                # Get the date in ISO format
+                result_date = result.result_date.isoformat()
+                
+                # Check if we've seen this date before
+                if result_date not in lab_dates:
+                    lab_dates[result_date] = len(lab_trends["dates"])
+                    lab_trends["dates"].append(result_date)
+                    
+                    # Pad all existing test arrays with null values
+                    for test in lab_trends:
+                        if test != "dates" and len(lab_trends[test]) < len(lab_trends["dates"]):
+                            lab_trends[test].extend([None] * (len(lab_trends["dates"]) - len(lab_trends[test])))
+                
+                # Find the index for this date
+                date_index = lab_dates[result_date]
+                
+                # Ensure the test array is padded up to this index
+                if len(lab_trends[test_name]) <= date_index:
+                    lab_trends[test_name].extend([None] * (date_index + 1 - len(lab_trends[test_name])))
+                
+                # Add the result value at the correct index
+                lab_trends[test_name][date_index] = result_value
+                
+            except (ValueError, TypeError):
+                # Skip non-numeric results
+                continue
+    
+    # Calculate summary statistics
+    active_medications = db.query(Medication).filter(
+        Medication.patient_id == patient_id,
+        Medication.active == True
+    ).count()
+    
+    pending_labs = db.query(LabOrder).filter(
+    LabOrder.patient_id == patient_id,
+    LabOrder.status.in_(["Ordered", "Collected", "In Progress"])
+    ).count()
+
+    total_labs = db.query(LabOrder).filter(
+        LabOrder.patient_id == patient_id
+    ).count()
+    
+    last_encounter_date = None
+    if encounters:
+        last_encounter = max(encounters, key=lambda e: e.encounter_date)
+        last_encounter_date = last_encounter.encounter_date.isoformat()
+    
+    # Gather AI analyses
+    analyses = db.query(AIAnalysis).filter(AIAnalysis.patient_id == patient_id).all()
+    
+    # Format dashboard response
+    dashboard = {
+    "patient": {
+        "id": patient.id,
+        "name": f"{patient.first_name} {patient.last_name}",
+        "mrn": patient.mrn,
+        "date_of_birth": patient.date_of_birth,
+        "gender": patient.gender
+    },
+    "vital_trends": vital_trends,
+    "lab_trends": lab_trends,
+    "summary": {
+        "total_encounters": len(encounters),
+        "active_medications": active_medications,
+        "pending_labs": pending_labs,
+        "total_labs": total_labs,  # Add this new field
+        "last_encounter_date": last_encounter_date,
+        "total_analyses": len(analyses)
+    }
+}
+    
+    print(f"[API] Dashboard generated with {len(encounters)} encounters and {len(lab_trends) - 1} lab test trends")
+    return dashboard
+
+@app.get("/api/patients/{patient_id}/insights")
+async def get_patient_insights(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get personalized health insights for a patient.
+    """
+    print(f"[API] Getting insights for patient {patient_id}")
+    
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Get insights ordered by most recent first
+    insights = db.query(PatientInsights).filter(
+        PatientInsights.patient_id == patient_id
+    ).order_by(PatientInsights.generated_at.desc()).all()
+    
+    # Format response
+    insights_response = [
+        {
+            "id": insight.id,
+            "insight_type": insight.insight_type,
+            "insight_text": insight.insight_text,
+            "generated_at": insight.generated_at.isoformat()
+        }
+        for insight in insights
+    ]
+    
+    print(f"[API] Returning {len(insights_response)} insights")
+    return insights_response
+
+@app.post("/api/patients/{patient_id}/insights")
+async def generate_patient_insights(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate new personalized health insights for a patient using AI.
+    """
+    print(f"[API] Generating new insights for patient {patient_id}")
+    
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Gather patient data for analysis
+    patient_data = {}
+    
+    # Basic demographics
+    patient_data["demographics"] = {
+        "name": f"{patient.first_name} {patient.last_name}",
+        "age": calculate_age(patient.date_of_birth),
+        "gender": patient.gender
+    }
+    
+    # Medical conditions from history
+    medical_history = db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+    patient_data["conditions"] = [
+        {
+            "condition": history.condition,
+            "status": history.status
+        }
+        for history in medical_history
+    ]
+    
+    # Medications
+    medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+    patient_data["medications"] = [
+        {
+            "name": med.name,
+            "dosage": med.dosage,
+            "frequency": med.frequency,
+            "active": med.active
+        }
+        for med in medications
+    ]
+    
+    # Allergies
+    allergies = db.query(Allergy).filter(Allergy.patient_id == patient_id).all()
+    patient_data["allergies"] = [allergy.allergen for allergy in allergies]
+    
+    # Recent vitals from last encounter
+    latest_encounter = db.query(Encounter).filter(
+        Encounter.patient_id == patient_id
+    ).order_by(Encounter.encounter_date.desc()).first()
+    
+    if latest_encounter:
+        vitals = json.loads(latest_encounter.vital_signs) if latest_encounter.vital_signs else {}
+        patient_data["vitals"] = vitals
+    
+    # Recent lab results
+    recent_labs = []
+    lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+    
+    for order in lab_orders:
+        results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+        if results:
+            for result in results:
+                recent_labs.append({
+                    "test_name": order.test_name,
+                    "result_value": result.result_value,
+                    "unit": result.unit,
+                    "reference_range": result.reference_range,
+                    "abnormal_flag": result.abnormal_flag,
+                    "result_date": result.result_date.isoformat()
+                })
+    
+    # Sort labs by date (most recent first) and keep only the latest 10
+    recent_labs.sort(key=lambda x: x.get("result_date", ""), reverse=True)
+    patient_data["recent_labs"] = recent_labs[:10]
+    
+    # Convert patient data to string for the LLM
+    patient_data_str = json.dumps(patient_data, indent=2)
+    
+    # Extract medical entities for more focused insights
+    entity_results = extract_medical_entities(patient_data_str)
+    
+    # Generate different types of insights
+    insight_types = ["lifestyle", "medication", "screening", "risk"]
+    generated_insights = []
+    
+    for insight_type in insight_types:
+        try:
+            # Create a different prompt for each insight type
+            if insight_type == "lifestyle":
+                prompt = f"""
+                Based on the following patient data, provide ONE specific, actionable lifestyle recommendation that would benefit this patient.
+                Focus on diet, exercise, sleep, or stress management based on their medical conditions and risk factors.
+                Keep your response under 150 words and focus on practical, personalized advice.
+                
+                Patient Data:
+                {patient_data_str}
+                
+                Extracted Medical Entities:
+                {json.dumps(entity_results.get("entity_groups", {}), indent=2)}
+                
+                Format your response as plain text with NO markdown, lists, or other formatting.
+                """
+            elif insight_type == "medication":
+                prompt = f"""
+                Based on the following patient data, provide ONE specific insight about medication management, adherence, or potential interactions.
+                If there are no medications, suggest appropriate preventive medications based on their risk factors.
+                Keep your response under 150 words and focus on practical, personalized advice.
+                
+                Patient Data:
+                {patient_data_str}
+                
+                Extracted Medical Entities:
+                {json.dumps(entity_results.get("entity_groups", {}), indent=2)}
+                
+                Format your response as plain text with NO markdown, lists, or other formatting.
+                """
+            elif insight_type == "screening":
+                prompt = f"""
+                Based on the following patient data, recommend ONE appropriate screening test or health check that would be valuable for this patient.
+                Consider their age, gender, medical conditions, family history, and risk factors.
+                Keep your response under 150 words and explain the rationale.
+                
+                Patient Data:
+                {patient_data_str}
+                
+                Extracted Medical Entities:
+                {json.dumps(entity_results.get("entity_groups", {}), indent=2)}
+                
+                Format your response as plain text with NO markdown, lists, or other formatting.
+                """
+            elif insight_type == "risk":
+                prompt = f"""
+                Based on the following patient data, identify ONE specific health risk this patient may face and provide a targeted recommendation to address it.
+                Consider their medical conditions, vitals, lab results, and behavioral factors.
+                Keep your response under 150 words and be specific about both the risk and the intervention.
+                
+                Patient Data:
+                {patient_data_str}
+                
+                Extracted Medical Entities:
+                {json.dumps(entity_results.get("entity_groups", {}), indent=2)}
+                
+                Format your response as plain text with NO markdown, lists, or other formatting.
+                """
+            
+            # Generate the insight using LLM
+            print(f"[API] Generating {insight_type} insight with LLM")
+            insight_text = Settings.llm.complete(prompt).text.strip()
+            
+            # Limit insight length if needed
+            if len(insight_text) > 500:
+                insight_text = insight_text[:497] + "..."
+            
+            # Create insight record
+            db_insight = PatientInsights(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                insight_type=insight_type,
+                insight_text=insight_text,
+                generated_at=datetime.utcnow()
+            )
+            
+            db.add(db_insight)
+            
+            # Add to response list
+            generated_insights.append({
+                "id": db_insight.id,
+                "insight_type": insight_type,
+                "insight_text": insight_text,
+                "generated_at": db_insight.generated_at.isoformat()
+            })
+            
+        except Exception as e:
+            print(f"[API] Error generating {insight_type} insight: {str(e)}")
+            # Continue to next insight type even if one fails
+    
+    # Commit all successful insights to database
+    db.commit()
+    
+    print(f"[API] Generated {len(generated_insights)} insights for patient {patient_id}")
+    return generated_insights
+
+
+@app.post("/api/patients/{patient_id}/diseases")
+async def detect_patient_diseases(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Detect diseases for a patient using the DiseaseDetectionSystem.
+    """
+    print(f"[API] Detecting diseases for patient {patient_id}")
+    
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Gather patient data for analysis - using the same format as in insights endpoint
+    patient_data = {}
+    
+    # Basic information
+    patient_data["id"] = patient.id
+    patient_data["mrn"] = patient.mrn
+    patient_data["first_name"] = patient.first_name
+    patient_data["last_name"] = patient.last_name
+    patient_data["date_of_birth"] = patient.date_of_birth
+    patient_data["gender"] = patient.gender
+    
+    # Medical conditions from history
+    medical_history = db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+    patient_data["medical_history"] = [
+        {
+            "condition": history.condition,
+            "status": history.status,
+            "onset_date": history.onset_date,
+            "notes": history.notes
+        }
+        for history in medical_history
+    ]
+    
+    # Family history
+    family_history = db.query(FamilyHistory).filter(FamilyHistory.patient_id == patient_id).all()
+    patient_data["family_history"] = [
+        {
+            "relation": history.relation,
+            "condition": history.condition,
+            "onset_age": history.onset_age,
+            "notes": history.notes
+        }
+        for history in family_history
+    ]
+    
+    # Medications
+    medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+    patient_data["medications"] = [
+        {
+            "name": med.name,
+            "dosage": med.dosage,
+            "frequency": med.frequency,
+            "route": med.route,
+            "start_date": med.start_date,
+            "active": med.active
+        }
+        for med in medications
+    ]
+    
+    # Allergies
+    allergies = db.query(Allergy).filter(Allergy.patient_id == patient_id).all()
+    patient_data["allergies"] = [
+        {
+            "allergen": allergy.allergen,
+            "reaction": allergy.reaction,
+            "severity": allergy.severity
+        }
+        for allergy in allergies
+    ]
+    
+    # Encounter data
+    latest_encounter = db.query(Encounter).filter(
+        Encounter.patient_id == patient_id
+    ).order_by(Encounter.encounter_date.desc()).first()
+    
+    if latest_encounter:
+        patient_data["encounter"] = {
+            "encounter_date": latest_encounter.encounter_date.isoformat(),
+            "encounter_type": latest_encounter.encounter_type,
+            "chief_complaint": latest_encounter.chief_complaint,
+            "vital_signs": json.loads(latest_encounter.vital_signs) if latest_encounter.vital_signs else {},
+            "hpi": latest_encounter.hpi,
+            "ros": latest_encounter.ros,
+            "physical_exam": latest_encounter.physical_exam,
+            "assessment": latest_encounter.assessment,
+            "plan": latest_encounter.plan,
+            "diagnosis_codes": latest_encounter.diagnosis_codes
+        }
+    
+    # Lab results
+    lab_results = []
+    lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+    
+    for order in lab_orders:
+        results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+        for result in results:
+            lab_results.append({
+                "test_name": order.test_name,
+                "result_value": result.result_value,
+                "unit": result.unit,
+                "reference_range": result.reference_range,
+                "abnormal_flag": result.abnormal_flag,
+                "result_date": result.result_date.isoformat()
+            })
+    
+    patient_data["lab_results"] = lab_results
+    
+    # Scans
+    scans = db.query(PatientScan).filter(PatientScan.patient_id == patient_id).all()
+    patient_data["scans"] = []
+    
+    for scan in scans:
+        # Get the scan analysis if available
+        patient_data["scans"].append({
+            "scan_type": scan.scan_type,
+            "scan_date": scan.scan_date.isoformat(),
+            "description": scan.description,
+            "analysis": scan.notes or "No analysis available"
+        })
+    print(f'[PATIENT SCAN] {patient_data["scans"]}')
+    # Initialize disease detection system and analyze patient
+    disease_detection = DiseaseDetectionSystem()
+    
+    # Use default LLM model specified in the disease detection system
+    detection_result = await disease_detection.analyze_patient(patient_data)
+    
+    # Save the analysis in the database
+    analysis_id = str(uuid.uuid4())
+    # print(f'[DEBUG DISEASE] {detection_result}')
+    # Create a summary from the top disease match
+    if detection_result.get("matched_diseases") and len(detection_result["matched_diseases"]) > 0:
+        top_match = detection_result["matched_diseases"][0]
+        recommendation = f"Likely diagnosis: {top_match['disease']} (ICD-10: {top_match.get('icd_code', 'Not specified')})"
+        confidence = f"{top_match.get('probability', 0)}%"
+    else:
+        recommendation = "No clear diagnosis identified"
+        confidence = "0%"
+    
+    # Create reasoning from clinical summary and recommendations
+    reasoning = detection_result.get("clinical_summary", "No clinical summary provided.")
+    if detection_result.get("additional_testing_recommended"):
+        reasoning += "\n\nRecommended tests: " + ", ".join(detection_result["additional_testing_recommended"])
+    
+    # Add differential diagnoses
+    if detection_result.get("differential_diagnoses"):
+        reasoning += "\n\nDifferential diagnoses:\n"
+        for i, diff in enumerate(detection_result["differential_diagnoses"][:5], 1):
+            reasoning += f"{i}. {diff['disease']} ({diff.get('probability', 0)}%): {diff.get('reasoning', 'No explanation provided')}\n"
+    
+    # Save to database
+    db_analysis = AIAnalysis(
+        id=analysis_id,
+        patient_id=patient_id,
+        encounter_id=latest_encounter.id if latest_encounter else None,
+        analysis_type="Disease Detection",
+        recommendation=recommendation,
+        reasoning=reasoning,
+        confidence=confidence,
+        model_used="Gemini",
+        analysis_date=datetime.utcnow(),
+        reviewed_by_provider=False
+    )
+    
+    db.add(db_analysis)
+    db.commit()
+    
+    # Return results with both the summary and full detection result
+    return {
+        "analysis_id": analysis_id,
+        "summary": {
+            "recommendation": recommendation,
+            "reasoning": reasoning,
+            "confidence": confidence
+        },
+        "full_result": detection_result
+    }
+
+
+# Copilot
+@app.post("/api/copilot/query")
+async def copilot_query(
+    request: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Process a copilot query with current context and return AI response.
+    
+    This endpoint accepts:
+    - patient_id: Optional patient ID if in patient context
+    - encounter_id: Optional encounter ID if in encounter context
+    - current_view: What screen/tab the user is viewing (e.g., "dashboard", "lab-results")
+    - view_mode: Either "list" (multiple patients) or "detail" (specific patient)
+    - query: The user's explicit question (optional - if not provided, generate contextual insights)
+    - action: Optional specific action to perform, like "detect_disease"
+    """
+    
+    patient_id = request.get("patient_id")
+    encounter_id = request.get("encounter_id")
+    current_view = request.get("current_view", "unknown")
+    view_mode = request.get("view_mode", "list")
+    query = request.get("query", "")
+    action = request.get("action", "")
+    
+    # Check if we need to perform a specific action
+    if action == "detect_disease" and patient_id:
+        try:
+            # Call the disease detection endpoint directly
+            print(f"[COPILOT] Calling disease detection for patient {patient_id}")
+            detection_result = await detect_patient_diseases(
+                patient_id=patient_id,
+                db=db,
+                current_user=current_user
+            )
+            
+            # Format the response for the copilot
+            return {
+                "answer": f"Disease detection analysis completed. {detection_result['summary']['recommendation']}",
+                "details": detection_result['summary']['reasoning'],
+                "confidence": detection_result['summary']['confidence'],
+                "analysis_id": detection_result['analysis_id'],
+                "action_performed": "detect_disease",
+                "suggestions": [
+                    "View full analysis details",
+                    "What does this diagnosis mean?",
+                    "What treatments are recommended for this condition?"
+                ],
+                "references": ["Disease Detection Analysis"]
+            }
+        except Exception as e:
+            print(f"[COPILOT] Error in disease detection: {str(e)}")
+            return {
+                "answer": "I encountered an error while trying to analyze diseases for this patient.",
+                "error": str(e),
+                "suggestions": [
+                    "Try again later",
+                    "Check patient data for completeness",
+                    "Contact support if the issue persists"
+                ]
+            }
+    
+    # Get relevant context based on what the user is viewing
+    context_data = await gather_context_data(
+        db=db,
+        patient_id=patient_id,
+        encounter_id=encounter_id,
+        current_view=current_view,
+        view_mode=view_mode
+    )
+    
+    # Check if the query is asking about disease detection
+    if patient_id and (
+        "disease" in query.lower() or 
+        "diagnos" in query.lower() or 
+        "detect" in query.lower() or
+        "analyze symptoms" in query.lower() or
+        "what condition" in query.lower()
+    ):
+        try:
+            # Call the disease detection endpoint
+            print(f"[COPILOT] Query about diseases detected, calling disease detection for patient {patient_id}")
+            detection_result = await detect_patient_diseases(
+                patient_id=patient_id,
+                db=db,
+                current_user=current_user
+            )
+            
+            # Format the response for the copilot
+            return {
+                "answer": f"Based on the patient's data, I've run a disease detection analysis. {detection_result['summary']['recommendation']}",
+                "details": detection_result['summary']['reasoning'],
+                "confidence": detection_result['summary']['confidence'],
+                "analysis_id": detection_result['analysis_id'],
+                "action_performed": "detect_disease",
+                "suggestions": [
+                    "View full analysis details",
+                    "What does this diagnosis mean?",
+                    "What treatments are recommended for this condition?"
+                ],
+                "references": ["Disease Detection Analysis"]
+            }
+        except Exception as e:
+            print(f"[COPILOT] Error in disease detection: {str(e)}")
+            # Fall back to normal query processing if disease detection fails
+            pass
+    
+    # Create appropriate prompt based on context and query
+    if query:
+        # User is asking a specific question
+        prompt = create_query_prompt(context_data, query, view_mode)
+    else:
+        # Generate proactive insights based on current view
+        prompt = create_insight_prompt(context_data, current_view)
+    
+    # Use the configured LLM to generate the response
+    llm_response = Settings.llm.complete(prompt).text
+    
+    # Parse and structure the response
+    try:
+        structured_response = parse_copilot_response(llm_response)
+        return structured_response
+    except Exception as e:
+        print(f"[COPILOT] Error parsing response: {str(e)}")
+        return {
+            "error": "Failed to parse AI response",
+            "raw_response": llm_response
+        }
+
+@app.get("/api/patients/{patient_id}/disease-timeline")
+async def get_disease_timeline(
+    patient_id: str,
+    timeline_range: str = "1-year",  # Options: "1-week", "1-month", "6-months", "1-year", "5-years"
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate a future disease progression timeline for a patient based on current health data
+    and AI predictions.
+    """
+    print(f"[API] Generating disease timeline for patient {patient_id} with range {timeline_range}")
+    
+    # Check if patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # First, get the disease detection result to use as a foundation
+    # Run disease detection or get cached results if available
+    disease_detection = await detect_patient_diseases(
+        patient_id=patient_id,
+        db=db,
+        current_user=current_user
+    )
+    
+    # Extract the diagnosed conditions from the results
+    matched_diseases = disease_detection.get("full_result", {}).get("matched_diseases", [])
+    if not matched_diseases:
+        print(f"[API] No matched diseases found for patient {patient_id}")
+        return {
+            "timeline": [],
+            "message": "Unable to generate timeline - no diseases detected"
+        }
+    
+    # Get the primary disease (highest probability)
+    primary_disease = matched_diseases[0]
+    disease_name = primary_disease.get("disease", "Unknown condition")
+    confidence = primary_disease.get("probability", 0)
+    
+    # Parse the timeline range into timeframes
+    timeframe_mapping = {
+        "1-week": {"unit": "days", "interval": 1, "periods": 7},
+        "1-month": {"unit": "days", "interval": 3, "periods": 10},
+        "6-months": {"unit": "weeks", "interval": 2, "periods": 12},
+        "1-year": {"unit": "months", "interval": 1, "periods": 12},
+        "5-years": {"unit": "months", "interval": 3, "periods": 20}
+    }
+    
+    timeframe = timeframe_mapping.get(timeline_range, timeframe_mapping["1-year"])
+    
+    # Get patient's medication, lab results, and other relevant data
+    medications = db.query(Medication).filter(Medication.patient_id == patient_id).all()
+    lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+    lab_results = []
+    for order in lab_orders:
+        results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+        if results:
+            for result in results:
+                lab_results.append({
+                    "test_name": order.test_name,
+                    "result_value": result.result_value,
+                    "unit": result.unit,
+                    "reference_range": result.reference_range,
+                    "abnormal_flag": result.abnormal_flag,
+                    "result_date": result.result_date.isoformat() if hasattr(result.result_date, 'isoformat') else result.result_date
+                })
+    
+    # Calculate date ranges for the timeline
+    start_date = datetime.utcnow()
+    
+    # Create a context object with all relevant patient information
+    context = {
+        "patient": {
+            "id": patient.id,
+            "name": f"{patient.first_name} {patient.last_name}",
+            "age": calculate_age(patient.date_of_birth),
+            "gender": patient.gender,
+            "current_diagnosis": disease_name,
+            "diagnosis_confidence": confidence
+        },
+        "current_medications": [
+            {
+                "name": med.name,
+                "dosage": med.dosage,
+                "frequency": med.frequency,
+                "route": med.route,
+                "active": med.active
+            }
+            for med in medications
+        ],
+        "recent_lab_results": lab_results[:10],  # Most recent 10 lab results
+        "disease_details": primary_disease,
+        "differential_diagnoses": disease_detection.get("full_result", {}).get("differential_diagnoses", []),
+        "timeframe": timeframe
+    }
+
+    # Corrected prompt with proper escaping of curly braces
+    prompt = f"""
+    You are a medical AI assistant tasked with predicting the likely progression of a patient's disease over time.
+    Based on the patient information and current diagnosis below, generate a detailed timeline showing the expected 
+    progression of their condition, potential symptoms, recommended treatments, and expected lab results at each stage.
+    
+    PATIENT INFORMATION:
+    Name: {patient.first_name} {patient.last_name}
+    Age: {calculate_age(patient.date_of_birth)}
+    Gender: {patient.gender}
+    Primary Diagnosis: {disease_name} (Confidence: {confidence}%)
+    
+    CURRENT MEDICATIONS:
+    {json.dumps(context["current_medications"], indent=2)}
+    
+    RECENT LAB RESULTS:
+    {json.dumps(context["recent_lab_results"], indent=2)}
+    
+    DIAGNOSIS DETAILS:
+    {json.dumps(primary_disease, indent=2)}
+    
+    DIFFERENTIAL DIAGNOSES:
+    {json.dumps(context["differential_diagnoses"], indent=2)}
+    
+    TIMEFRAME:
+    Create a timeline with {timeframe["periods"]} points, each separated by {timeframe["interval"]} {timeframe["unit"]}.
+    Start from the current date ({start_date.strftime('%Y-%m-%d')}).
+    
+    For each timepoint in the timeline, predict:
+    1. The expected symptoms and severity (mild, moderate, severe)
+    2. Disease progression status (improving, stable, worsening)
+    3. Recommended treatments or medication changes
+    4. Expected lab values that should be monitored
+    5. Any potential complications to watch for
+    
+    Return your response as a JSON array with the following structure:
+    [
+      {{
+        "date": "ISO-format date string",
+        "timepoint_label": "e.g., 'Initial'/'Week 2'/'Month 3'/etc.",
+        "symptoms": [
+          {{
+            "name": "symptom name",
+            "severity": "mild/moderate/severe"
+          }}
+        ],
+        "status": "improving/stable/worsening",
+        "disease_stage": "early/progressing/advanced/etc.",
+        "treatment_recommendations": ["recommendation 1", "recommendation 2"],
+        "expected_lab_values": [
+          {{
+            "test": "test name",
+            "expected_value": "value",
+            "interpretation": "description"
+          }}
+        ],
+        "potential_complications": ["complication 1", "complication 2"],
+        "notes": "Additional relevant information for this timepoint"
+      }}
+    ]
+    
+    IMPORTANT: Return only valid JSON. Do not include any explanatory notes or comments outside the JSON structure.
+    
+    Be medically accurate and base your predictions on established progression patterns for {disease_name}.
+    Incorporate the patient's age, gender, current medications, and lab results into your predictions.
+    """
+    
+    # Call the LLM to generate the timeline
+    print(f"[API] Calling LLM to generate disease timeline for {disease_name}")
+    response = Settings.llm.complete(prompt)
+    print(f"[API] Received response from LLM")
+    
+    # Parse the response
+    try:
+        # Clean up response in case it includes markdown code block formatting
+        response_text = response.text.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        
+        # Clean up any comments or trailing text that might break JSON parsing
+        # Find the closing bracket of the JSON array
+        try:
+            # Look for the matching closing bracket of the JSON array
+            bracket_count = 0
+            for i, char in enumerate(response_text):
+                if char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        # Found the closing bracket of the main array
+                        response_text = response_text[:i+1]
+                        break
+        except Exception as e:
+            print(f"[API] Error trying to clean response text: {str(e)}")
+        
+        # Remove any comments that might be inside the JSON
+        try:
+            lines = response_text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                # Remove lines that start with // or /* (JSON comments)
+                if line.strip().startswith("//") or line.strip().startswith("/*"):
+                    continue
+                # Remove inline comments
+                comment_start = line.find("//")
+                if comment_start != -1:
+                    line = line[:comment_start]
+                cleaned_lines.append(line)
+            response_text = "\n".join(cleaned_lines)
+        except Exception as e:
+            print(f"[API] Error removing comments: {str(e)}")
+        
+        # Try to parse the JSON
+        try:
+            timeline_data = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            print(f"[API] JSON parsing error: {str(e)}")
+            # Try a more aggressive approach - use regex to extract the JSON array
+            import re
+            match = re.search(r'\[\s*\{.*?\}\s*\]', response_text, re.DOTALL)
+            if match:
+                try:
+                    timeline_data = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    # If still failing, create a minimal valid structure
+                    timeline_data = []
+            else:
+                timeline_data = []
+        
+        # Validate the response structure
+        if not isinstance(timeline_data, list):
+            print(f"[API] Invalid timeline data format: not a list")
+            timeline_data = []
+        
+        # Enhance the timeline data with additional metadata
+        enhanced_timeline = {
+            "patient_id": patient_id,
+            "patient_name": f"{patient.first_name} {patient.last_name}",
+            "primary_diagnosis": disease_name,
+            "confidence": confidence,
+            "generated_at": datetime.utcnow().isoformat(),
+            "timeline_range": timeline_range,
+            "timeline_data": timeline_data
+        }
+        
+        # Save the timeline prediction to the database
+        timeline_id = str(uuid.uuid4())
+        prediction_record = {
+            "id": timeline_id,
+            "patient_id": patient_id,
+            "primary_diagnosis": disease_name,
+            "confidence": confidence,
+            "timeline_range": timeline_range,
+            "timeline_data": json.dumps(timeline_data),
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Save to file for reference
+        timeline_path = f"ehr_records/disease_timeline_{timeline_id}.json"
+        with open(timeline_path, "w") as f:
+            json.dump(enhanced_timeline, f, indent=2)
+        
+        print(f"[API] Successfully generated disease timeline with {len(timeline_data)} timepoints")
+        return enhanced_timeline
+        
+    except Exception as e:
+        print(f"[API] Error parsing LLM response for disease timeline: {str(e)}")
+        print(f"[API] Raw response: {response.text}")
+        
+        # Return error response
+        return {
+            "error": f"Failed to generate disease timeline: {str(e)}",
+            "patient_id": patient_id,
+            "patient_name": f"{patient.first_name} {patient.last_name}",
+            "primary_diagnosis": disease_name,
+            "confidence": confidence,
+            "generated_at": datetime.utcnow().isoformat(),
+            "timeline_range": timeline_range,
+            "timeline_data": []
+        }
+# AI Analysis endpoints
+@app.post("/api/ai_analysis", response_model=dict)
+async def create_ai_analysis(analysis: AIAnalysisCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+    print(f"[API] Creating AI analysis for patient {analysis.patient_id}, type: {analysis.analysis_type}")
+    # Verify patient exists
+    patient = db.query(Patient).filter(Patient.id == analysis.patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Process any selected scans if available
+    enhanced_input_text = analysis.input_text
+    scan_analyses = []
+    
+    if analysis.scan_ids and len(analysis.scan_ids) > 0:
+        print(f"[API] Processing {len(analysis.scan_ids)} selected scans")
+        
+        # Get scan records from the database
+        scans = db.query(PatientScan).filter(PatientScan.id.in_(analysis.scan_ids)).all()
+        if not scans:
+            print(f"[API] No scans found in database for the provided IDs")
+        else:
+            print(f"[API] Found {len(scans)} scans in database")
+            
+            # Set up GCS bucket for downloading scans
+            bucket = storage_client.bucket(BUCKET_NAME)
+            
+            # Analyze each scan in parallel
+            scan_analysis_tasks = [analyze_scan(scan, bucket) for scan in scans]
+            
+            # Gather all scan analysis results
+            for scan_task in scan_analysis_tasks:
+                scan_analysis = await scan_task
+                scan_analyses.append(scan_analysis)
+            
+            # Add scan analyses to the input text
+            if scan_analyses:
+                scan_section = "\n\n--- IMAGING & SCANS ANALYSIS ---\n"
+                for idx, analysis_result in enumerate(scan_analyses, 1):
+                    scan_section += f"\n[Scan {idx}: {analysis_result['scan_type']} ({analysis_result['scan_date']})]"
+                    scan_section += f"\nFile: {analysis_result['file_name']}"
+                    if analysis_result['description']:
+                        scan_section += f"\nDescription: {analysis_result['description']}"
+                    scan_section += f"\nAnalysis: {analysis_result['analysis']}\n"
+                
+                enhanced_input_text += scan_section
+                print(f"[API] Enhanced input text with scan analyses")
+    
+    # Extract medical entities from the clinical text
+    print(f"[API] Extracting medical entities from clinical text")
+    entity_results = extract_medical_entities(enhanced_input_text)
+    
+    # Add entity analysis to the input text
+    if "entity_groups" in entity_results and entity_results["entity_groups"]:
+        entity_section = "\n\n--- MEDICAL ENTITY ANALYSIS ---\n"
+        for entity_type, entities in entity_results["entity_groups"].items():
+            if entities:
+                entity_section += f"\n{entity_type}: {', '.join(entities)}"
+        
+        enhanced_input_text += entity_section
+        print(f"[API] Enhanced input text with medical entity analysis")
+        print(f"[API] Identified {len(entity_results['entities'])} medical entities across {len(entity_results['entity_groups'])} categories")
+    
+    # Create input format for analysis
+    patient_input = {
+        "type": "raw_text",
+        "payload": enhanced_input_text
+    }
+    
+    # Determine which type of analysis to perform based on analysis_type
+    analysis_type = analysis.analysis_type.lower()
+    
+    # Load patient data as document
+    patient_docs = [Document(text=enhanced_input_text, metadata={"source": "raw_text"})]
+    
+    # Generate query for context retrieval
+    query = summarize_patient_data(patient_docs)
+    
+    # Choose context retrieval method based on analysis type
+    if analysis_type == "genetic testing recommendation":
+        # Use MedRAG for genetic testing (existing implementation)
+        print(f"[API] Using MedRAG corpus for genetic testing analysis")
+        medrag = MedRAG(llm_name=analysis.llm_model, rag=True)
+        messages, retrieved_docs, scores = medrag.createMessage(question=query, k=32, split=True)
+        context = "\n".join([doc["contents"] for doc in retrieved_docs])
+        
+        # Create prompt
+        prompt = ehr_prompt.render(patient_data=enhanced_input_text, context=context)
+        
+    elif analysis_type == "diagnosis suggestion" or analysis_type == "risk assessment":
+        # Use enhanced literature retrieval instead of Perplexity API
+        print(f"[API] Using enhanced literature retrieval for {analysis_type}")
+        perplexity_type = "diagnosis" if analysis_type == "diagnosis suggestion" else "risk_assessment"
+        
+        # Get literature-based context using the new enhanced retrieval
+        web_context = await enhanced_literature_retrieval(
+            entity_groups=entity_results.get("entity_groups", {}), 
+            analysis_type=perplexity_type,
+            scan_analyses=scan_analyses
+        )
+        print(f'[WEB CONTEXT] {web_context}')
+        # Choose appropriate template
+        if analysis_type == "diagnosis suggestion":
+            prompt = diagnosis_prompt.render(patient_data=enhanced_input_text, context=web_context)
+        else:  # risk assessment
+            prompt = risk_assessment_prompt.render(patient_data=enhanced_input_text, context=web_context)
+            
+        # For tracking - use a placeholder for retrieved docs
+        retrieved_docs = [{"id": "medical_literature", "contents": web_context}]
+        
+    else:
+        # Default to genetic testing if unknown type
+        print(f"[API] Unknown analysis type '{analysis_type}', defaulting to genetic testing")
+        medrag = MedRAG(llm_name=analysis.llm_model, rag=True)
+        messages, retrieved_docs, scores = medrag.createMessage(question=query, k=32, split=True)
+        context = "\n".join([doc["contents"] for doc in retrieved_docs])
+        prompt = ehr_prompt.render(patient_data=enhanced_input_text, context=context)
+    
+    # Log the full prompt for debugging
+    print(f"[API] FULL AUGMENTED PROMPT:\n{'-'*80}\n{prompt[:500]}...\n[...truncated...]\n{'-'*80}")
+    
+    # Set LLM
+    Settings.llm = LLM_MODELS[analysis.llm_model]
+    
+    # Get response
+    response = Settings.llm.complete(prompt).text
+    response = response.strip()
+    if response.startswith("```json"):
+        response = response[7:]
+    if response.endswith("```"):
+        response = response[:-3]
+    response = response.strip()
+    
+    # Parse response based on analysis type
+    try:
+        result = json.loads(response)
+        
+        if analysis_type == "genetic testing recommendation":
+            recommendation = result.get("testing_recommendation", "Unknown")
+            reasoning = result.get("reasoning", "No reasoning provided")
+            confidence = result.get("confidence", "80%")
+            
+        elif analysis_type == "diagnosis suggestion":
+            recommendation = result.get("primary_diagnosis", "Unknown")
+            reasoning = result.get("reasoning", "No reasoning provided")
+            
+            # Format differential diagnoses if present
+            if "differential_diagnoses" in result:
+                differential = result["differential_diagnoses"]
+                if isinstance(differential, list):
+                    reasoning += "\n\nDifferential Diagnoses:\n" + "\n".join([f"- {dx}" for dx in differential[:5]])
+                elif isinstance(differential, dict):
+                    reasoning += "\n\nDifferential Diagnoses:\n" + "\n".join([f"- {dx}: {desc}" for dx, desc in list(differential.items())[:5]])
+                    
+            confidence = result.get("confidence", "75%")
+            
+        elif analysis_type == "risk assessment":
+            recommendation = "Risk Assessment"
+            
+            # Format risk areas if present
+            if "risk_areas" in result:
+                risk_areas = result["risk_areas"]
+                high_risks = []
+                
+                if isinstance(risk_areas, dict):
+                    # Handle dictionary format 
+                    for area, level in risk_areas.items():
+                        if isinstance(level, str) and "high" in level.lower():
+                            high_risks.append(f"{area}")
+                elif isinstance(risk_areas, list):
+                    # Handle list format with extra checks
+                    for item in risk_areas:
+                        if isinstance(item, dict):
+                            # It's a dict in a list - extract relevant info
+                            if "area" in item and "level" in item:
+                                if "high" in str(item["level"]).lower():
+                                    high_risks.append(f"{item['area']}")
+                            else:
+                                # Just use the first k/v pair
+                                for k, v in item.items():
+                                    high_risks.append(f"{v}")
+                                    break
+                        else:
+                            # Regular string item
+                            high_risks.append(str(item))
+                    
+                if high_risks:
+                    recommendation = "High Risk: " + ", ".join(high_risks)
+                else:
+                    recommendation = "No high-risk areas identified"
+            
+            # Build reasoning from multiple fields with robust parsing
+            reasoning_parts = []
+            
+            # Risk factors with robust handling
+            if "risk_factors" in result:
+                factors = result["risk_factors"]
+                factor_text = "Risk Factors:\n"
+                
+                if isinstance(factors, list):
+                    factor_items = []
+                    for factor in factors:
+                        if isinstance(factor, dict):
+                            # Dictionary in a list - format appropriately
+                            for k, v in factor.items():
+                                if isinstance(v, (list, tuple)):
+                                    factor_items.append(f"- {k}: {', '.join(str(x) for x in v)}")
+                                else:
+                                    factor_items.append(f"- {k}: {v}")
+                        else:
+                            # String or other simple type
+                            factor_items.append(f"- {str(factor)}")
+                    factor_text += "\n".join(factor_items)
+                elif isinstance(factors, dict):
+                    # Simple dictionary
+                    factor_text += "\n".join([f"- {k}: {v}" for k, v in factors.items()])
+                else:
+                    # Anything else, convert to string
+                    factor_text += str(factors)
+                
+                reasoning_parts.append(factor_text)
+            
+            # Mitigation strategies with similar robust handling
+            if "mitigation_strategies" in result:
+                strategies = result["mitigation_strategies"]
+                strategy_text = "Mitigation Strategies:\n"
+                
+                if isinstance(strategies, list):
+                    strategy_items = []
+                    for strategy in strategies:
+                        if isinstance(strategy, dict):
+                            # Dictionary in a list
+                            for k, v in strategy.items():
+                                if isinstance(v, (list, tuple)):
+                                    strategy_items.append(f"- {k}: {', '.join(str(x) for x in v)}")
+                                else:
+                                    strategy_items.append(f"- {k}: {v}")
+                        else:
+                            # String or other simple type
+                            strategy_items.append(f"- {str(strategy)}")
+                    strategy_text += "\n".join(strategy_items)
+                elif isinstance(strategies, dict):
+                    # Simple dictionary
+                    strategy_text += "\n".join([f"- {k}: {v}" for k, v in strategies.items()])
+                else:
+                    # Anything else, convert to string
+                    strategy_text += str(strategies)
+                
+                reasoning_parts.append(strategy_text)
+            
+            # Follow-up recommendations
+            if "follow_up_recommendations" in result:
+                follow_up = result["follow_up_recommendations"]
+                follow_up_text = "Follow-up Recommendations:\n"
+                
+                if isinstance(follow_up, list):
+                    follow_up_text += "\n".join([f"- {rec}" for rec in follow_up])
+                elif isinstance(follow_up, dict):
+                    follow_up_text += "\n".join([f"- {k}: {v}" for k, v in follow_up.items()])
+                else:
+                    follow_up_text += str(follow_up)
+                
+                reasoning_parts.append(follow_up_text)
+            
+            # Join all reasoning sections
+            reasoning = "\n\n".join(reasoning_parts) if reasoning_parts else "No detailed reasoning provided."
+            confidence = result.get("confidence", "85%")
+        
+        else:
+            # Default parsing
+            recommendation = result.get("recommendation", "Unknown")
+            reasoning = result.get("reasoning", "No reasoning provided")
+            confidence = result.get("confidence", "70%")
+            
+    except Exception as e:
+        print(f"[API] ERROR parsing response: {str(e)}")
+        recommendation = "Error"
+        reasoning = f"Failed to parse LLM response: {str(e)}"
+        confidence = "0%"
+    
+    # Create analysis record
+    analysis_id = str(uuid.uuid4())
+    
+    db_analysis = AIAnalysis(
+        id=analysis_id,
+        patient_id=analysis.patient_id,
+        encounter_id=analysis.encounter_id,
+        analysis_type=analysis.analysis_type,
+        recommendation=recommendation,
+        reasoning=reasoning,
+        confidence=confidence,
+        model_used=analysis.llm_model
+    )
+    
+    db.add(db_analysis)
+    db.commit()
+    db.refresh(db_analysis)
+    
+    # Save analysis to file
+    analysis_record = {
+        "id": db_analysis.id,
+        "patient_id": db_analysis.patient_id,
+        "encounter_id": db_analysis.encounter_id,
+        "analysis_type": db_analysis.analysis_type,
+        "input_text": enhanced_input_text,
+        "recommendation": db_analysis.recommendation,
+        "reasoning": db_analysis.reasoning,
+        "confidence": db_analysis.confidence,
+        "model_used": db_analysis.model_used,
+        "retrieved_docs": retrieved_docs,
+        "scan_analyses": scan_analyses,
+        "medical_entities": entity_results.get("entity_groups", {}),
+        "analysis_date": db_analysis.analysis_date.isoformat(),
+        "created_at": db_analysis.created_at.isoformat()
+    }
+    
+    analysis_path = f"ehr_records/{db_analysis.id}.json"
+    with open(analysis_path, "w") as f:
+        json.dump(analysis_record, f, indent=2)
+    
+    return {
+        "id": db_analysis.id,
+        "patient_id": db_analysis.patient_id,
+        "analysis_type": db_analysis.analysis_type,
+        "recommendation": db_analysis.recommendation,
+        "reasoning": db_analysis.reasoning,
+        "confidence": db_analysis.confidence,
+        "model_used": db_analysis.model_used,
+        "scan_count": len(scan_analyses),
+        "entity_count": len(entity_results.get("entities", [])),
+        "message": "Analysis created successfully"
+    }
+
+# Add this code to your backend after the existing `/api/ai_analysis` POST endpoint
+@app.get("/api/ai_analysis", response_model=List[dict])
+async def get_ai_analyses(db = Depends(get_db), current_user = Depends(get_current_user)):
+    """
+    Get all AI analyses, with patient names included for display
+    """
+    print(f"[API] Fetching AI analyses for user {current_user.username}")
+    
+    analyses = db.query(AIAnalysis).all()
+    
+    results = []
+    for analysis in analyses:
+        # Get patient info for each analysis
+        patient = db.query(Patient).filter(Patient.id == analysis.patient_id).first()
+        patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
+        
+        # Format analysis for response
+        analysis_data = {
+            "id": analysis.id,
+            "patient_id": analysis.patient_id,
+            "patient_name": patient_name,  # Include patient name for display
+            "encounter_id": analysis.encounter_id,
+            "analysis_type": analysis.analysis_type,
+            "recommendation": analysis.recommendation,
+            "reasoning": analysis.reasoning,
+            "confidence": analysis.confidence,
+            "model_used": analysis.model_used,
+            "analysis_date": analysis.analysis_date.isoformat(),
+            "reviewed_by_provider": analysis.reviewed_by_provider,
+            "created_at": analysis.created_at.isoformat()
+        }
+        
+        # If reviewed, add reviewer info
+        if analysis.reviewed_by_provider and analysis.reviewer_id:
+            reviewer = db.query(User).filter(User.id == analysis.reviewer_id).first()
+            if reviewer:
+                analysis_data["reviewer_name"] = reviewer.full_name
+        
+        results.append(analysis_data)
+    
+    print(f"[API] Returning {len(results)} AI analyses")
+    return results
+
+@app.get("/api/ai_analysis/{analysis_id}", response_model=dict)
+async def get_ai_analysis(analysis_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    """
+    Get a specific AI analysis by ID
+    """
+    print(f"[API] Fetching AI analysis {analysis_id}")
+    
+    analysis = db.query(AIAnalysis).filter(AIAnalysis.id == analysis_id).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Get patient info
+    patient = db.query(Patient).filter(Patient.id == analysis.patient_id).first()
+    patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
+    
+    # Format analysis for response
+    analysis_data = {
+        "id": analysis.id,
+        "patient_id": analysis.patient_id,
+        "patient_name": patient_name,
+        "encounter_id": analysis.encounter_id,
+        "analysis_type": analysis.analysis_type,
+        "recommendation": analysis.recommendation,
+        "reasoning": analysis.reasoning,
+        "confidence": analysis.confidence,
+        "model_used": analysis.model_used,
+        "analysis_date": analysis.analysis_date.isoformat(),
+        "reviewed_by_provider": analysis.reviewed_by_provider,
+        "created_at": analysis.created_at.isoformat()
+    }
+    
+    # If reviewed, add reviewer info
+    if analysis.reviewed_by_provider and analysis.reviewer_id:
+        reviewer = db.query(User).filter(User.id == analysis.reviewer_id).first()
+        if reviewer:
+            analysis_data["reviewer_name"] = reviewer.full_name
+    
+    return analysis_data
+
+# Add this endpoint to mark an analysis as reviewed
+@app.put("/api/ai_analysis/{analysis_id}/review", response_model=dict)
+async def review_ai_analysis(
+    analysis_id: str, 
+    review_notes: str = Form(""), 
+    db = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    """
+    Mark an AI analysis as reviewed by a provider
+    """
+    print(f"[API] Marking AI analysis {analysis_id} as reviewed")
+    
+    if not current_user.is_doctor:
+        raise HTTPException(status_code=403, detail="Only doctors can review analyses")
+    
+    analysis = db.query(AIAnalysis).filter(AIAnalysis.id == analysis_id).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    # Update the analysis
+    analysis.reviewed_by_provider = True
+    analysis.reviewer_id = current_user.id
+    analysis.review_notes = review_notes
+    analysis.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {
+        "id": analysis.id,
+        "reviewed_by_provider": True,
+        "reviewer_id": current_user.id,
+        "review_notes": review_notes,
+        "message": "Analysis marked as reviewed"
+    }
+
+@app.post("/api/patients/bulk", response_model=Dict[str, Any])
+async def bulk_create_patients(
+    file: UploadFile = File(...),
+    db = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    """
+    Create multiple patients from a CSV or Excel file
+    """
+    print(f"[API] Bulk patient upload requested by {current_user.username}")
+    
+    # Check file extension
+    file_extension = file.filename.split('.')[-1].lower()
+    if file_extension not in ['csv', 'xlsx', 'xls']:
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV or Excel file.")
+    
+    # Read the file content
+    contents = await file.read()
+    
+    try:
+        # Parse the file based on its extension
+        if file_extension == 'csv':
+            df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+        else:  # Excel file
+            df = pd.read_excel(io.BytesIO(contents))
+        
+        # Validate the DataFrame columns
+        required_columns = ['first_name', 'last_name', 'date_of_birth', 'gender']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Missing required columns: {', '.join(missing_columns)}"
+            )
+        
+        # Prepare counters for statistics
+        total_patients = len(df)
+        successful_patients = 0
+        failed_patients = 0
+        error_records = []
+        
+        # Process each row
+        for index, row in df.iterrows():
+            try:
+                # Prepare patient data with proper type conversion
+                patient_data = {
+                    "first_name": str(row.get('first_name', '')),
+                    "last_name": str(row.get('last_name', '')),
+                    "date_of_birth": row.get('date_of_birth').strftime('%Y-%m-%d') if pd.notnull(row.get('date_of_birth')) else '',
+                    "gender": str(row.get('gender', '')),
+                    "address": str(row.get('address', '')) if pd.notnull(row.get('address')) else None,
+                    "phone": str(row.get('phone', '')) if pd.notnull(row.get('phone')) else None,
+                    "email": str(row.get('email', '')) if pd.notnull(row.get('email')) else None,
+                    "insurance_provider": str(row.get('insurance_provider', '')) if pd.notnull(row.get('insurance_provider')) else None,
+                    "insurance_id": str(row.get('insurance_id', '')) if pd.notnull(row.get('insurance_id')) else None,
+                    "primary_care_provider": str(row.get('primary_care_provider', '')) if pd.notnull(row.get('primary_care_provider')) else None,
+                    "emergency_contact_name": str(row.get('emergency_contact_name', '')) if pd.notnull(row.get('emergency_contact_name')) else None,
+                    "emergency_contact_phone": str(row.get('emergency_contact_phone', '')) if pd.notnull(row.get('emergency_contact_phone')) else None
+                }
+                
+                # Validate the patient data
+                if not patient_data["first_name"]:
+                    raise ValueError("First name is required")
+                if not patient_data["last_name"]:
+                    raise ValueError("Last name is required")
+                if not patient_data["date_of_birth"]:
+                    raise ValueError("Date of birth is required")
+                if not patient_data["gender"]:
+                    raise ValueError("Gender is required")
+                
+                # Generate MRN
+                mrn = generate_mrn()
+                
+                # Create patient record with explicit datetime fields
+                now = datetime.utcnow()
+                db_patient = Patient(
+                    id=str(uuid.uuid4()),
+                    mrn=mrn,
+                    first_name=patient_data["first_name"],
+                    last_name=patient_data["last_name"],
+                    date_of_birth=patient_data["date_of_birth"],
+                    gender=patient_data["gender"],
+                    address=patient_data["address"],
+                    phone=patient_data["phone"],
+                    email=patient_data["email"],
+                    insurance_provider=patient_data["insurance_provider"],
+                    insurance_id=patient_data["insurance_id"],
+                    primary_care_provider=patient_data["primary_care_provider"],
+                    emergency_contact_name=patient_data["emergency_contact_name"],
+                    emergency_contact_phone=patient_data["emergency_contact_phone"],
+                    created_at=now,
+                    updated_at=now
+                )
+                
+                db.add(db_patient)
+                
+                # Save as JSON for reference (optional)
+                patient_path = f"patients/{db_patient.id}.json"
+                with open(patient_path, "w") as f:
+                    patient_dict = {
+                        "id": db_patient.id,
+                        "mrn": db_patient.mrn,
+                        "first_name": db_patient.first_name,
+                        "last_name": db_patient.last_name,
+                        "date_of_birth": db_patient.date_of_birth,
+                        "gender": db_patient.gender,
+                        "address": db_patient.address,
+                        "phone": db_patient.phone,
+                        "email": db_patient.email,
+                        "insurance_provider": db_patient.insurance_provider,
+                        "insurance_id": db_patient.insurance_id,
+                        "primary_care_provider": db_patient.primary_care_provider,
+                        "emergency_contact_name": db_patient.emergency_contact_name,
+                        "emergency_contact_phone": db_patient.emergency_contact_phone,
+                        "created_at": db_patient.created_at.isoformat() if db_patient.created_at else now.isoformat(),
+                        "updated_at": db_patient.updated_at.isoformat() if db_patient.updated_at else now.isoformat()
+                    }
+                    json.dump(patient_dict, f, indent=2)
+                
+                successful_patients += 1
+                
+            except Exception as e:
+                failed_patients += 1
+                error_records.append({
+                    "row": index + 2,  # +2 because index is 0-based and we need to account for header row
+                    "data": row.to_dict(),
+                    "error": str(e)
+                })
+                print(f"[API] Error processing patient at row {index + 2}: {str(e)}")
+        
+        # Commit all successful records to database
+        try:
+            db.commit()
+            print(f"[API] Successfully committed {successful_patients} patients to database")
+        except Exception as e:
+            # If there's an error committing, roll back and count all as failed
+            db.rollback()
+            failed_patients = total_patients
+            successful_patients = 0
+            print(f"[API] Error committing patients to database: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+        # Prepare response
+        result = {
+            "total": total_patients,
+            "successful": successful_patients,
+            "failed": failed_patients,
+            "errors": error_records[:10] if error_records else []  # Limit to first 10 errors
+        }
+        
+        # Save error log if there were failures
+        if error_records:
+            error_log_path = f"ehr_records/bulk_upload_errors_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(error_log_path, "w") as f:
+                json.dump({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "user": current_user.username,
+                    "filename": file.filename,
+                    "total": total_patients,
+                    "failed": failed_patients,
+                    "errors": error_records
+                }, f, indent=2)
+            print(f"[API] Error log saved to {error_log_path}")
+        
+        return result
+        
+    except pd.errors.EmptyDataError:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    except pd.errors.ParserError:
+        raise HTTPException(status_code=400, detail="Unable to parse the file. Please ensure it is a valid CSV or Excel file.")
+    except Exception as e:
+        print(f"[API] Unexpected error in bulk upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+@app.get("/api/patients/{patient_id}/report")
+async def download_patient_report(patient_id: str, type: str = "full", db: Session = Depends(get_db)):
+    """
+    Generate a PDF patient report for either the last encounter or full history.
+    """
+    report_type = type
+    logger.info(f"Generating report for patient {patient_id} with report_type={report_type}")
+
+    # Fetch patient
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Initialize PDF buffer
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Company Header
+    company_name = "Penn Healthcare"
+    story.append(Paragraph(f"{company_name}", styles['Title']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Patient Report - {patient.first_name} {patient.last_name}", styles['Heading1']))
+    story.append(Spacer(1, 12))
+
+    # Patient Info
+    dob = patient.date_of_birth
+    if isinstance(dob, str):
+        try:
+            dob = datetime.strptime(dob, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            dob = dob
+    else:
+        dob = dob.strftime("%Y-%m-%d")
+
+    patient_info = [
+        ["MRN", patient.mrn],
+        ["Date of Birth", dob],
+        ["Gender", patient.gender]
+    ]
+    story.append(Paragraph("Patient Information", styles['Heading2']))
+    story.append(Table(patient_info, colWidths=[100, 200]))
+    story.append(Spacer(1, 12))
+    print(f"[REPORT TYPE] {report_type}")
+    # Encounters
+    if report_type == "last":
+        encounter = db.query(Encounter).filter(Encounter.patient_id == patient_id).order_by(Encounter.encounter_date.desc()).first()
+        encounters = [encounter] if encounter else []
+        logger.info(f"Last encounter mode: Found {len(encounters)} encounter(s) - {encounter.encounter_date if encounter else 'None'}")
+    else:  # full
+        encounters = db.query(Encounter).filter(Encounter.patient_id == patient_id).order_by(Encounter.encounter_date).all()
+        logger.info(f"Full report mode: Found {len(encounters)} encounters")
+
+    if encounters:
+        story.append(Paragraph("Encounters", styles['Heading2']))
+        for enc in encounters:
+            enc_date = enc.encounter_date
+            if isinstance(enc_date, str):
+                try:
+                    enc_date = datetime.strptime(enc_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+                except ValueError:
+                    enc_date = enc_date
+            else:
+                enc_date = enc_date.strftime("%Y-%m-%d")
+
+            enc_data = [
+                ["Date", enc_date],
+                ["Type", enc.encounter_type or "N/A"],
+                ["Chief Complaint", enc.chief_complaint or "N/A"],
+                ["Vital Signs", json.dumps(json.loads(enc.vital_signs), indent=2) if enc.vital_signs != "{}" else "Not recorded"],
+                ["History of Present Illness", enc.hpi or "N/A"],
+                ["Review of Systems", enc.ros or "N/A"],
+                ["Physical Exam", enc.physical_exam or "N/A"],
+                ["Assessment", enc.assessment or "N/A"],
+                ["Plan", enc.plan or "N/A"],
+                ["Diagnosis Codes", enc.diagnosis_codes or "N/A"],
+                ["Follow-up Instructions", enc.followup_instructions or "N/A"]
+            ]
+            story.append(Paragraph(f"Encounter - {enc_date}", styles['Heading3']))
+            story.append(Table(enc_data, colWidths=[150, 350]))
+            story.append(Spacer(1, 12))
+
+            # AI Analysis (only for this encounter)
+            ai_analyses = db.query(AIAnalysis).filter(AIAnalysis.encounter_id == enc.id).all()
+            if ai_analyses:
+                story.append(Paragraph("AI Analysis", styles['Heading3']))
+                for analysis in ai_analyses:
+                    analysis_data = [
+                        ["Type", analysis.analysis_type],
+                        ["Recommendation", analysis.recommendation],
+                        ["Reasoning", analysis.reasoning],
+                        ["Confidence", analysis.confidence]
+                    ]
+                    story.append(Table(analysis_data, colWidths=[150, 350]))
+                story.append(Spacer(1, 6))
+
+            # Lab Results (only for this encounter, if linked)
+            lab_orders = db.query(LabOrder).filter(LabOrder.patient_id == patient_id).all()
+            lab_results = []
+            for order in lab_orders:
+                if report_type == "last" and order.order_date <= enc.encounter_date:  # Only include labs up to this encounter
+                    results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+                    lab_results.extend(results)
+                elif report_type != "last":  # Include all labs for full report
+                    results = db.query(LabResult).filter(LabResult.lab_order_id == order.id).all()
+                    lab_results.extend(results)
+            if lab_results:
+                story.append(Paragraph("Lab Results", styles['Heading3']))
+                lab_data = [["Test", "Result", "Unit", "Reference Range", "Abnormal Flag"]]
+                for lab in lab_results:
+                    lab_data.append([
+                        lab.test_name or "N/A",
+                        lab.result_value or "N/A",
+                        lab.unit or "N/A",
+                        lab.reference_range or "N/A",
+                        lab.abnormal_flag or "N/A"
+                    ])
+                story.append(Table(lab_data, colWidths=[100, 100, 50, 100, 100]))
+                story.append(Spacer(1, 6))
+
+    else:
+        story.append(Paragraph("No encounters found.", styles['Normal']))
+        logger.info("No encounters found for this patient")
+
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=patient_report_{patient_id}_{report_type}.pdf"
+        }
+    )
+
+# Add this endpoint to your API section in the backend
+# Update the API endpoint with improved error handling
+
+@app.post("/api/medical-histories", response_model=dict)
+async def create_medical_history(
+    medical_history: MedicalHistoryCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a new medical history record for a patient.
+    """
+    print(f"[API] Creating medical history record for patient {medical_history.patient_id}")
+    print(f"[API] Data received: {medical_history}")
+    
+    try:
+        # Check if patient exists
+        patient = db.query(Patient).filter(Patient.id == medical_history.patient_id).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Optional: Check permissions
+        if not current_user.is_doctor and False:  # Temporarily disabled for testing
+            raise HTTPException(status_code=403, detail="Only doctors can add medical history records")
+        
+        # Create new medical history record
+        history_id = str(uuid.uuid4())
+        
+        db_history = MedicalHistory(
+            id=history_id,
+            patient_id=medical_history.patient_id,
+            condition=medical_history.condition,
+            onset_date=medical_history.onset_date,
+            status=medical_history.status,
+            notes=medical_history.notes
+        )
+        
+        db.add(db_history)
+        db.commit()
+        db.refresh(db_history)
+        
+        print(f"[API] Created medical history record {history_id} for patient {medical_history.patient_id}")
+        
+        return {
+            "id": db_history.id,
+            "patient_id": db_history.patient_id,
+            "condition": db_history.condition,
+            "onset_date": db_history.onset_date,
+            "status": db_history.status,
+            "message": "Medical history record created successfully"
+        }
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise e
+    except Exception as e:
+        # Log any other exceptions
+        print(f"[API] Error creating medical history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create medical history: {str(e)}")
+
+# Add Lab Order Endpoint
+@app.post("/api/lab-orders", response_model=dict)
+async def create_lab_order(
+    lab_order: LabOrderCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.is_doctor:
+        raise HTTPException(status_code=403, detail="Only doctors can order labs")
+    
+    patient = db.query(Patient).filter(Patient.id == lab_order.patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    db_lab_order = LabOrder(
+        id=str(uuid.uuid4()),
+        patient_id=lab_order.patient_id,
+        provider_id=current_user.id,
+        test_name=lab_order.test_name,
+        test_code=lab_order.test_code,
+        priority=lab_order.priority,
+        status="Ordered",
+        order_date=datetime.utcnow().replace(tzinfo=pytz.utc),
+        collection_date=lab_order.collection_date,  # Set this if provided
+        notes=lab_order.notes
+    )
+    
+    db.add(db_lab_order)
+    db.commit()
+    db.refresh(db_lab_order)
+    
+    return {
+        "id": db_lab_order.id,
+        "patient_id": db_lab_order.patient_id,
+        "test_name": db_lab_order.test_name,
+        "order_date": db_lab_order.order_date.isoformat(),
+        "status": db_lab_order.status,
+        "test_code": db_lab_order.test_code,
+        "priority": db_lab_order.priority,
+        "collection_date": db_lab_order.collection_date.isoformat() if db_lab_order.collection_date else None,
+        "notes": db_lab_order.notes,
+        "message": "Lab order created successfully"
+    }
+
+@app.put("/api/lab-orders/{lab_order_id}", response_model=dict)
+async def update_lab_order(
+    lab_order_id: str,
+    update_data: LabOrderUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.is_doctor:
+        raise HTTPException(status_code=403, detail="Only doctors can update labs")
+    
+    db_lab_order = db.query(LabOrder).filter(LabOrder.id == lab_order_id).first()
+    if not db_lab_order:
+        raise HTTPException(status_code=404, detail="Lab order not found")
+    
+    # Update only provided fields
+    if update_data.test_code is not None:
+        db_lab_order.test_code = update_data.test_code
+    if update_data.priority is not None:
+        db_lab_order.priority = update_data.priority
+    if update_data.collection_date is not None:
+        db_lab_order.collection_date = update_data.collection_date.replace(tzinfo=pytz.utc) if update_data.collection_date else None
+    if update_data.notes is not None:
+        db_lab_order.notes = update_data.notes
+    if update_data.status is not None:
+        db_lab_order.status = update_data.status
+    
+    db.commit()
+    db.refresh(db_lab_order)
+    
+    return {
+        "id": db_lab_order.id,
+        "test_name": db_lab_order.test_name,
+        "test_code": db_lab_order.test_code,
+        "priority": db_lab_order.priority,
+        "collection_date": db_lab_order.collection_date.isoformat() if db_lab_order.collection_date else None,
+        "notes": db_lab_order.notes,
+        "status": db_lab_order.status,
+        "message": "Lab order updated successfully"
+    }
+# Add Lab Result Endpoint
+@app.post("/api/lab-results", response_model=dict)
+async def create_lab_result(
+    lab_result: LabResultCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Check if lab order exists
+    lab_order = db.query(LabOrder).filter(LabOrder.id == lab_result.lab_order_id).first()
+    if not lab_order:
+        raise HTTPException(status_code=404, detail="Lab order not found")
+    
+    # Create new lab result
+    db_lab_result = LabResult(
+        id=str(uuid.uuid4()),
+        lab_order_id=lab_result.lab_order_id,
+        result_value=lab_result.result_value,
+        unit=lab_result.unit,
+        reference_range=lab_result.reference_range,
+        abnormal_flag=lab_result.abnormal_flag,
+        performing_lab=lab_result.performing_lab,
+        result_date=datetime.utcnow().replace(tzinfo=pytz.utc),
+        notes=lab_result.notes
+    )
+    
+    # Add to database
+    db.add(db_lab_result)
+    
+    # Update lab order status to "Completed" when a result is added
+    lab_order.status = "Completed"
+    
+    # If collection date isn't set, set it to current time
+    if not lab_order.collection_date:
+        lab_order.collection_date = datetime.utcnow().replace(tzinfo=pytz.utc)
+    
+    # Commit changes
+    db.commit()
+    db.refresh(db_lab_result)
+    
+    # Return the result
+    return {
+        "id": db_lab_result.id,
+        "lab_order_id": db_lab_result.lab_order_id,
+        "result_value": db_lab_result.result_value,
+        "result_date": db_lab_result.result_date.isoformat(),
+        "message": "Lab result added successfully"
+    }
+# Add Endpoint to Get Lab Order Details
+@app.get("/api/lab-orders/{lab_order_id}", response_model=dict)
+async def get_lab_order(
+    lab_order_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    lab_order = db.query(LabOrder).filter(LabOrder.id == lab_order_id).first()
+    if not lab_order:
+        raise HTTPException(status_code=404, detail="Lab order not found")
+    
+    patient = db.query(Patient).filter(Patient.id == lab_order.patient_id).first()
+    results = db.query(LabResult).filter(LabResult.lab_order_id == lab_order_id).all()
+    
+    # Format date fields properly
+    order_date = lab_order.order_date.isoformat() if lab_order.order_date else None
+    collection_date = lab_order.collection_date.isoformat() if lab_order.collection_date else None
+    
+    return {
+        "id": lab_order.id,
+        "patient": {
+            "id": patient.id,
+            "name": f"{patient.first_name} {patient.last_name}",
+            "mrn": patient.mrn
+        },
+        "test_name": lab_order.test_name,
+        "test_code": lab_order.test_code,  # This might be None but should be returned
+        "priority": lab_order.priority,
+        "status": lab_order.status,
+        "order_date": order_date,
+        "collection_date": collection_date,  # This is important to include
+        "notes": lab_order.notes,
+        "results": [{
+            "id": result.id,
+            "result_value": result.result_value,
+            "unit": result.unit,
+            "reference_range": result.reference_range,
+            "abnormal_flag": result.abnormal_flag,
+            "performing_lab": result.performing_lab,
+            "result_date": result.result_date.isoformat() if result.result_date else None,
+            "notes": result.notes
+        } for result in results]
+    }
+
+
+#for the shared chat endpoint
+@app.post("/api/index/flow-knowledge")
+async def create_flow_knowledge_index(flow_data: dict):
+    """
+    Convert an entire flow structure into a knowledge base for LlamaIndex.
+    """
+    flow_id = flow_data.get("id", str(uuid.uuid4()))
+    nodes = flow_data.get("nodes", [])
+    edges = flow_data.get("edges", [])
+    
+    documents = []
+    
+    # Process all nodes
+    for node in nodes:
+        node_id = node.get("id")
+        node_type = node.get("type")
+        node_data = node.get("data", {})
+        
+        # Create base document text
+        doc_text = f"NODE ID: {node_id}\nNODE TYPE: {node_type}\n\n"
+        
+        # Add node specific processing instructions
+        if node_type == "dialogueNode":
+            doc_text += f"INSTRUCTION: When the user is at this dialogue node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+            doc_text += "FUNCTIONS:\n"
+            for func in node_data.get("functions", []):
+                func_id = func.get("id")
+                func_content = func.get("content", "")
+                
+                # Find the edge for this function
+                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+                if func_edges:
+                    target_node_id = func_edges[0].get("target")
+                    doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "scriptNode":
+            doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+            doc_text += "FUNCTIONS:\n"
+            for func in node_data.get("functions", []):
+                func_id = func.get("id")
+                func_content = func.get("content", "")
+                
+                # Find the edge for this function
+                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+                if func_edges:
+                    target_node_id = func_edges[0].get("target")
+                    doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "fieldSetterNode":
+            doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
+            
+            # Find the outgoing edge
+            setter_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"{node_id}-right"]
+            if setter_edges:
+                target_node_id = setter_edges[0].get("target")
+                doc_text += f"After capturing the field value, proceed to node {target_node_id}\n"
+            
+        elif node_type == "responseNode":
+            doc_text += f"INSTRUCTION: When the user is at this response node, display the message '{node_data.get('message', '')}' and then use the LLM to generate a conversational response.\n\n"
+            doc_text += "TRIGGERS:\n"
+            for trigger in node_data.get("triggers", []):
+                trigger_id = trigger.get("id")
+                trigger_content = trigger.get("content", "")
+                
+                # Find the edge for this trigger
+                trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
+                if trigger_edges:
+                    target_node_id = trigger_edges[0].get("target")
+                    doc_text += f"- If user's response matches '{trigger_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "callTransferNode":
+            doc_text += f"INSTRUCTION: When the user is at this call transfer node, display the message '{node_data.get('message', '')}' and create a notification for human takeover.\n\n"
+            
+            # Find any outgoing edge
+            transfer_edges = [e for e in edges if e.get("source") == node_id]
+            if transfer_edges:
+                target_node_id = transfer_edges[0].get("target")
+                doc_text += f"After notifying about the transfer, proceed to node {target_node_id}\n"
+        
+        # Create document
+        documents.append(Document(
+            text=doc_text,
+            metadata={
+                "node_id": node_id,
+                "node_type": node_type,
+                "flow_id": flow_id
+            }
+        ))
+    
+    # Add global flow processing instructions
+    flow_instructions = f"""
+    FLOW ID: {flow_id}
+    
+    GENERAL PROCESSING INSTRUCTIONS:
+    
+    1. STARTING: When a new conversation begins, find the node with nodeType='starting' and process it first.
+    
+    2. DIALOGUENODE PROCESSING:
+       - Display the node's message to the user
+       - Wait for user input
+       - Match user input against the node's functions
+       - If a match is found, transition to the corresponding target node
+       - If no match is found, generate a response using the LLM
+    
+    3. SCRIPTNODE PROCESSING:
+       - Display the node's message to the user
+       - If the node has functions, check if any should be activated
+       - If a function is activated, transition to its target node
+       - Otherwise, move to the next connected node if one exists
+    
+    4. FIELDSETTERNODE PROCESSING:
+       - Request the specified field value from the user
+       - Wait for user input
+       - Validate the input as a valid value for the field
+       - If valid, store the value and transition to the next node
+       - If invalid, ask the user again
+    
+    5. RESPONSENODE PROCESSING:
+       - Display the node's message to the user
+       - Wait for user input
+       - Generate a response using the LLM
+       - Check if the user's next message matches any triggers
+       - If a trigger matches, transition to its target node
+    
+    6. CALLTRANSFERNODE PROCESSING:
+       - Display the node's message to the user
+       - Create a notification for human transfer
+       - Transition to the next node if one exists
+    
+    7. SESSION STATE:
+       - Always track which node the user is currently at
+       - Store field values collected from FieldSetterNodes
+       - Mark whether you're awaiting a response from the user
+    
+    8. OUT-OF-FLOW HANDLING:
+       - If the user asks a question unrelated to the current node:
+         a. If it's a simple question, answer it directly
+         b. After answering, return to the current node's flow
+    """
+    
+    # Add flow processing document
+    documents.append(Document(
+        text=flow_instructions,
+        metadata={
+            "flow_id": flow_id,
+            "type": "flow_instructions"
+        }
+    ))
+    
+    # Add node connections document for reference
+    connections_text = "NODE CONNECTIONS:\n\n"
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        source_handle = edge.get("sourceHandle")
+        connections_text += f"From node {source} to node {target}"
+        if source_handle:
+            connections_text += f" via {source_handle}"
+        connections_text += "\n"
+    
+    documents.append(Document(
+        text=connections_text,
+        metadata={
+            "flow_id": flow_id,
+            "type": "connections"
+        }
+    ))
+    
+    # Create the index directory if it doesn't exist
+    os.makedirs("flow_indices", exist_ok=True)
+    
+    # Create vector store
+    collection_name = f"flow_{flow_id}_knowledge"
+    # Delete existing collection if it exists
+    try:
+        chroma_client.delete_collection(collection_name)
+        print(f"Deleted existing collection {collection_name}")
+    except ValueError:
+        print(f"Collection {collection_name} did not exist")
+
+    vector_store = ChromaVectorStore(
+        chroma_collection=chroma_client.get_or_create_collection(collection_name)
+    )
+    
+    # Create ingestion pipeline
+    pipeline = IngestionPipeline(
+        transformations=[
+            SentenceSplitter(chunk_size=512, chunk_overlap=100),
+            Settings.embed_model
+        ],
+        vector_store=vector_store
+    )
+    
+    # Process documents
+    nodes = pipeline.run(documents=documents)
+    
+    # Create index
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    index = VectorStoreIndex(nodes, storage_context=storage_context)
+    
+    # Save metadata about this index
+    index_metadata = {
+        "flow_id": flow_id,
+        "node_count": len(nodes),
+        "created_at": datetime.utcnow().isoformat(),
+        "collection_name": collection_name
+    }
+    
+    with open(f"flow_indices/{flow_id}_metadata.json", "w") as f:
+        json.dump(index_metadata, f, indent=2)
+    
+    return {
+        "status": "success", 
+        "flow_id": flow_id,
+        "indexed_documents": len(documents),
+        "nodes_created": len(nodes)
+    }
+
+@app.post("/api/shared/vector_chat")        
+async def vector_flow_chat(request: dict):
+    """
+    Process a chat message using the vector-based flow knowledge index.
+    This endpoint doesn't rely on Firestore or Gemini services.
+    """
+    try:
+        message = request.get("message", "")
+        sessionId = request.get("sessionId", "")
+        flow_id = request.get("flow_id")
+        session_data = request.get("session_data", {})
+        previous_messages = request.get("previous_messages", [])
+        
+        if not flow_id:
+            return {
+                "error": "flow_id is required",
+                "content": "Missing required parameters"
+            }
+        
+        # Create context for the query
+        current_node_id = session_data.get('currentNodeId')
+        
+        # Format previous messages for better context
+        conversation_history = ""
+        for msg in previous_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            conversation_history += f"{role}: {content}\n"
+        
+        context_text = f"""
+The user message is: "{message}"
+
+The current node ID is: {current_node_id or "None - this is the first message"}
+
+Previous conversation:
+{conversation_history}
+
+The session data is:
+{json.dumps(session_data, indent=2)}
+
+Based on this information, process the message according to the flow logic.
+
+If this is the first message, start with the node that has nodeType='starting'.
+If currentNodeId is set, process that node.
+
+You MUST follow these steps:
+1. Identify the correct node to process
+2. Follow the appropriate processing logic for that node type
+3. Determine the next node based on the user's message and the flow rules
+4. Generate the appropriate response
+5. Specify the next node ID and state updates
+6. Read the node's INSTRUCTION, which contains a message intended to guide the response.
+7. Treat the node's message as an instruction, not the literal text to send. Generate a natural, conversational response that captures the intent of the instruction in a friendly and appropriate tone.
+8. Do not repeat the instruction message verbatim under any circumstances.
+
+Return your response as a JSON object with the following structure:
+{{
+    "content": "The response to send to the user",
+    "next_node_id": "ID of the next node to process",
+    "state_updates": {{
+        "key": "value"
+    }}
+}}
+"""
+        # Get the flow knowledge index
+        collection_name = f"flow_{flow_id}_knowledge"
+        
+        # Check if collection exists
+        try:
+            collection = chroma_client.get_collection(collection_name)
+        except ValueError:
+            # Collection doesn't exist, need to create the index first
+            return {
+                "error": "Flow knowledge index not found. Please index the flow first.",
+                "content": "I'm having trouble processing your request. Please try again later."
+            }
+        
+        # Create vector store and index
+        vector_store = ChromaVectorStore(chroma_collection=collection)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
+        
+        # Create query engine
+        query_engine = index.as_query_engine(
+            response_mode="compact",
+            similarity_top_k=7,  # Retrieve more context for complete instructions
+            llm=Settings.llm  # Use the specified LLM
+        )
+        
+        # Query the index
+        response = query_engine.query(context_text)
+        
+        # Process the response
+        try:
+            # Parse the response text as JSON
+            response_text = response.response
+            
+            # Clean up the response if it contains markdown code blocks
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            response_data = json.loads(response_text)
+            
+            # Extract fields
+            ai_response = response_data.get("content", "I'm having trouble processing your request.")
+            next_node_id = response_data.get("next_node_id")
+            state_updates = response_data.get("state_updates", {})
+            
+            # Return the complete response
+            return {
+                "content": ai_response,
+                "next_node_id": next_node_id,
+                "state_updates": state_updates
+            }
+            
+        except Exception as e:
+            print(f"Error processing vector response: {str(e)}")
+            
+            # Fallback to direct LLM response
+            fallback_prompt = f"""
+            You are a helpful assistant. The user has sent the following message:
+            
+            "{message}"
+            
+            Previous conversation:
+            {conversation_history}
+            
+            Please provide a helpful response.
+            """
+            
+            fallback_response = Settings.llm.complete(fallback_prompt)
+            
+            return {
+                "content": fallback_response.text,
+                "error": f"Vector processing failed: {str(e)}",
+                "fallback": True
+            }
+            
+    except Exception as e:
+        print(f"Vector chat error: {str(e)}")
+        return {
+            "error": f"Failed to process message: {str(e)}",
+            "content": "I'm having trouble processing your request. Please try again later."
+        }
+    
+@app.get("/api/flow-index/{flow_id}")
+async def check_flow_index_status(flow_id: str):
+    """
+    Check if a flow has been indexed and return its status.
+    """
+    try:
+        # Check if metadata file exists
+        metadata_path = f"flow_indices/{flow_id}_metadata.json"
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "r") as f:
+                metadata = json.load(f)
+            
+            # Check if collection exists
+            collection_name = metadata.get("collection_name")
+            try:
+                collection = chroma_client.get_collection(collection_name)
+                count = collection.count()
+                
+                return {
+                    "indexed": True,
+                    "metadata": metadata,
+                    "document_count": count
+                }
+            except ValueError:
+                return {
+                    "indexed": False,
+                    "error": "Collection not found in Chroma DB"
+                }
+        else:
+            return {
+                "indexed": False,
+                "error": "Flow not indexed"
+            }
+    except Exception as e:
+        return {
+            "indexed": False,
+            "error": str(e)
+        }
+
+
+## Analyze Message
+@app.post("/api/analyze-message")
+async def analyze_message(request: dict):
+    """
+    Analyze a chat message using the LLM and store analytics data.
+    
+    This endpoint accepts:
+    - message: The user's message text
+    - response: The assistant's response
+    - session_id: The current session ID
+    - timestamp: When the message was sent
+    """
+    try:
+        message = request.get("message", "")
+        response = request.get("response", "")
+        session_id = request.get("sessionId", "")
+        timestamp = request.get("timestamp", datetime.utcnow().isoformat())
+        
+        print(f"Analyzing message. SessionID: {session_id}, Message: {message[:50]}...")
+        
+        # Create a prompt for the LLM to analyze the message
+        prompt = f"""
+        Analyze the following chat conversation between a user and an AI assistant.
+        
+        User message: "{message}"
+        
+        AI response: "{response}"
+        
+        Perform the following analysis and return the results in JSON format:
+        1. Sentiment: Determine if the user's message sentiment is positive, negative, or neutral
+        2. Urgency: Determine if the message indicates high, medium, or low urgency
+        3. Intent: Classify the primary intent of the user (e.g., question, request, complaint, etc.)
+        4. Topic: Identify the main topic of the conversation
+        5. Keywords: Extract 3-5 key terms from the message
+        
+        Return your analysis as a JSON object with the following structure:
+        {{
+            "sentiment": "positive/negative/neutral",
+            "urgency": "high/medium/low",
+            "intent": "string",
+            "topic": "string",
+            "keywords": ["keyword1", "keyword2", ...]
+        }}
+        
+        Your response must be a valid JSON object only, with no additional text or explanations.
+        """
+        
+        # Call the LLM with the prompt
+        llm_response = Settings.llm.complete(prompt)
+        
+        # Debug: print the raw response
+        print(f"Raw LLM response: {llm_response.text[:200]}...")
+        
+        try:
+            # Clean up the response before parsing as JSON
+            cleaned_response = llm_response.text.strip()
+            
+            # If the response is wrapped in markdown code blocks, remove them
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            
+            # Remove any leading/trailing whitespace again after cleanup
+            cleaned_response = cleaned_response.strip()
+            
+            # Debug: print the cleaned response
+            print(f"Cleaned response: {cleaned_response[:200]}...")
+            
+            # Try to parse as JSON
+            analytics_data = json.loads(cleaned_response)
+            
+            # Create a record in the database
+            analytics_id = str(uuid.uuid4())
+            word_count = len(message.split())
+            
+            db = SessionLocal()
+            db_analytics = SessionAnalytics(
+                id=analytics_id,
+                session_id=session_id,
+                timestamp=datetime.fromisoformat(timestamp),
+                message_text=message,
+                assistant_response=response,
+                sentiment=analytics_data.get("sentiment", "neutral"),
+                urgency=analytics_data.get("urgency", "low"),
+                intent=analytics_data.get("intent", ""),
+                topic=analytics_data.get("topic", ""),
+                keywords=json.dumps(analytics_data.get("keywords", [])),
+                word_count=word_count,
+                # These would need to be provided from the frontend
+                session_duration=0,  
+                response_time=0
+            )
+            
+            db.add(db_analytics)
+            db.commit()
+            db.refresh(db_analytics)
+            db.close()
+            
+            print(f"Analytics saved successfully for session {session_id}")
+            
+            return {
+                "status": "success",
+                "analytics_id": analytics_id,
+                "data": analytics_data
+            }
+            
+        except json.JSONDecodeError as json_err:
+            print(f"JSON parsing error: {str(json_err)}")
+            
+            # Fallback: create a basic analytics record with default values
+            analytics_id = str(uuid.uuid4())
+            word_count = len(message.split())
+            
+            # Create a default analytics record
+            db = SessionLocal()
+            db_analytics = SessionAnalytics(
+                id=analytics_id,
+                session_id=session_id,
+                timestamp=datetime.fromisoformat(timestamp),
+                message_text=message,
+                assistant_response=response,
+                sentiment="neutral",  # Default value
+                urgency="low",        # Default value
+                intent="unknown",     # Default value
+                topic="general",      # Default value
+                keywords=json.dumps([]),
+                word_count=word_count,
+                session_duration=0,
+                response_time=0
+            )
+            
+            db.add(db_analytics)
+            db.commit()
+            db.refresh(db_analytics)
+            db.close()
+            
+            print(f"Saved fallback analytics for session {session_id}")
+            
+            return {
+                "status": "partial_success",
+                "message": f"Saved with default values due to LLM response parsing error: {str(json_err)}",
+                "analytics_id": analytics_id,
+                "raw_response": llm_response.text
+            }
+            
+        except Exception as e:
+            print(f"Error processing LLM response: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Failed to process LLM analysis: {str(e)}",
+                "raw_response": llm_response.text
+            }
+    
+    except Exception as e:
+        print(f"Error in analyze-message endpoint: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to analyze message: {str(e)}"
+        }
+
+@app.get("/api/export-session-analytics/{session_id}")
+async def export_session_analytics(session_id: str):
+    """
+    Export all analytics data for a given session to an Excel file.
+    """
+    try:
+        print(f"Exporting analytics for session: {session_id}")
+        
+        db = SessionLocal()
+        analytics_records = db.query(SessionAnalytics).filter(
+            SessionAnalytics.session_id == session_id
+        ).order_by(SessionAnalytics.timestamp).all()
+        
+        if not analytics_records:
+            return JSONResponse(
+                status_code=404,
+                content={"message": f"No analytics found for session {session_id}"}
+            )
+        
+        # Create a pandas DataFrame from the records
+        data = []
+        for record in analytics_records:
+            # Parse keywords if it's a JSON string
+            try:
+                keywords = json.loads(record.keywords) if record.keywords else []
+                keywords_str = ", ".join(keywords)
+            except:
+                keywords_str = record.keywords or ""
+                
+            data.append({
+                "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                "message": record.message_text or "",
+                "response": record.assistant_response or "",
+                "sentiment": record.sentiment or "",
+                "urgency": record.urgency or "",
+                "intent": record.intent or "",
+                "topic": record.topic or "",
+                "keywords": keywords_str,
+                "word_count": record.word_count or 0,
+                # "session_duration": record.session_duration or 0,
+                # "response_time": record.response_time or 0
+            })
+        
+        df = pd.DataFrame(data)
+        
+        # Create an Excel file without xlsxwriter (simpler approach)
+        output = BytesIO()
+        df.to_excel(output, sheet_name="Session Analytics", index=False)
+        
+        # Save the Excel file to disk for backup
+        output.seek(0)
+        filename = f"session_analytics_{session_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        # Make sure the directory exists
+        os.makedirs("./session_analytics", exist_ok=True)
+        filepath = f"./session_analytics/{filename}"
+        
+        with open(filepath, "wb") as f:
+            f.write(output.getvalue())
+            
+        print(f"Excel file saved to {filepath}")
+        
+        # Return the file as a downloadable attachment
+        output.seek(0)
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error exporting session analytics: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Failed to export analytics: {str(e)}"}
+        )
+
+# Additional endpoints for session analytics
+
+@app.get("/api/session-analytics")
+async def get_session_analytics_list(db: Session = Depends(get_db)):
+    """
+    Get a list of all sessions with analytics data.
+    """
+    print(f"Received request for session_id: {session_id}")
+
+    try:
+        print('FUNCTION FOUND [SESSION ANALYTICS]')
+        # Get unique session IDs with counts
+        session_stats = db.query(
+            SessionAnalytics.session_id,
+            func.count(SessionAnalytics.id).label("message_count"),
+            func.min(SessionAnalytics.timestamp).label("start_time"),
+            func.max(SessionAnalytics.timestamp).label("end_time")
+        ).group_by(SessionAnalytics.session_id).all()
+        
+        results = []
+        for stat in session_stats:
+            # Calculate duration
+            start_time = stat.start_time
+            end_time = stat.end_time
+            duration_seconds = (end_time - start_time).total_seconds()
+            
+            # Get sentiment distribution
+            sentiment_counts = db.query(
+                SessionAnalytics.sentiment,
+                func.count(SessionAnalytics.id).label("count")
+            ).filter(
+                SessionAnalytics.session_id == stat.session_id
+            ).group_by(SessionAnalytics.sentiment).all()
+            
+            sentiment_distribution = {
+                item.sentiment: item.count for item in sentiment_counts
+            }
+            
+            # Get the most common topic
+            topics = db.query(
+                SessionAnalytics.topic,
+                func.count(SessionAnalytics.id).label("count")
+            ).filter(
+                SessionAnalytics.session_id == stat.session_id
+            ).group_by(SessionAnalytics.topic).order_by(
+                func.count(SessionAnalytics.id).desc()
+            ).first()
+            
+            main_topic = topics.topic if topics else "Unknown"
+            
+            results.append({
+                "session_id": stat.session_id,
+                "message_count": stat.message_count,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration_seconds,
+                "sentiment_distribution": sentiment_distribution,
+                "main_topic": main_topic
+            })
+        
+        return {
+            "total_sessions": len(results),
+            "sessions": results
+        }
+        
+    except Exception as e:
+        print(f"Error getting session analytics list: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get session analytics list: {str(e)}"
+        )
+
+@app.get("/api/session-analytics/{session_id}")
+async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
+    """
+    Get detailed analytics for a specific session.
+    """
+    print(f"Received request for session_id: {session_id}")
+
+    try:
+        # Get all analytics entries for this session
+        analytics = db.query(SessionAnalytics).filter(
+            SessionAnalytics.session_id == session_id
+        ).order_by(SessionAnalytics.timestamp).all()
+        
+        if not analytics:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No analytics found for session {session_id}"
+            )
+        
+        # Format the data
+        messages = []
+        for entry in analytics:
+            # Parse keywords JSON
+            try:
+                keywords = json.loads(entry.keywords) if entry.keywords else []
+            except json.JSONDecodeError:
+                keywords = []
+            
+            messages.append({
+                "id": entry.id,
+                "timestamp": entry.timestamp.isoformat(),
+                "message": entry.message_text,
+                "response": entry.assistant_response,
+                "sentiment": entry.sentiment,
+                "urgency": entry.urgency,
+                "intent": entry.intent,
+                "topic": entry.topic,
+                "keywords": keywords,
+                "word_count": entry.word_count,
+                "session_duration": entry.session_duration,
+                "response_time": entry.response_time
+            })
+        
+        # Calculate session summary stats
+        sentiment_counts = {}
+        urgency_counts = {}
+        intent_counts = {}
+        topic_counts = {}
+        all_keywords = []
+        total_word_count = 0
+        
+        for message in messages:
+            # Count sentiments
+            sentiment = message["sentiment"]
+            sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+            
+            # Count urgencies
+            urgency = message["urgency"]
+            urgency_counts[urgency] = urgency_counts.get(urgency, 0) + 1
+            
+            # Count intents
+            intent = message["intent"]
+            intent_counts[intent] = intent_counts.get(intent, 0) + 1
+            
+            # Count topics
+            topic = message["topic"]
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+            
+            # Collect keywords
+            if message["keywords"]:
+                all_keywords.extend(message["keywords"])
+            
+            # Sum word counts
+            total_word_count += message["word_count"]
+        
+        # Get the most common keywords
+        keyword_counts = {}
+        for keyword in all_keywords:
+            keyword_counts[keyword] = keyword_counts.get(keyword, 0) + 1
+        
+        top_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        # Calculate duration
+        start_time = analytics[0].timestamp
+        end_time = analytics[-1].timestamp
+        duration_seconds = (end_time - start_time).total_seconds()
+        
+        # Return the complete analytics data
+        return {
+            "session_id": session_id,
+            "message_count": len(messages),
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_seconds": duration_seconds,
+            "total_word_count": total_word_count,
+            "sentiment_distribution": sentiment_counts,
+            "urgency_distribution": urgency_counts,
+            "intent_distribution": intent_counts,
+            "topic_distribution": topic_counts,
+            "top_keywords": dict(top_keywords),
+            "messages": messages
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        print(f"Error getting session analytics: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get session analytics: {str(e)}"
+        )
+
+# Make sure to add these imports at the top of your Python file if not already present:
+# from sqlalchemy import func
+# from io import BytesIO
+# import pandas as pd
+
+# Add this function to the Python code to register users with Telephone AI
+# Add this to the imports section of your main.py file
+
+# Update the register_with_telephone_ai function to use this configuration
+# Add this function to your main.py file to register users with Telephone AI
+async def register_with_telephone_ai(email, password, name, organization_id=None):
+
+    """
+    Register a user with the Telephone AI application.
+    
+    Args:
+        email (str): User's email address
+        password (str): User's password
+        name (str): User's full name
+    
+    Returns:
+        dict: Response from the Telephone AI API
+    """
+    try:
+        print(f"[INTEGRATION] Registering user {email} with Telephone AI")
+        
+        # Configure the Telephone AI API endpoint
+        telephone_ai_url = "http://localhost:3003/api/auth/register"  # Update with actual server URL
+        
+        # Prepare the request payload based on Telephone AI's expected format
+        payload = {
+            "email": email,
+            "password": password,
+            "name": name,
+            "plan": "free",
+            "accountType": "private",  # Default to private account type
+            "organization_id": organization_id  # Add this line to pass the organization ID
+
+        }
+        
+        # Make the API request
+        headers = {"Content-Type": "application/json"}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(telephone_ai_url, json=payload, headers=headers) as response:
+                response_data = await response.json()
+                
+                print(f"[INTEGRATION] Telephone AI response status: {response.status}")
+                print(f"[INTEGRATION] Telephone AI response data: {json.dumps(response_data)}")
+                
+                if response.status >= 400:
+                    print(f"[INTEGRATION] Error registering with Telephone AI: {response_data.get('error', 'Unknown error')}")
+                    return {
+                        "success": False,
+                        "error": response_data.get('error', 'Unknown error'),
+                        "status": response.status
+                    }
+                
+                # Store the token in local storage for the user to use with Telephone AI
+                telephone_ai_token = response_data.get("token")
+                telephone_ai_user_id = response_data.get("user", {}).get("id")
+                
+                # You need to save this token somewhere - either in a cookie, database,
+                # or pass it back to the client to store in localStorage
+                
+                print(f"[INTEGRATION] Successfully registered user with Telephone AI")
+                return {
+                    "success": True,
+                    "telephone_ai_token": telephone_ai_token,
+                    "telephone_ai_user_id": telephone_ai_user_id,
+                    "data": response_data
+                }
+    
+    except Exception as e:
+        print(f"[INTEGRATION] Exception during Telephone AI registration: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# Make sure to add this import at the top of the file with other imports
+# Main Function
+# Initialize Gemma model if using local version
+if USE_LOCAL_MODEL:
+    # Initialize in background to avoid blocking app startup
+    import threading
+    threading.Thread(target=init_gemma_model).start()
+    threading.Thread(target=init_medical_ner_model).start()
+
+try:
+    with SessionLocal() as db:
+        load_sample_medical_codes(db)
+except Exception as e:
+    print(f"[SETUP] Error loading sample medical codes: {str(e)}")
+
+if __name__ == "__main__":
+    
+    print("[MAIN] Starting Professional EHR and MedRAG Analysis System")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=min(cpu_count() + 1, 8), reload=True)
+    print("[MAIN] Server shutdown")
