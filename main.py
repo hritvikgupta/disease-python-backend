@@ -7913,7 +7913,7 @@ async def get_session_analytics_list(db: Session = Depends(get_db)):
     """
     Get a list of all sessions with analytics data.
     """
-    print(f"Received request for session_id: {session_id}")
+    # print(f"Received request for session_id: {session_id}")
 
     try:
         print('FUNCTION FOUND [SESSION ANALYTICS]')
