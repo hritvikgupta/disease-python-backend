@@ -7477,6 +7477,65 @@ async def create_flow_knowledge_index(flow_data: dict):
         "nodes_created": len(nodes)
     }
 
+
+@app.post("/api/index/assistant-documents")
+async def index_assistant_documents(request: dict):
+    assistant_id = request.get("assistant_id")
+    documents = request.get("documents", [])
+    
+    if not assistant_id or not documents:
+        return {"error": "assistant_id and documents are required"}
+    
+    # Define a separate collection for documents
+    collection_name = f"documents_{assistant_id}_knowledge"
+    collection = chroma_client.get_or_create_collection(collection_name)
+    
+    # Prepare LlamaIndex documents
+    llama_documents = []
+    for doc in documents:
+        doc_id = doc.get("id")
+        doc_name = doc.get("name", "Unnamed Document")
+        content = doc.get("content", "")
+        
+        # Split large documents into chunks
+        splitter = SentenceSplitter(chunk_size=512, chunk_overlap=100)
+        chunks = splitter.split_text(content)
+        
+        for i, chunk in enumerate(chunks):
+            llama_doc = Document(
+                text=chunk,
+                metadata={
+                    "knowledge_type": "document",
+                    "document_id": doc_id,
+                    "document_name": doc_name,
+                    "assistant_id": assistant_id,
+                    "chunk_id": i
+                }
+            )
+            llama_documents.append(llama_doc)
+    
+    # Set up vector store
+    vector_store = ChromaVectorStore(chroma_collection=collection)
+    
+    # Create ingestion pipeline
+    pipeline = IngestionPipeline(
+        transformations=[
+            SentenceSplitter(chunk_size=512, chunk_overlap=100),
+            Settings.embed_model  # Use the same embedding model as flow indexing
+        ],
+        vector_store=vector_store
+    )
+    
+    # Process and index documents
+    nodes = pipeline.run(documents=llama_documents)
+    
+    return {
+        "status": "success",
+        "indexed_documents": len(documents),
+        "nodes_created": len(nodes),
+        "collection_name": collection_name
+    }
+
 @app.post("/api/shared/vector_chat")        
 async def vector_flow_chat(request: dict):
     """
@@ -7487,6 +7546,7 @@ async def vector_flow_chat(request: dict):
         message = request.get("message", "")
         sessionId = request.get("sessionId", "")
         flow_id = request.get("flow_id")
+        assistant_id = request.get("assistantId")
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         
@@ -7542,11 +7602,11 @@ Return your response as a JSON object with the following structure:
 }}
 """
         # Get the flow knowledge index
-        collection_name = f"flow_{flow_id}_knowledge"
+        flow_collection_name = f"flow_{flow_id}_knowledge"
         
         # Check if collection exists
         try:
-            collection = chroma_client.get_collection(collection_name)
+            flow_collection = chroma_client.get_collection(flow_collection_name)
         except ValueError:
             # Collection doesn't exist, need to create the index first
             return {
@@ -7554,20 +7614,36 @@ Return your response as a JSON object with the following structure:
                 "content": "I'm having trouble processing your request. Please try again later."
             }
         
-        # Create vector store and index
-        vector_store = ChromaVectorStore(chroma_collection=collection)
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
+             # Create vector store and index
+        flow_vector_store = ChromaVectorStore(chroma_collection=flow_collection)
+        flow_storage_context = StorageContext.from_defaults(vector_store=flow_vector_store)
+        flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
         
+        document_collection_name = f"documents_{assistant_id}_knowledge"  # flow_id is assistant_id
+        document_context = ""
+        try:
+            document_collection = chroma_client.get_collection(document_collection_name)
+            document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
+            document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+            
+            # Query document index for relevant content
+            document_query_engine = document_index.as_query_engine(similarity_top_k=3)
+            document_response = document_query_engine.query(message)
+            document_context = f"Relevant Document Content:\n{document_response.response}"
+        except ValueError:
+            print(f"Document index {document_collection_name} not found; proceeding with flow only.")
+        
+   
+        full_context = f"{context_text}\n\n{document_context}"
         # Create query engine
-        query_engine = index.as_query_engine(
+        query_engine = flow_index.as_query_engine(
             response_mode="compact",
             similarity_top_k=7,  # Retrieve more context for complete instructions
             llm=Settings.llm  # Use the specified LLM
         )
         
         # Query the index
-        response = query_engine.query(context_text)
+        response = query_engine.query(full_context)
         
         # Process the response
         try:
