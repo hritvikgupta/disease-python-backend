@@ -22,6 +22,8 @@ from passlib.context import CryptContext
 import aiohttp
 import uvicorn
 import nest_asyncio
+nest_asyncio.apply()
+
 import pickle
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, Float, Boolean, DateTime, ForeignKey
 from sqlalchemy import func
@@ -7356,12 +7358,18 @@ async def create_flow_knowledge_index(flow_data: dict):
         ))
     
     # Add global flow processing instructions
+    starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
+                    "nodeType" in node and node["nodeType"] == "starting"), None)
+    starting_node_id = starting_node["id"] if starting_node else None
+
+    print(f"Found starting node with ID: {starting_node_id}")
+
     flow_instructions = f"""
     FLOW ID: {flow_id}
     
     GENERAL PROCESSING INSTRUCTIONS:
     
-    1. STARTING: When a new conversation begins, find the node with nodeType='starting' and process it first.
+    1. STARTING: use {starting_node_id} or When a new conversation begins, find the node with nodeType='starting' and process it first.
     
     2. DIALOGUENODE PROCESSING:
        - Display the node's message to the user
