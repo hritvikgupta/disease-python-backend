@@ -22,7 +22,7 @@ from passlib.context import CryptContext
 import aiohttp
 import uvicorn
 import nest_asyncio
-nest_asyncio.apply()
+# nest_asyncio.apply()
 
 import pickle
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, Float, Boolean, DateTime, ForeignKey
