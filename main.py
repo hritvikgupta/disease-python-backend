@@ -7268,342 +7268,9 @@ async def get_lab_order(
     }
 
 
-#for the shared chat endpoint
-@app.post("/api/index/flow-knowledge")
-async def create_flow_knowledge_index(flow_data: dict):
-    """
-    Convert an entire flow structure into a knowledge base for LlamaIndex.
-    """
-    flow_id = flow_data.get("id", str(uuid.uuid4()))
-    nodes = flow_data.get("nodes", [])
-    edges = flow_data.get("edges", [])
-    
-    documents = []
-    
-    # Process all nodes
-    for node in nodes:
-        node_id = node.get("id")
-        node_type = node.get("type")
-        node_data = node.get("data", {})
-        
-        # Create base document text
-        doc_text = f"NODE ID: {node_id}\nNODE TYPE: {node_type}\n\n"
-        
-        # Add node specific processing instructions
-        if node_type == "dialogueNode":
-            doc_text += f"INSTRUCTION: When the user is at this dialogue node, display the message '{node_data.get('message', '')}' to the user.\n\n"
-            doc_text += "FUNCTIONS:\n"
-            for func in node_data.get("functions", []):
-                func_id = func.get("id")
-                func_content = func.get("content", "")
-                
-                # Find the edge for this function
-                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
-                if func_edges:
-                    target_node_id = func_edges[0].get("target")
-                    doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
-            
-        elif node_type == "scriptNode":
-            doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
-            doc_text += "FUNCTIONS:\n"
-            for func in node_data.get("functions", []):
-                func_id = func.get("id")
-                func_content = func.get("content", "")
-                
-                # Find the edge for this function
-                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
-                if func_edges:
-                    target_node_id = func_edges[0].get("target")
-                    doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
-            
-        elif node_type == "fieldSetterNode":
-            doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
-            
-            # Find the outgoing edge
-            setter_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"{node_id}-right"]
-            if setter_edges:
-                target_node_id = setter_edges[0].get("target")
-                doc_text += f"After capturing the field value, proceed to node {target_node_id}\n"
-            
-        elif node_type == "responseNode":
-            doc_text += f"INSTRUCTION: When the user is at this response node, display the message '{node_data.get('message', '')}' and then use the LLM to generate a conversational response.\n\n"
-            doc_text += "TRIGGERS:\n"
-            for trigger in node_data.get("triggers", []):
-                trigger_id = trigger.get("id")
-                trigger_content = trigger.get("content", "")
-                
-                # Find the edge for this trigger
-                trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
-                if trigger_edges:
-                    target_node_id = trigger_edges[0].get("target")
-                    doc_text += f"- If user's response matches '{trigger_content}', proceed to node {target_node_id}\n"
-            
-        elif node_type == "callTransferNode":
-            doc_text += f"INSTRUCTION: When the user is at this call transfer node, display the message '{node_data.get('message', '')}' and create a notification for human takeover.\n\n"
-            
-            # Find any outgoing edge
-            transfer_edges = [e for e in edges if e.get("source") == node_id]
-            if transfer_edges:
-                target_node_id = transfer_edges[0].get("target")
-                doc_text += f"After notifying about the transfer, proceed to node {target_node_id}\n"
-        
-        # Create document
-        documents.append(Document(
-            text=doc_text,
-            metadata={
-                "node_id": node_id,
-                "node_type": node_type,
-                "flow_id": flow_id
-            }
-        ))
-    
-    # Add global flow processing instructions
-    starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
-                    "nodeType" in node and node["nodeType"] == "starting"), None)
-    starting_node_id = starting_node["id"] if starting_node else None
-
-    print(f"Found starting node with ID: {starting_node_id}")
-
-    flow_instructions = f"""
-    FLOW ID: {flow_id}
-    
-    GENERAL PROCESSING INSTRUCTIONS:
-    
-    1. STARTING: use {starting_node_id} or When a new conversation begins, find the node with nodeType='starting' and process it first.
-    
-    2. DIALOGUENODE PROCESSING:
-       - Display the node's message to the user
-       - Wait for user input
-       - Match user input against the node's functions
-       - If a match is found, transition to the corresponding target node
-       - If no match is found, generate a response using the LLM
-    
-    3. SCRIPTNODE PROCESSING:
-       - Display the node's message to the user
-       - If the node has functions, check if any should be activated
-       - If a function is activated, transition to its target node
-       - Otherwise, move to the next connected node if one exists
-    
-    4. FIELDSETTERNODE PROCESSING:
-       - Request the specified field value from the user
-       - Wait for user input
-       - Validate the input as a valid value for the field
-       - If valid, store the value and transition to the next node
-       - If invalid, ask the user again
-    
-    5. RESPONSENODE PROCESSING:
-       - Display the node's message to the user
-       - Wait for user input
-       - Generate a response using the LLM
-       - Check if the user's next message matches any triggers
-       - If a trigger matches, transition to its target node
-    
-    6. CALLTRANSFERNODE PROCESSING:
-       - Display the node's message to the user
-       - Create a notification for human transfer
-       - Transition to the next node if one exists
-    
-    7. SESSION STATE:
-       - Always track which node the user is currently at
-       - Store field values collected from FieldSetterNodes
-       - Mark whether you're awaiting a response from the user
-    
-    8. OUT-OF-FLOW HANDLING:
-       - If the user asks a question unrelated to the current node:
-         a. If it's a simple question, answer it directly
-         b. After answering, return to the current node's flow
-    """
-    
-    # Add flow processing document
-    documents.append(Document(
-        text=flow_instructions,
-        metadata={
-            "flow_id": flow_id,
-            "type": "flow_instructions"
-        }
-    ))
-    
-    # Add node connections document for reference
-    connections_text = "NODE CONNECTIONS:\n\n"
-    for edge in edges:
-        source = edge.get("source")
-        target = edge.get("target")
-        source_handle = edge.get("sourceHandle")
-        connections_text += f"From node {source} to node {target}"
-        if source_handle:
-            connections_text += f" via {source_handle}"
-        connections_text += "\n"
-    
-    documents.append(Document(
-        text=connections_text,
-        metadata={
-            "flow_id": flow_id,
-            "type": "connections"
-        }
-    ))
-    
-    # Create the index directory if it doesn't exist
-    os.makedirs("flow_indices", exist_ok=True)
-    
-    # Create vector store
-    collection_name = f"flow_{flow_id}_knowledge"
-    # Delete existing collection if it exists
-    try:
-        chroma_client.delete_collection(collection_name)
-        print(f"Deleted existing collection {collection_name}")
-    except ValueError:
-        print(f"Collection {collection_name} did not exist")
-
-    vector_store = ChromaVectorStore(
-        chroma_collection=chroma_client.get_or_create_collection(collection_name)
-    )
-    
-    # Create ingestion pipeline
-    pipeline = IngestionPipeline(
-        transformations=[
-            SentenceSplitter(chunk_size=512, chunk_overlap=100),
-            Settings.embed_model
-        ],
-        vector_store=vector_store
-    )
-    
-    # Process documents
-    nodes = pipeline.run(documents=documents)
-    
-    # Create index
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    index = VectorStoreIndex(nodes, storage_context=storage_context)
-    
-    # Save metadata about this index
-    index_metadata = {
-        "flow_id": flow_id,
-        "node_count": len(nodes),
-        "created_at": datetime.utcnow().isoformat(),
-        "collection_name": collection_name
-    }
-    
-    with open(f"flow_indices/{flow_id}_metadata.json", "w") as f:
-        json.dump(index_metadata, f, indent=2)
-    
-    return {
-        "status": "success", 
-        "flow_id": flow_id,
-        "indexed_documents": len(documents),
-        "nodes_created": len(nodes)
-    }
 
 
-@app.post("/api/index/assistant-documents")
-async def index_assistant_documents(request: dict):
-    assistant_id = request.get("assistant_id")
-    documents = request.get("documents", [])
-    print("INDEXING DOCUMENTS")
-    print(f"Assistant ID: {assistant_id}")
-    print(f"Number of documents to index: {len(documents)}")
-    
-    if not assistant_id or not documents:
-        print("ERROR: assistant_id and documents are required")
-        return {"error": "assistant_id and documents are required"}
-    
-    # Define a separate collection for documents
-    collection_name = f"documents_{assistant_id}_knowledge"
-    print(f"Creating/accessing collection: {collection_name}")
-    
-    try:
-        collection = chroma_client.get_or_create_collection(collection_name)
-        print(f"Collection size before indexing: {collection.count()}")
-    except Exception as e:
-        print(f"Error creating/accessing collection: {str(e)}")
-        return {"error": f"Failed to create/access collection: {str(e)}"}
-    
-    # Prepare LlamaIndex documents
-    llama_documents = []
-    for doc in documents:
-        doc_id = doc.get("id")
-        doc_name = doc.get("name", "Unnamed Document")
-        content = doc.get("content", "")
-        print(f"Processing document: {doc_name} (ID: {doc_id})")
-        print(f"Document content length: {len(content)} characters")
-        
-        # Create a Document object with metadata
-        llama_doc = Document(
-            text=content,
-            metadata={
-                "knowledge_type": "document",
-                "document_id": doc_id,
-                "document_name": doc_name,
-                "assistant_id": assistant_id
-            }
-        )
-        llama_documents.append(llama_doc)
-    
-    print(f"Total LlamaIndex documents created: {len(llama_documents)}")
-    
-    # Set up vector store
-    vector_store = ChromaVectorStore(chroma_collection=collection)
-    print("Vector store setup complete")
-    
-    # IMPORTANT: Avoid using extractors that require LLM in the ingestion pipeline
-    # Those cause the nested async loop issues
-    
-    # Create a simpler pipeline without LLM-based extractors
-    splitter = SentenceSplitter(chunk_size=512, chunk_overlap=100)
-    
-    # First, just split the documents into nodes
-    nodes = []
-    for doc in llama_documents:
-        nodes.extend(splitter.get_nodes_from_documents([doc]))
-    
-    print(f"Split documents into {len(nodes)} nodes")
-    
-    # Set up storage context
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    
-    # Create the VectorStoreIndex with the nodes
-    print("Creating VectorStoreIndex...")
-    base_index = VectorStoreIndex(nodes, storage_context=storage_context)
-    
-    # Embed and store in vector store
-    print("Embedding and storing nodes...")
-    for node in nodes:
-        # Ensure node has embedding
-        if node.embedding is None:
-            embedding = Settings.embed_model.get_text_embedding(
-                node.get_content(metadata_mode="all")
-            )
-            node.embedding = embedding
-        
-        # Add to vector store directly
-        vector_store.add([node])
-    
-    print(f"Successfully indexed {len(nodes)} nodes")
-    
-    # Create retriever with similarity search
-    retriever = base_index.as_retriever(
-        similarity_top_k=20
-    )
-    
-    # Store index and retriever in app state for later use
-    document_indexes = getattr(app.state, "document_indexes", {})
-    document_indexes[assistant_id] = {
-        "index": base_index,
-        "retriever": retriever,
-        "created_at": datetime.now().isoformat(),
-        "document_count": len(llama_documents),
-        "node_count": len(nodes)
-    }
-    app.state.document_indexes = document_indexes
-    
-    print(f"Collection size after indexing: {collection.count()}")
-    
-    return {
-        "status": "success",
-        "indexed_documents": len(documents),
-        "nodes_created": len(nodes),
-        "collection_name": collection_name
-    }
-
-  
+#may102025
 # @app.post("/api/index/assistant-documents")
 # async def index_assistant_documents(request: dict):
 #     assistant_id = request.get("assistant_id")
@@ -7989,6 +7656,1019 @@ async def index_assistant_documents(request: dict):
 #             "content": "I'm having trouble processing your request. Please try again later."
 #         } 
 
+#lastworking on local may112025
+#for the shared chat endpoint
+# @app.post("/api/index/flow-knowledge")
+# async def create_flow_knowledge_index(flow_data: dict):
+#     """
+#     Convert an entire flow structure into a knowledge base for LlamaIndex.
+#     """
+#     flow_id = flow_data.get("id", str(uuid.uuid4()))
+#     nodes = flow_data.get("nodes", [])
+#     edges = flow_data.get("edges", [])
+    
+#     documents = []
+    
+#     # Process all nodes
+#     for node in nodes:
+#         node_id = node.get("id")
+#         node_type = node.get("type")
+#         node_data = node.get("data", {})
+        
+#         # Create base document text
+#         doc_text = f"NODE ID: {node_id}\nNODE TYPE: {node_type}\n\n"
+        
+#         # Add node specific processing instructions
+#         if node_type == "dialogueNode":
+#             doc_text += f"INSTRUCTION: When the user is at this dialogue node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+#             doc_text += "FUNCTIONS:\n"
+#             for func in node_data.get("functions", []):
+#                 func_id = func.get("id")
+#                 func_content = func.get("content", "")
+                
+#                 # Find the edge for this function
+#                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+#                 if func_edges:
+#                     target_node_id = func_edges[0].get("target")
+#                     doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
+            
+#         elif node_type == "scriptNode":
+#             doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+#             doc_text += "FUNCTIONS:\n"
+#             for func in node_data.get("functions", []):
+#                 func_id = func.get("id")
+#                 func_content = func.get("content", "")
+                
+#                 # Find the edge for this function
+#                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+#                 if func_edges:
+#                     target_node_id = func_edges[0].get("target")
+#                     doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
+            
+#         elif node_type == "fieldSetterNode":
+#             doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
+            
+#             # Find the outgoing edge
+#             setter_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"{node_id}-right"]
+#             if setter_edges:
+#                 target_node_id = setter_edges[0].get("target")
+#                 doc_text += f"After capturing the field value, proceed to node {target_node_id}\n"
+            
+#         elif node_type == "responseNode":
+#             doc_text += f"INSTRUCTION: When the user is at this response node, display the message '{node_data.get('message', '')}' and then use the LLM to generate a conversational response.\n\n"
+#             doc_text += "TRIGGERS:\n"
+#             for trigger in node_data.get("triggers", []):
+#                 trigger_id = trigger.get("id")
+#                 trigger_content = trigger.get("content", "")
+                
+#                 # Find the edge for this trigger
+#                 trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
+#                 if trigger_edges:
+#                     target_node_id = trigger_edges[0].get("target")
+#                     doc_text += f"- If user's response matches '{trigger_content}', proceed to node {target_node_id}\n"
+            
+#         elif node_type == "callTransferNode":
+#             doc_text += f"INSTRUCTION: When the user is at this call transfer node, display the message '{node_data.get('message', '')}' and create a notification for human takeover.\n\n"
+            
+#             # Find any outgoing edge
+#             transfer_edges = [e for e in edges if e.get("source") == node_id]
+#             if transfer_edges:
+#                 target_node_id = transfer_edges[0].get("target")
+#                 doc_text += f"After notifying about the transfer, proceed to node {target_node_id}\n"
+        
+#         # Create document
+#         documents.append(Document(
+#             text=doc_text,
+#             metadata={
+#                 "node_id": node_id,
+#                 "node_type": node_type,
+#                 "flow_id": flow_id
+#             }
+#         ))
+    
+#     # Add global flow processing instructions
+#     starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
+#                     "nodeType" in node and node["nodeType"] == "starting"), None)
+#     starting_node_id = starting_node["id"] if starting_node else None
+
+#     print(f"Found starting node with ID: {starting_node_id}")
+
+#     flow_instructions = f"""
+#     FLOW ID: {flow_id}
+    
+#     GENERAL PROCESSING INSTRUCTIONS:
+    
+#     1. STARTING: use {starting_node_id} or When a new conversation begins, find the node with nodeType='starting' and process it first.
+    
+#     2. DIALOGUENODE PROCESSING:
+#        - Display the node's message to the user
+#        - Wait for user input
+#        - Match user input against the node's functions
+#        - If a match is found, transition to the corresponding target node
+#        - If no match is found, generate a response using the LLM
+    
+#     3. SCRIPTNODE PROCESSING:
+#        - Display the node's message to the user
+#        - If the node has functions, check if any should be activated
+#        - If a function is activated, transition to its target node
+#        - Otherwise, move to the next connected node if one exists
+    
+#     4. FIELDSETTERNODE PROCESSING:
+#        - Request the specified field value from the user
+#        - Wait for user input
+#        - Validate the input as a valid value for the field
+#        - If valid, store the value and transition to the next node
+#        - If invalid, ask the user again
+    
+#     5. RESPONSENODE PROCESSING:
+#        - Display the node's message to the user
+#        - Wait for user input
+#        - Generate a response using the LLM
+#        - Check if the user's next message matches any triggers
+#        - If a trigger matches, transition to its target node
+    
+#     6. CALLTRANSFERNODE PROCESSING:
+#        - Display the node's message to the user
+#        - Create a notification for human transfer
+#        - Transition to the next node if one exists
+    
+#     7. SESSION STATE:
+#        - Always track which node the user is currently at
+#        - Store field values collected from FieldSetterNodes
+#        - Mark whether you're awaiting a response from the user
+    
+#     8. OUT-OF-FLOW HANDLING:
+#        - If the user asks a question unrelated to the current node:
+#          a. If it's a simple question, answer it directly
+#          b. After answering, return to the current node's flow
+#     """
+    
+#     # Add flow processing document
+#     documents.append(Document(
+#         text=flow_instructions,
+#         metadata={
+#             "flow_id": flow_id,
+#             "type": "flow_instructions"
+#         }
+#     ))
+    
+#     # Add node connections document for reference
+#     connections_text = "NODE CONNECTIONS:\n\n"
+#     for edge in edges:
+#         source = edge.get("source")
+#         target = edge.get("target")
+#         source_handle = edge.get("sourceHandle")
+#         connections_text += f"From node {source} to node {target}"
+#         if source_handle:
+#             connections_text += f" via {source_handle}"
+#         connections_text += "\n"
+    
+#     documents.append(Document(
+#         text=connections_text,
+#         metadata={
+#             "flow_id": flow_id,
+#             "type": "connections"
+#         }
+#     ))
+    
+#     # Create the index directory if it doesn't exist
+#     os.makedirs("flow_indices", exist_ok=True)
+    
+#     # Create vector store
+#     collection_name = f"flow_{flow_id}_knowledge"
+#     # Delete existing collection if it exists
+#     try:
+#         chroma_client.delete_collection(collection_name)
+#         print(f"Deleted existing collection {collection_name}")
+#     except ValueError:
+#         print(f"Collection {collection_name} did not exist")
+
+#     vector_store = ChromaVectorStore(
+#         chroma_collection=chroma_client.get_or_create_collection(collection_name)
+#     )
+    
+#     # Create ingestion pipeline
+#     pipeline = IngestionPipeline(
+#         transformations=[
+#             SentenceSplitter(chunk_size=512, chunk_overlap=100),
+#             Settings.embed_model
+#         ],
+#         vector_store=vector_store
+#     )
+    
+#     # Process documents
+#     nodes = pipeline.run(documents=documents)
+    
+#     # Create index
+#     storage_context = StorageContext.from_defaults(vector_store=vector_store)
+#     index = VectorStoreIndex(nodes, storage_context=storage_context)
+    
+#     # Save metadata about this index
+#     index_metadata = {
+#         "flow_id": flow_id,
+#         "node_count": len(nodes),
+#         "created_at": datetime.utcnow().isoformat(),
+#         "collection_name": collection_name
+#     }
+    
+#     with open(f"flow_indices/{flow_id}_metadata.json", "w") as f:
+#         json.dump(index_metadata, f, indent=2)
+    
+#     return {
+#         "status": "success", 
+#         "flow_id": flow_id,
+#         "indexed_documents": len(documents),
+#         "nodes_created": len(nodes)
+#     }
+
+# @app.post("/api/index/assistant-documents")
+# async def index_assistant_documents(request: dict):
+#     assistant_id = request.get("assistant_id")
+#     documents = request.get("documents", [])
+#     print("INDEXING DOCUMENTS")
+#     print(f"Assistant ID: {assistant_id}")
+#     print(f"Number of documents to index: {len(documents)}")
+    
+#     if not assistant_id or not documents:
+#         print("ERROR: assistant_id and documents are required")
+#         return {"error": "assistant_id and documents are required"}
+    
+#     # Define a separate collection for documents
+#     collection_name = f"documents_{assistant_id}_knowledge"
+#     print(f"Creating/accessing collection: {collection_name}")
+    
+#     try:
+#         collection = chroma_client.get_or_create_collection(collection_name)
+#         print(f"Collection size before indexing: {collection.count()}")
+#     except Exception as e:
+#         print(f"Error creating/accessing collection: {str(e)}")
+#         return {"error": f"Failed to create/access collection: {str(e)}"}
+    
+#     # Prepare LlamaIndex documents
+#     llama_documents = []
+#     for doc in documents:
+#         doc_id = doc.get("id")
+#         doc_name = doc.get("name", "Unnamed Document")
+#         content = doc.get("content", "")
+#         print(f"Processing document: {doc_name} (ID: {doc_id})")
+#         print(f"Document content length: {len(content)} characters")
+        
+#         # Create a Document object with metadata
+#         llama_doc = Document(
+#             text=content,
+#             metadata={
+#                 "knowledge_type": "document",
+#                 "document_id": doc_id,
+#                 "document_name": doc_name,
+#                 "assistant_id": assistant_id
+#             }
+#         )
+#         llama_documents.append(llama_doc)
+    
+#     print(f"Total LlamaIndex documents created: {len(llama_documents)}")
+    
+#     # Set up vector store
+#     vector_store = ChromaVectorStore(chroma_collection=collection)
+#     print("Vector store setup complete")
+    
+#     # IMPORTANT: Avoid using extractors that require LLM in the ingestion pipeline
+#     # Those cause the nested async loop issues
+    
+#     # Create a simpler pipeline without LLM-based extractors
+#     splitter = SentenceSplitter(chunk_size=512, chunk_overlap=100)
+    
+#     # First, just split the documents into nodes
+#     nodes = []
+#     for doc in llama_documents:
+#         nodes.extend(splitter.get_nodes_from_documents([doc]))
+    
+#     print(f"Split documents into {len(nodes)} nodes")
+    
+#     # Set up storage context
+#     storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    
+#     # Create the VectorStoreIndex with the nodes
+#     print("Creating VectorStoreIndex...")
+#     base_index = VectorStoreIndex(nodes, storage_context=storage_context)
+    
+#     # Embed and store in vector store
+#     print("Embedding and storing nodes...")
+#     for node in nodes:
+#         # Ensure node has embedding
+#         if node.embedding is None:
+#             embedding = Settings.embed_model.get_text_embedding(
+#                 node.get_content(metadata_mode="all")
+#             )
+#             node.embedding = embedding
+        
+#         # Add to vector store directly
+#         vector_store.add([node])
+    
+#     print(f"Successfully indexed {len(nodes)} nodes")
+    
+#     # Create retriever with similarity search
+#     retriever = base_index.as_retriever(
+#         similarity_top_k=20
+#     )
+    
+#     # Store index and retriever in app state for later use
+#     document_indexes = getattr(app.state, "document_indexes", {})
+#     document_indexes[assistant_id] = {
+#         "index": base_index,
+#         "retriever": retriever,
+#         "created_at": datetime.now().isoformat(),
+#         "document_count": len(llama_documents),
+#         "node_count": len(nodes)
+#     }
+#     app.state.document_indexes = document_indexes
+    
+#     print(f"Collection size after indexing: {collection.count()}")
+    
+#     return {
+#         "status": "success",
+#         "indexed_documents": len(documents),
+#         "nodes_created": len(nodes),
+#         "collection_name": collection_name
+#     }
+
+# @app.post("/api/shared/vector_chat")        
+# async def vector_flow_chat(request: dict):
+#     """
+#     Process a chat message using the vector-based flow knowledge index.
+#     This endpoint doesn't rely on Firestore or Gemini services.
+#     """
+#     import traceback  # Add missing import
+    
+#     try:
+#         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
+#         message = request.get("message", "")
+#         sessionId = request.get("sessionId", "")
+#         flow_id = request.get("flow_id")
+#         assistant_id = request.get("assistantId")
+#         session_data = request.get("session_data", {})
+#         previous_messages = request.get("previous_messages", [])
+        
+#         print(f"Message: '{message}'")
+#         print(f"Session ID: {sessionId}")
+#         print(f"Flow ID: {flow_id}")
+#         print(f"Assistant ID: {assistant_id}")
+#         print(f"Session data: {json.dumps(session_data, indent=2)}")
+#         print(f"Number of previous messages: {len(previous_messages)}")
+        
+#         if not flow_id:
+#             print("ERROR: flow_id is required")
+#             return {
+#                 "error": "flow_id is required",
+#                 "content": "Missing required parameters"
+#             }
+        
+#         # Create context for the query
+#         current_node_id = session_data.get('currentNodeId')
+#         print(f"Current node ID: {current_node_id}")
+        
+#         # Format previous messages for better context
+#         conversation_history = ""
+#         for msg in previous_messages:
+#             role = msg.get("role", "unknown")
+#             content = msg.get("content", "")
+#             conversation_history += f"{role}: {content}\n"
+        
+#         print(f"Conversation history length: {len(conversation_history)} characters")
+        
+#         # Get the flow knowledge index
+#         flow_collection_name = f"flow_{flow_id}_knowledge"
+#         print(f"Accessing flow collection: {flow_collection_name}")
+        
+#         # Check if collection exists
+#         try:
+#             flow_collection = chroma_client.get_collection(flow_collection_name)
+#             print(f"Flow collection found with {flow_collection.count()} entries")
+#         except ValueError:
+#             # Collection doesn't exist, need to create the index first
+#             print(f"ERROR: Flow collection {flow_collection_name} not found")
+#             return {
+#                 "error": "Flow knowledge index not found. Please index the flow first.",
+#                 "content": "I'm having trouble processing your request. Please try again later."
+#             }
+        
+#         # Create vector store and index
+#         flow_vector_store = ChromaVectorStore(chroma_collection=flow_collection)
+#         flow_storage_context = StorageContext.from_defaults(vector_store=flow_vector_store)
+#         flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
+#         print("Flow vector index created successfully")
+        
+#         # Document retrieval section - MADE OPTIONAL
+#         document_collection_name = f"documents_{assistant_id}_knowledge"  # flow_id is assistant_id
+#         print(f"Checking for document collection: {document_collection_name}")
+#         document_context = ""  # Initialize empty context
+
+#         # Check for cached index/retriever in app state first
+#         document_indexes = getattr(app.state, "document_indexes", {})
+#         cached_index_data = document_indexes.get(assistant_id)
+
+#         # Try to load document context if available, but don't fail if not
+#         try:
+#             if cached_index_data and "retriever" in cached_index_data:
+#                 print(f"Using cached document retriever for assistant {assistant_id}")
+#                 document_retriever = cached_index_data["retriever"]
+                
+#                 # Get initial candidates from vector retriever
+#                 print(f"Retrieving documents for query: '{message}'")
+#                 retrieved_nodes = document_retriever.retrieve(message)
+                
+#                 # Apply BM25 reranking if we have enough nodes
+#                 try:
+#                     from llama_index.core.retrievers import BM25Retriever
+                    
+#                     # Get just the node objects (without scores)
+#                     node_objs = [n.node for n in retrieved_nodes]
+                    
+#                     if len(node_objs) > 1:
+#                         print(f"Applying BM25 reranking to {len(node_objs)} nodes")
+#                         bm25_retriever = BM25Retriever.from_defaults(
+#                             nodes=node_objs, 
+#                             similarity_top_k=min(5, len(node_objs))
+#                         )
+                        
+#                         # Get reranked results
+#                         reranked_nodes = bm25_retriever.retrieve(message)
+                        
+#                         # Use these for generating context
+#                         if reranked_nodes:
+#                             document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+#                             document_context = f"Relevant Document Content:\n{document_text}"
+#                     else:
+#                         # Not enough nodes for reranking, use as is
+#                         document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#                         document_context = f"Relevant Document Content:\n{document_text}"
+                    
+#                     print(f"Document retrieval complete, found content with {len(document_context)} characters")
+#                 except Exception as e:
+#                     print(f"Error in BM25 reranking: {str(e)}, using vector results")
+#                     document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#                     document_context = f"Relevant Document Content:\n{document_text}"
+            
+#             # If no cached index, try the original approach
+#             elif document_indexes.get(assistant_id) is None:
+#                 try:
+#                     document_collection = chroma_client.get_collection(document_collection_name)
+#                     document_count = document_collection.count()
+#                     print(f"Document collection found with {document_count} entries")
+                    
+#                     if document_count > 0:
+#                         print("Creating document vector store and index on the fly")
+#                         document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
+#                         document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+                        
+#                         # Create a better retriever that we'll cache for next time
+#                         document_retriever = document_index.as_retriever(similarity_top_k=20)
+                        
+#                         # Cache for future use
+#                         document_indexes[assistant_id] = {
+#                             "index": document_index,
+#                             "retriever": document_retriever,
+#                             "created_at": datetime.now().isoformat()
+#                         }
+#                         app.state.document_indexes = document_indexes
+                        
+#                         # Query using standard approach for now
+#                         print(f"Querying document index for: '{message}'")
+#                         document_query_engine = document_index.as_query_engine(similarity_top_k=20)
+#                         document_response = document_query_engine.query(message)
+#                         document_context = f"Relevant Document Content:\n{document_response.response}"
+#                         print(f"Document query returned content")
+#                         print("Document context summary: " + document_context[:100] + "..." if len(document_context) > 100 else document_context)
+#                     else:
+#                         print("Document collection exists but is empty")
+#                 except ValueError as e:
+#                     print(f"Document collection {document_collection_name} not found; proceeding with flow only: {str(e)}")
+#                     # Save an empty entry to avoid retrying each time
+#                     document_indexes[assistant_id] = {
+#                         "index": None,
+#                         "retriever": None,
+#                         "created_at": datetime.now().isoformat(),
+#                         "error": str(e)
+#                     }
+#                     app.state.document_indexes = document_indexes
+#         except Exception as doc_error:
+#             # If anything goes wrong with document retrieval, log it but continue
+#             print(f"ERROR in document retrieval (non-critical): {str(doc_error)}")
+#             print("Continuing without document context")
+        
+#         # Define the context text based on whether document context is available
+#         document_context_section = ""
+#         if document_context:
+#             document_context_section = f"""
+# Relevant Document Content:
+# {document_context}
+
+# You are a helpful assistant tasked with providing accurate, specific, and context-aware responses. Follow these steps:
+# 1. Identify the user's intent from the message and conversation history.
+# 2. **IMPORTANT**: Scan the Relevant Document Content for any URLs, phone numbers, email addresses, or other specific resources (e.g., websites, programs, contact information).
+# 3. **CRITICAL REQUIREMENT**: If ANY resources like URLs, phone numbers, or contact information are found in the document content, you MUST include them verbatim in your response regardless of whether the user explicitly requested them.
+# 4. Generate a natural, conversational response that directly addresses the user's query, incorporating document content as needed.
+# 5. Maintain continuity with the conversation history to stay focused on the user's current intent.
+# 6. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION, but prioritize document content for specific details.
+# 7. Do not repeat the node's INSTRUCTION verbatim; use it as a guide to craft a friendly, relevant response.
+# 8. If no relevant document content is found, provide a helpful response based on the flow logic or general knowledge, and ask for clarification if needed.
+# 9. Before finalizing your response, double-check that you've included all resource links, phone numbers, and contact methods from the document context.
+# """
+#         else:
+#             # Simpler context when no documents are available
+#             document_context_section = """
+# You are a helpful assistant tasked with providing accurate and context-aware responses. Follow these steps:
+# 1. Identify the user's intent from the message and conversation history.
+# 2. Generate a natural, conversational response that directly addresses the user's query.
+# 3. Maintain continuity with the conversation history to stay focused on the user's current intent.
+# 4. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION.
+# 5. Do not repeat the node's INSTRUCTION verbatim; use it as a guide to craft a friendly, relevant response.
+# """
+        
+#         context_text = f"""
+# The user message is: "{message}"
+
+# The current node ID is: {current_node_id or "None - this is the first message"}
+
+# IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
+# you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
+
+# Previous conversation:
+# {conversation_history}
+
+# The session data is:
+# {json.dumps(session_data, indent=2)}
+
+# {document_context_section}
+
+# Return your response as a JSON object with the following structure:
+# {{
+#     "content": "The response to send to the user, including specific document content where applicable",
+#     "next_node_id": "ID of the next node to process",
+#     "state_updates": {{
+#         "key": "value"
+#     }}
+# }}
+# """
+        
+#         full_context = context_text
+#         print(f"Full context length: {len(full_context)} characters")
+        
+#         # Create query engine
+#         print("Creating flow query engine")
+#         query_engine = flow_index.as_query_engine(
+#             response_mode="compact",
+#             similarity_top_k=7,  # Retrieve more context for complete instructions
+#             llm=Settings.llm  # Use the specified LLM
+#         )
+        
+#         # Query the index
+#         print("Querying flow index with full context")
+#         response = query_engine.query(full_context)
+#         print("Query complete, processing response")
+        
+#         # Process the response
+#         try:
+#             # Parse the response text as JSON
+#             response_text = response.response
+#             print(f"Raw response length: {len(response_text)} characters")
+            
+#             # Clean up the response if it contains markdown code blocks
+#             if "```json" in response_text:
+#                 print("Parsing JSON from markdown code block with ```json")
+#                 response_text = response_text.split("```json")[1].split("```")[0].strip()
+#             elif "```" in response_text:
+#                 print("Parsing JSON from markdown code block")
+#                 response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+#             print(f"Cleaned response: {response_text[:100]}..." if len(response_text) > 100 else response_text)
+#             response_data = json.loads(response_text)
+#             print("Successfully parsed JSON response")
+            
+#             # Extract fields
+#             ai_response = response_data.get("content", "I'm having trouble processing your request.")
+#             next_node_id = response_data.get("next_node_id")
+#             state_updates = response_data.get("state_updates", {})
+            
+#             print(f"AI response length: {len(ai_response)} characters")
+#             print(f"Next node ID: {next_node_id}")
+#             print(f"State updates: {json.dumps(state_updates, indent=2)}")
+#             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
+            
+#             # Return the complete response
+#             return {
+#                 "content": ai_response,
+#                 "next_node_id": next_node_id,
+#                 "state_updates": state_updates
+#             }
+            
+#         except Exception as e:
+#             print(f"ERROR processing vector response: {str(e)}")
+#             print(f"Response text that failed to parse: {response_text[:200]}...")
+            
+#             # Fallback to direct LLM response
+#             print("Using fallback LLM response")
+#             fallback_prompt = f"""
+#             You are a helpful assistant. The user has sent the following message:
+            
+#             "{message}"
+            
+#             Previous conversation:
+#             {conversation_history}
+            
+#             Please provide a helpful response.
+#             """
+            
+#             fallback_response = Settings.llm.complete(fallback_prompt)
+#             print(f"Fallback response generated, length: {len(fallback_response.text)} characters")
+#             print("==== VECTOR CHAT PROCESSING COMPLETE (FALLBACK) ====\n")
+            
+#             return {
+#                 "content": fallback_response.text,
+#                 "error": f"Vector processing failed: {str(e)}",
+#                 "fallback": True
+#             }
+            
+#     except Exception as e:
+#         print(f"CRITICAL ERROR in vector_chat: {str(e)}")
+#         traceback_str = traceback.format_exc()
+#         print(f"Traceback: {traceback_str}")
+#         print("==== VECTOR CHAT PROCESSING FAILED ====\n")
+#         return {
+#             "error": f"Failed to process message: {str(e)}",
+#             "content": "I'm having trouble processing your request. Please try again later."
+#         }
+flow_index_storage = {}  # Maps flow_id to flow indexes
+document_index_storage = {}
+@app.post("/api/index/flow-knowledge")
+async def create_flow_knowledge_index(flow_data: dict):
+    """
+    Convert an entire flow structure into a knowledge base for LlamaIndex.
+    """
+    flow_id = flow_data.get("id", str(uuid.uuid4()))
+    nodes = flow_data.get("nodes", [])
+    edges = flow_data.get("edges", [])
+    
+    documents = []
+    
+    # Process all nodes
+    for node in nodes:
+        node_id = node.get("id")
+        node_type = node.get("type")
+        node_data = node.get("data", {})
+        
+        # Create base document text
+        doc_text = f"NODE ID: {node_id}\nNODE TYPE: {node_type}\n\n"
+        
+        # Add node specific processing instructions
+        if node_type == "dialogueNode":
+            doc_text += f"INSTRUCTION: When the user is at this dialogue node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+            doc_text += "FUNCTIONS:\n"
+            for func in node_data.get("functions", []):
+                func_id = func.get("id")
+                func_content = func.get("content", "")
+                
+                # Find the edge for this function
+                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+                if func_edges:
+                    target_node_id = func_edges[0].get("target")
+                    doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "scriptNode":
+            doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
+            doc_text += "FUNCTIONS:\n"
+            for func in node_data.get("functions", []):
+                func_id = func.get("id")
+                func_content = func.get("content", "")
+                
+                # Find the edge for this function
+                func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
+                if func_edges:
+                    target_node_id = func_edges[0].get("target")
+                    doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "fieldSetterNode":
+            doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
+            
+            # Find the outgoing edge
+            setter_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"{node_id}-right"]
+            if setter_edges:
+                target_node_id = setter_edges[0].get("target")
+                doc_text += f"After capturing the field value, proceed to node {target_node_id}\n"
+            
+        elif node_type == "responseNode":
+            doc_text += f"INSTRUCTION: When the user is at this response node, display the message '{node_data.get('message', '')}' and then use the LLM to generate a conversational response.\n\n"
+            doc_text += "TRIGGERS:\n"
+            for trigger in node_data.get("triggers", []):
+                trigger_id = trigger.get("id")
+                trigger_content = trigger.get("content", "")
+                
+                # Find the edge for this trigger
+                trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
+                if trigger_edges:
+                    target_node_id = trigger_edges[0].get("target")
+                    doc_text += f"- If user's response matches '{trigger_content}', proceed to node {target_node_id}\n"
+            
+        elif node_type == "callTransferNode":
+            doc_text += f"INSTRUCTION: When the user is at this call transfer node, display the message '{node_data.get('message', '')}' and create a notification for human takeover.\n\n"
+            
+            # Find any outgoing edge
+            transfer_edges = [e for e in edges if e.get("source") == node_id]
+            if transfer_edges:
+                target_node_id = transfer_edges[0].get("target")
+                doc_text += f"After notifying about the transfer, proceed to node {target_node_id}\n"
+        
+        # Create document
+        documents.append(Document(
+            text=doc_text,
+            metadata={
+                "node_id": node_id,
+                "node_type": node_type,
+                "flow_id": flow_id
+            }
+        ))
+    
+    # Add global flow processing instructions
+    starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
+                    "nodeType" in node and node["nodeType"] == "starting"), None)
+    starting_node_id = starting_node["id"] if starting_node else None
+
+    print(f"Found starting node with ID: {starting_node_id}")
+
+    flow_instructions = f"""
+    FLOW ID: {flow_id}
+    
+    GENERAL PROCESSING INSTRUCTIONS:
+    
+    1. STARTING: use {starting_node_id} or When a new conversation begins, find the node with nodeType='starting' and process it first.
+    
+    2. DIALOGUENODE PROCESSING:
+       - Display the node's message to the user
+       - Wait for user input
+       - Match user input against the node's functions
+       - If a match is found, transition to the corresponding target node
+       - If no match is found, generate a response using the LLM
+    
+    3. SCRIPTNODE PROCESSING:
+       - Display the node's message to the user
+       - If the node has functions, check if any should be activated
+       - If a function is activated, transition to its target node
+       - Otherwise, move to the next connected node if one exists
+    
+    4. FIELDSETTERNODE PROCESSING:
+       - Request the specified field value from the user
+       - Wait for user input
+       - Validate the input as a valid value for the field
+       - If valid, store the value and transition to the next node
+       - If invalid, ask the user again
+    
+    5. RESPONSENODE PROCESSING:
+       - Display the node's message to the user
+       - Wait for user input
+       - Generate a response using the LLM
+       - Check if the user's next message matches any triggers
+       - If a trigger matches, transition to its target node
+    
+    6. CALLTRANSFERNODE PROCESSING:
+       - Display the node's message to the user
+       - Create a notification for human transfer
+       - Transition to the next node if one exists
+    
+    7. SESSION STATE:
+       - Always track which node the user is currently at
+       - Store field values collected from FieldSetterNodes
+       - Mark whether you're awaiting a response from the user
+    
+    8. OUT-OF-FLOW HANDLING:
+       - If the user asks a question unrelated to the current node:
+         a. If it's a simple question, answer it directly
+         b. After answering, return to the current node's flow
+    """
+    
+    # Add flow processing document
+    documents.append(Document(
+        text=flow_instructions,
+        metadata={
+            "flow_id": flow_id,
+            "type": "flow_instructions"
+        }
+    ))
+    
+    # Add node connections document for reference
+    connections_text = "NODE CONNECTIONS:\n\n"
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        source_handle = edge.get("sourceHandle")
+        connections_text += f"From node {source} to node {target}"
+        if source_handle:
+            connections_text += f" via {source_handle}"
+        connections_text += "\n"
+    
+    documents.append(Document(
+        text=connections_text,
+        metadata={
+            "flow_id": flow_id,
+            "type": "connections"
+        }
+    ))
+    
+    # Create the index directory if it doesn't exist
+    os.makedirs("flow_indices", exist_ok=True)
+    
+    # Create vector store
+    collection_name = f"flow_{flow_id}_knowledge"
+    # Delete existing collection if it exists
+    try:
+        chroma_client.delete_collection(collection_name)
+        print(f"Deleted existing collection {collection_name}")
+    except ValueError:
+        print(f"Collection {collection_name} did not exist")
+
+    vector_store = ChromaVectorStore(
+        chroma_collection=chroma_client.get_or_create_collection(collection_name)
+    )
+    
+    # Create ingestion pipeline
+    pipeline = IngestionPipeline(
+        transformations=[
+            SentenceSplitter(chunk_size=512, chunk_overlap=100),
+            Settings.embed_model
+        ],
+        vector_store=vector_store
+    )
+    
+    # Process documents
+    nodes = pipeline.run(documents=documents)
+    
+    # Create index
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    index = VectorStoreIndex(nodes, storage_context=storage_context)
+    flow_index_storage[flow_id] = index
+
+    flow_index_meta = {
+        "flow_id": flow_id,
+        "created_at": datetime.utcnow().isoformat(),
+        "collection_name": collection_name
+    }
+
+    meta_file = f"flow_indices/{flow_id}_meta.pkl"
+    with open(meta_file, "wb") as f:
+        pickle.dump(flow_index_meta, f)
+
+    # Upload to bucket (assuming you have storage_client setup already)
+    bucket = storage_client.bucket(BUCKET_NAME)
+    gcs_meta_path = f"flow_metadata/{flow_id}_meta.pkl"
+    blob = bucket.blob(gcs_meta_path)
+    blob.upload_from_filename(meta_file)
+
+    # Save metadata about this index
+    index_metadata = {
+        "flow_id": flow_id,
+        "node_count": len(nodes),
+        "created_at": datetime.utcnow().isoformat(),
+        "collection_name": collection_name
+    }
+    
+    with open(f"flow_indices/{flow_id}_metadata.json", "w") as f:
+        json.dump(index_metadata, f, indent=2)
+    
+    return {
+        "status": "success", 
+        "flow_id": flow_id,
+        "indexed_documents": len(documents),
+        "nodes_created": len(nodes)
+    }
+
+@app.post("/api/index/assistant-documents")
+async def index_assistant_documents(request: dict):
+    assistant_id = request.get("assistant_id")
+    documents = request.get("documents", [])
+    print("INDEXING DOCUMENTS")
+    print(f"Assistant ID: {assistant_id}")
+    print(f"Number of documents to index: {len(documents)}")
+    
+    if not assistant_id or not documents:
+        print("ERROR: assistant_id and documents are required")
+        return {"error": "assistant_id and documents are required"}
+    
+    # Define a separate collection for documents
+    collection_name = f"documents_{assistant_id}_knowledge"
+    print(f"Creating/accessing collection: {collection_name}")
+    
+    try:
+        collection = chroma_client.get_or_create_collection(collection_name)
+        print(f"Collection size before indexing: {collection.count()}")
+    except Exception as e:
+        print(f"Error creating/accessing collection: {str(e)}")
+        return {"error": f"Failed to create/access collection: {str(e)}"}
+    
+    # Prepare LlamaIndex documents
+    llama_documents = []
+    for doc in documents:
+        doc_id = doc.get("id")
+        doc_name = doc.get("name", "Unnamed Document")
+        content = doc.get("content", "")
+        print(f"Processing document: {doc_name} (ID: {doc_id})")
+        print(f"Document content length: {len(content)} characters")
+        
+        # Create a Document object with metadata
+        llama_doc = Document(
+            text=content,
+            metadata={
+                "knowledge_type": "document",
+                "document_id": doc_id,
+                "document_name": doc_name,
+                "assistant_id": assistant_id
+            }
+        )
+        llama_documents.append(llama_doc)
+    
+    print(f"Total LlamaIndex documents created: {len(llama_documents)}")
+    
+    # Set up vector store
+    vector_store = ChromaVectorStore(chroma_collection=collection)
+    print("Vector store setup complete")
+    
+    # IMPORTANT: Avoid using extractors that require LLM in the ingestion pipeline
+    # Those cause the nested async loop issues
+    
+    # Create a simpler pipeline without LLM-based extractors
+    splitter = SentenceSplitter(chunk_size=512, chunk_overlap=100)
+    
+    # First, just split the documents into nodes
+    nodes = []
+    for doc in llama_documents:
+        nodes.extend(splitter.get_nodes_from_documents([doc]))
+    
+    print(f"Split documents into {len(nodes)} nodes")
+    
+    # Set up storage context
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    
+    # Create the VectorStoreIndex with the nodes
+    print("Creating VectorStoreIndex...")
+    base_index = VectorStoreIndex(nodes, storage_context=storage_context)
+    
+    # Embed and store in vector store
+    print("Embedding and storing nodes...")
+    for node in nodes:
+        # Ensure node has embedding
+        if node.embedding is None:
+            embedding = Settings.embed_model.get_text_embedding(
+                node.get_content(metadata_mode="all")
+            )
+            node.embedding = embedding
+        
+        # Add to vector store directly
+        vector_store.add([node])
+    
+    print(f"Successfully indexed {len(nodes)} nodes")
+    
+    # Create retriever with similarity search
+    retriever = base_index.as_retriever(
+        similarity_top_k=20
+    )
+    
+    # Store index and retriever in app state for later use
+    # Store in global dictionary (not app.state)
+    document_index_storage[assistant_id] = {
+        "index": base_index,
+        "retriever": retriever,
+        "created_at": datetime.now().isoformat(),
+        "document_count": len(llama_documents),
+        "node_count": len(nodes)
+    }
+
+    # Save metadata for this index
+    doc_index_meta = {
+        "assistant_id": assistant_id,
+        "created_at": datetime.now().isoformat(),
+        "collection_name": collection_name,
+        "document_count": len(llama_documents),
+        "node_count": len(nodes)
+    }
+
+    # Save locally
+    meta_file = f"document_indices/{assistant_id}_meta.pkl"
+    os.makedirs("document_indices", exist_ok=True)
+    with open(meta_file, "wb") as f:
+        pickle.dump(doc_index_meta, f)
+
+    # Upload to bucket
+    bucket = storage_client.bucket(BUCKET_NAME)
+    gcs_meta_path = f"document_metadata/{assistant_id}_meta.pkl"
+    blob = bucket.blob(gcs_meta_path)
+    blob.upload_from_filename(meta_file)
+    
+    print(f"Collection size after indexing: {collection.count()}")
+    
+    return {
+        "status": "success",
+        "indexed_documents": len(documents),
+        "nodes_created": len(nodes),
+        "collection_name": collection_name
+    }
+
 @app.post("/api/shared/vector_chat")        
 async def vector_flow_chat(request: dict):
     """
@@ -8034,35 +8714,100 @@ async def vector_flow_chat(request: dict):
         print(f"Conversation history length: {len(conversation_history)} characters")
         
         # Get the flow knowledge index
-        flow_collection_name = f"flow_{flow_id}_knowledge"
-        print(f"Accessing flow collection: {flow_collection_name}")
-        
-        # Check if collection exists
-        try:
-            flow_collection = chroma_client.get_collection(flow_collection_name)
-            print(f"Flow collection found with {flow_collection.count()} entries")
-        except ValueError:
-            # Collection doesn't exist, need to create the index first
-            print(f"ERROR: Flow collection {flow_collection_name} not found")
-            return {
-                "error": "Flow knowledge index not found. Please index the flow first.",
-                "content": "I'm having trouble processing your request. Please try again later."
-            }
-        
-        # Create vector store and index
-        flow_vector_store = ChromaVectorStore(chroma_collection=flow_collection)
-        flow_storage_context = StorageContext.from_defaults(vector_store=flow_vector_store)
-        flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
-        print("Flow vector index created successfully")
-        
+        # First check if index is in memory
+        if flow_id in flow_index_storage:
+            print(f"Using cached flow index for flow {flow_id}")
+            flow_index = flow_index_storage[flow_id]
+        else:
+            # Try to load from metadata
+            try:
+                # Try to get from local file first
+                meta_file = f"flow_indices/{flow_id}_meta.pkl"
+                if os.path.exists(meta_file):
+                    with open(meta_file, "rb") as f:
+                        flow_meta = pickle.load(f)
+                else:
+                    # Try to get from GCS
+                    bucket = storage_client.bucket(BUCKET_NAME)
+                    gcs_meta_path = f"flow_metadata/{flow_id}_meta.pkl"
+                    blob = bucket.blob(gcs_meta_path)
+                    temp_meta_file = f"temp_{flow_id}_meta.pkl"
+                    blob.download_to_filename(temp_meta_file)
+                    with open(temp_meta_file, "rb") as f:
+                        flow_meta = pickle.load(f)
+                    os.remove(temp_meta_file)
+                
+                # Get collection name from metadata
+                flow_collection_name = flow_meta.get("collection_name", f"flow_{flow_id}_knowledge")
+                
+                # Create index from collection
+                flow_collection = chroma_client.get_collection(flow_collection_name)
+                print(f"Flow collection found with {flow_collection.count()} entries")
+                flow_vector_store = ChromaVectorStore(chroma_collection=flow_collection)
+                flow_storage_context = StorageContext.from_defaults(vector_store=flow_vector_store)
+                flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
+                
+                # Cache in memory
+                flow_index_storage[flow_id] = flow_index
+                print("Flow vector index loaded and cached successfully")
+            
+            except Exception as e:
+                print(f"ERROR: Failed to load flow index: {str(e)}")
+                return {
+                    "error": "Flow knowledge index not found or could not be loaded. Please index the flow first.",
+                    "content": "I'm having trouble processing your request. Please try again later."
+                }
         # Document retrieval section - MADE OPTIONAL
         document_collection_name = f"documents_{assistant_id}_knowledge"  # flow_id is assistant_id
         print(f"Checking for document collection: {document_collection_name}")
         document_context = ""  # Initialize empty context
 
-        # Check for cached index/retriever in app state first
-        document_indexes = getattr(app.state, "document_indexes", {})
-        cached_index_data = document_indexes.get(assistant_id)
+        # Check for cached index in global dictionary
+        cached_index_data = document_index_storage.get(assistant_id)
+
+        # If not in memory, try to load from disk/GCS
+        if not cached_index_data:
+            try:
+                # Try to get from local file first
+                meta_file = f"document_indices/{assistant_id}_meta.pkl"
+                if os.path.exists(meta_file):
+                    with open(meta_file, "rb") as f:
+                        doc_meta = pickle.load(f)
+                else:
+                    # Try to get from GCS
+                    bucket = storage_client.bucket(BUCKET_NAME)
+                    gcs_meta_path = f"document_metadata/{assistant_id}_meta.pkl"
+                    blob = bucket.blob(gcs_meta_path)
+                    temp_meta_file = f"temp_{assistant_id}_meta.pkl"
+                    blob.download_to_filename(temp_meta_file)
+                    with open(temp_meta_file, "rb") as f:
+                        doc_meta = pickle.load(f)
+                    os.remove(temp_meta_file)
+                
+                # Get collection name from metadata
+                document_collection_name = doc_meta.get("collection_name", f"documents_{assistant_id}_knowledge")
+                
+                # Create index from collection
+                document_collection = chroma_client.get_collection(document_collection_name)
+                document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
+                document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+                
+                # Create retriever
+                document_retriever = document_index.as_retriever(similarity_top_k=20)
+                
+                # Cache in memory
+                document_index_storage[assistant_id] = {
+                    "index": document_index,
+                    "retriever": document_retriever,
+                    "created_at": datetime.now().isoformat()
+                }
+                
+                # Update cached_index_data for the rest of the function
+                cached_index_data = document_index_storage[assistant_id]
+                print(f"Document index loaded and cached for assistant {assistant_id}")
+            except Exception as e:
+                print(f"Failed to load document index: {str(e)}")
+                cached_index_data = None
 
         # Try to load document context if available, but don't fail if not
         try:
@@ -8107,7 +8852,7 @@ async def vector_flow_chat(request: dict):
                     document_context = f"Relevant Document Content:\n{document_text}"
             
             # If no cached index, try the original approach
-            elif document_indexes.get(assistant_id) is None:
+            else:
                 try:
                     document_collection = chroma_client.get_collection(document_collection_name)
                     document_count = document_collection.count()
@@ -8121,13 +8866,22 @@ async def vector_flow_chat(request: dict):
                         # Create a better retriever that we'll cache for next time
                         document_retriever = document_index.as_retriever(similarity_top_k=20)
                         
-                        # Cache for future use
-                        document_indexes[assistant_id] = {
+                        # Cache for future use (in global dictionary, not app.state)
+                        document_index_storage[assistant_id] = {
                             "index": document_index,
                             "retriever": document_retriever,
                             "created_at": datetime.now().isoformat()
                         }
-                        app.state.document_indexes = document_indexes
+                        
+                        # Save metadata to local file
+                        os.makedirs("document_indices", exist_ok=True)
+                        meta_file = f"document_indices/{assistant_id}_meta.pkl"
+                        with open(meta_file, "wb") as f:
+                            pickle.dump({
+                                "assistant_id": assistant_id,
+                                "created_at": datetime.now().isoformat(),
+                                "collection_name": document_collection_name
+                            }, f)
                         
                         # Query using standard approach for now
                         print(f"Querying document index for: '{message}'")
@@ -8140,14 +8894,13 @@ async def vector_flow_chat(request: dict):
                         print("Document collection exists but is empty")
                 except ValueError as e:
                     print(f"Document collection {document_collection_name} not found; proceeding with flow only: {str(e)}")
-                    # Save an empty entry to avoid retrying each time
-                    document_indexes[assistant_id] = {
+                    # Save an empty entry to avoid retrying each time (in global dict, not app.state)
+                    document_index_storage[assistant_id] = {
                         "index": None,
                         "retriever": None,
                         "created_at": datetime.now().isoformat(),
                         "error": str(e)
                     }
-                    app.state.document_indexes = document_indexes
         except Exception as doc_error:
             # If anything goes wrong with document retrieval, log it but continue
             print(f"ERROR in document retrieval (non-critical): {str(doc_error)}")
@@ -8295,7 +9048,7 @@ Return your response as a JSON object with the following structure:
             "error": f"Failed to process message: {str(e)}",
             "content": "I'm having trouble processing your request. Please try again later."
         }
-    
+
 @app.get("/api/flow-index/{flow_id}")
 async def check_flow_index_status(flow_id: str):
     """
