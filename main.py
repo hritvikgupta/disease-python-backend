@@ -8779,9 +8779,14 @@ async def vector_flow_chat(request: dict):
                 blob.download_to_filename(local_path)
 
             collection_name = metadata["collection_name"]
-            vector_store = ChromaVectorStore(
-                chroma_collection=chroma_client.get_collection(collection_name)
-            )
+            try:
+                chroma_collection = chroma_client.get_collection(collection_name)
+                print(f"Found existing Chroma collection {collection_name}")
+            except ValueError:
+                print(f"Creating new Chroma collection {collection_name}")
+                chroma_collection = chroma_client.create_collection(collection_name)
+            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+
             storage_context = StorageContext.from_defaults(
                 persist_dir=temp_dir, vector_store=vector_store
             )
@@ -8812,9 +8817,14 @@ async def vector_flow_chat(request: dict):
                         blob.download_to_filename(local_path)
 
                     collection_name = metadata["collection_name"]
-                    vector_store = ChromaVectorStore(
-                        chroma_collection=chroma_client.get_collection(collection_name)
-                    )
+                    try:
+                        chroma_collection = chroma_client.get_collection(collection_name)
+                        print(f"Found existing Chroma collection {collection_name} for document index")
+                    except ValueError:
+                        print(f"Creating new Chroma collection {collection_name} for document index")
+                        chroma_collection = chroma_client.create_collection(collection_name)
+                    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+
                     storage_context = StorageContext.from_defaults(
                         persist_dir=temp_dir, vector_store=vector_store
                     )
