@@ -8335,6 +8335,30 @@ async def check_flow_index_status(flow_id: str):
             "error": str(e)
         }
 
+@app.get("/api/index/status/{assistant_id}")
+async def check_indexing_status(assistant_id: str):
+    """Check the status of document indexing for an assistant"""
+    try:
+        # Check if the collection exists
+        collection_name = f"documents_{assistant_id}_knowledge"
+        try:
+            collection = chroma_client.get_collection(collection_name)
+            count = collection.count()
+            return {
+                "status": "completed" if count > 0 else "in_progress",
+                "document_count": count
+            }
+        except ValueError:
+            # Collection doesn't exist yet
+            return {
+                "status": "not_started",
+                "document_count": 0
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 ## Analyze Message
 @app.post("/api/analyze-message")
