@@ -8749,6 +8749,15 @@ async def vector_flow_chat(request: dict):
         print(f"Is likely new session: {is_new_session}")
         print(f"session data {session_data}")
 
+        survey_questions_length = session_data.get('survey_questions_length', 0)
+        user_message_count = sum(1 for msg in previous_messages if msg.get("role") == "user")
+        is_post_survey_start = (current_node_id is None and 
+                            user_message_count >= survey_questions_length and 
+                            survey_questions_length > 0)
+        print(f"[CHAT] Survey questions length: {survey_questions_length}")
+        print(f"[CHAT] User message count: {user_message_count}")
+        print(f"[CHAT] Is post-survey start: {is_post_survey_start}")
+        
         # Try to get starting node info from app state if available
         if hasattr(app.state, 'starting_node_ids') and flow_id in getattr(app.state, 'starting_node_ids', {}):
             print(f"Cached starting node for flow {flow_id}: {app.state.starting_node_ids[flow_id]}")
@@ -8768,13 +8777,19 @@ async def vector_flow_chat(request: dict):
 
         # Format previous messages for better context
         conversation_history = ""
-        for msg in previous_messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            conversation_history += f"{role}: {content}\n"
-
-        print(f"Conversation history length: {len(conversation_history)} characters")
-
+        if is_post_survey_start:
+            print("[CHAT] Excluding survey messages from conversation history")
+            # Only include non-survey messages (after survey completion)
+            for msg in previous_messages[user_message_count * 2:]:  # Skip survey Q&A pairs
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                conversation_history += f"{role}: {content}\n"
+        else:
+            # Include all messages for ongoing conversation
+            for msg in previous_messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                conversation_history += f"{role}: {content}\n"
         # Load flow index
         if flow_id not in app.state.flow_indices:
             bucket = storage_client.bucket(BUCKET_NAME)
