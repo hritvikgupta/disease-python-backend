@@ -8400,7 +8400,7 @@ async def create_flow_knowledge_index(flow_data: dict):
     starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
                     "nodeType" in node and node["nodeType"] == "starting"), None)
     starting_node_id = starting_node["id"] if starting_node else None
-
+    print('starting node', starting_node)
     print(f"Found starting node with ID: {starting_node_id}")
 
     flow_instructions = f"""
@@ -8783,7 +8783,7 @@ async def vector_flow_chat(request: dict):
             try:
                 chroma_collection = chroma_client.get_collection(collection_name)
                 print(f"Found existing Chroma collection {collection_name}")
-            except ValueError:
+            except chromadb.errors.InvalidCollectionException:
                 print(f"Creating new Chroma collection {collection_name}")
                 chroma_collection = chroma_client.create_collection(collection_name)
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
@@ -8822,7 +8822,7 @@ async def vector_flow_chat(request: dict):
                     try:
                         chroma_collection = chroma_client.get_collection(collection_name)
                         print(f"Found existing Chroma collection {collection_name} for document index")
-                    except ValueError:
+                    except chromadb.errors.InvalidCollectionException:
                         print(f"Creating new Chroma collection {collection_name} for document index")
                         chroma_collection = chroma_client.create_collection(collection_name)
                     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
