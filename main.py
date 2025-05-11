@@ -7678,12 +7678,325 @@ async def index_assistant_documents(request: dict):
 #         "collection_name": collection_name
 #     }
 
+# @app.post("/api/shared/vector_chat")        
+# async def vector_flow_chat(request: dict):
+#     """
+#     Process a chat message using the vector-based flow knowledge index.
+#     This endpoint doesn't rely on Firestore or Gemini services.
+#     """
+#     import traceback  # Add missing import
+
+#     try:
+#         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
+#         message = request.get("message", "")
+#         sessionId = request.get("sessionId", "")
+#         flow_id = request.get("flow_id")
+#         assistant_id = request.get("assistantId")
+#         session_data = request.get("session_data", {})
+#         previous_messages = request.get("previous_messages", [])
+        
+#         print(f"Message: '{message}'")
+#         print(f"Session ID: {sessionId}")
+#         print(f"Flow ID: {flow_id}")
+#         print(f"Assistant ID: {assistant_id}")
+#         print(f"Session data: {json.dumps(session_data, indent=2)}")
+#         print(f"Number of previous messages: {len(previous_messages)}")
+        
+#         if not flow_id:
+#             print("ERROR: flow_id is required")
+#             return {
+#                 "error": "flow_id is required",
+#                 "content": "Missing required parameters"
+#             }
+        
+#         # Create context for the query
+#         current_node_id = session_data.get('currentNodeId')
+#         print(f"Current node ID: {current_node_id}")
+        
+#         # Format previous messages for better context
+#         conversation_history = ""
+#         for msg in previous_messages:
+#             role = msg.get("role", "unknown")
+#             content = msg.get("content", "")
+#             conversation_history += f"{role}: {content}\n"
+        
+#         print(f"Conversation history length: {len(conversation_history)} characters")
+        
+# #         context_text = f"""
+# # The user message is: "{message}"
+
+# # The current node ID is: {current_node_id or "None - this is the first message"}
+
+# # Previous conversation:
+# # {conversation_history}
+
+# # The session data is:
+# # {json.dumps(session_data, indent=2)}
+
+# # Based on this information, process the message according to the flow logic.
+
+# # If this is the first message, start with the node that has nodeType='starting'.
+# # If currentNodeId is set, process that node.
+
+# # You MUST follow these steps:
+# # 1. Identify the correct node to process
+# # 2. Follow the appropriate processing logic for that node type
+# # 3. Determine the next node based on the user's message and the flow rules
+# # 4. Generate the appropriate response
+# # 5. Specify the next node ID and state updates
+# # 6. Read the node's INSTRUCTION, which contains a message intended to guide the response.
+# # 7. Treat the node's message as an instruction, not the literal text to send. Generate a natural, conversational response that captures the intent of the instruction in a friendly and appropriate tone.
+# # 8. Do not repeat the instruction message verbatim under any circumstances.
+
+# # Return your response as a JSON object with the following structure:
+# # {{
+# #     "content": "The response to send to the user",
+# #     "next_node_id": "ID of the next node to process",
+# #     "state_updates": {{
+# #         "key": "value"
+# #     }}
+# # }}
+# # """
+        
+        
+#         # Get the flow knowledge index
+#         flow_collection_name = f"flow_{flow_id}_knowledge"
+#         print(f"Accessing flow collection: {flow_collection_name}")
+        
+#         # Check if collection exists
+#         try:
+#             flow_collection = chroma_client.get_collection(flow_collection_name)
+#             print(f"Flow collection found with {flow_collection.count()} entries")
+#         except ValueError:
+#             # Collection doesn't exist, need to create the index first
+#             print(f"ERROR: Flow collection {flow_collection_name} not found")
+#             return {
+#                 "error": "Flow knowledge index not found. Please index the flow first.",
+#                 "content": "I'm having trouble processing your request. Please try again later."
+#             }
+        
+#         # Create vector store and index
+#         flow_vector_store = ChromaVectorStore(chroma_collection=flow_collection)
+#         flow_storage_context = StorageContext.from_defaults(vector_store=flow_vector_store)
+#         flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
+#         print("Flow vector index created successfully")
+        
+#             # Document retrieval section within vector_flow_chat function:
+#         document_collection_name = f"documents_{assistant_id}_knowledge"  # flow_id is assistant_id
+#         print(f"Checking for document collection: {document_collection_name}")
+#         document_context = ""
+
+#         # Check for cached index/retriever in app state first
+#         document_indexes = getattr(app.state, "document_indexes", {})
+#         cached_index_data = document_indexes.get(assistant_id)
+
+#         if cached_index_data and "retriever" in cached_index_data:
+#             print(f"Using cached document retriever for assistant {assistant_id}")
+#             document_retriever = cached_index_data["retriever"]
+            
+#             # Get initial candidates from vector retriever
+#             print(f"Retrieving documents for query: '{message}'")
+#             retrieved_nodes = document_retriever.retrieve(message)
+            
+#             # Apply BM25 reranking if we have enough nodes
+#             try:
+#                 from llama_index.core.retrievers import BM25Retriever
+                
+#                 # Get just the node objects (without scores)
+#                 node_objs = [n.node for n in retrieved_nodes]
+                
+#                 if len(node_objs) > 1:
+#                     print(f"Applying BM25 reranking to {len(node_objs)} nodes")
+#                     bm25_retriever = BM25Retriever.from_defaults(
+#                         nodes=node_objs, 
+#                         similarity_top_k=min(5, len(node_objs))
+#                     )
+                    
+#                     # Get reranked results
+#                     reranked_nodes = bm25_retriever.retrieve(message)
+                    
+#                     # Use these for generating context
+#                     if reranked_nodes:
+#                         document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+#                         document_context = f"Relevant Document Content:\n{document_text}"
+#                 else:
+#                     # Not enough nodes for reranking, use as is
+#                     document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#                     document_context = f"Relevant Document Content:\n{document_text}"
+                
+#                 print(f"Document retrieval complete, found content with {len(document_context)} characters")
+#             except Exception as e:
+#                 print(f"Error in BM25 reranking: {str(e)}, using vector results")
+#                 document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#                 document_context = f"Relevant Document Content:\n{document_text}"
+
+#         # If no cached index, fall back to the original approach
+#         else:
+#             try:
+#                 document_collection = chroma_client.get_collection(document_collection_name)
+#                 document_count = document_collection.count()
+#                 print(f"Document collection found with {document_count} entries")
+                
+#                 if document_count > 0:
+#                     print("Creating document vector store and index on the fly")
+#                     document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
+#                     document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+                    
+#                     # Create a better retriever that we'll cache for next time
+#                     document_retriever = document_index.as_retriever(similarity_top_k=20)
+                    
+#                     # Cache for future use
+#                     document_indexes[assistant_id] = {
+#                         "index": document_index,
+#                         "retriever": document_retriever,
+#                         "created_at": datetime.now().isoformat()
+#                     }
+#                     app.state.document_indexes = document_indexes
+                    
+#                     # Query using standard approach for now
+#                     print(f"Querying document index for: '{message}'")
+#                     document_query_engine = document_index.as_query_engine(similarity_top_k=20)
+#                     document_response = document_query_engine.query(message)
+#                     document_context = f"Relevant Document Content:\n{document_response.response}"
+#                     print(f"Document query returned content")
+#                     print("Document context summary: " + document_context[:100] + "..." if len(document_context) > 100 else document_context)
+#                 else:
+#                     print("Document collection exists but is empty")
+#             except ValueError:
+#                 print(f"Document index {document_collection_name} not found; proceeding with flow only.")
+        
+#         context_text = f"""
+# The user message is: "{message}"
+
+# The current node ID is: {current_node_id or "None - this is the first message"}
+
+# Previous conversation:
+# {conversation_history}
+
+# The session data is:
+# {json.dumps(session_data, indent=2)}
+
+# Relevant Document Content:
+# {document_context}
+
+# You are a helpful assistant tasked with providing accurate, specific, and context-aware responses. Follow these steps:
+# 1. Identify the user's intent from the message and conversation history.
+# 2. **IMPORTANT**: Scan the Relevant Document Content for any URLs, phone numbers, email addresses, or other specific resources (e.g., websites, programs, contact information).
+# 3. **CRITICAL REQUIREMENT**: If ANY resources like URLs, phone numbers, or contact information are found in the document content, you MUST include them verbatim in your response regardless of whether the user explicitly requested them.
+# 4. Generate a natural, conversational response that directly addresses the user's query, incorporating document content as needed.
+# 5. Maintain continuity with the conversation history to stay focused on the user's current intent.
+# 6. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION, but prioritize document content for specific details.
+# 7. Do not repeat the node's INSTRUCTION verbatim; use it as a guide to craft a friendly, relevant response.
+# 8. If no relevant document content is found, provide a helpful response based on the flow logic or general knowledge, and ask for clarification if needed.
+# 9. Before finalizing your response, double-check that you've included all resource links, phone numbers, and contact methods from the document context.
+
+# Return your response as a JSON object with the following structure:
+# {{
+#     "content": "The response to send to the user, including specific document content where applicable",
+#     "next_node_id": "ID of the next node to process",
+#     "state_updates": {{
+#         "key": "value"
+#     }}
+# }}
+# """
+        
+        
+#         full_context = f"{context_text}\n\n{document_context}"
+#         print(f"Full context length: {len(full_context)} characters")
+        
+#         # Create query engine
+#         print("Creating flow query engine")
+#         query_engine = flow_index.as_query_engine(
+#             response_mode="compact",
+#             similarity_top_k=7,  # Retrieve more context for complete instructions
+#             llm=Settings.llm  # Use the specified LLM
+#         )
+        
+#         # Query the index
+#         print("Querying flow index with full context")
+#         response = query_engine.query(full_context)
+#         print("Query complete, processing response")
+        
+#         # Process the response
+#         try:
+#             # Parse the response text as JSON
+#             response_text = response.response
+#             print(f"Raw response length: {len(response_text)} characters")
+            
+#             # Clean up the response if it contains markdown code blocks
+#             if "```json" in response_text:
+#                 print("Parsing JSON from markdown code block with ```json")
+#                 response_text = response_text.split("```json")[1].split("```")[0].strip()
+#             elif "```" in response_text:
+#                 print("Parsing JSON from markdown code block")
+#                 response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+#             print(f"Cleaned response: {response_text[:100]}..." if len(response_text) > 100 else response_text)
+#             response_data = json.loads(response_text)
+#             print("Successfully parsed JSON response")
+            
+#             # Extract fields
+#             ai_response = response_data.get("content", "I'm having trouble processing your request.")
+#             next_node_id = response_data.get("next_node_id")
+#             state_updates = response_data.get("state_updates", {})
+            
+#             print(f"AI response length: {len(ai_response)} characters")
+#             print(f"Next node ID: {next_node_id}")
+#             print(f"State updates: {json.dumps(state_updates, indent=2)}")
+#             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
+            
+#             # Return the complete response
+#             return {
+#                 "content": ai_response,
+#                 "next_node_id": next_node_id,
+#                 "state_updates": state_updates
+#             }
+            
+#         except Exception as e:
+#             print(f"ERROR processing vector response: {str(e)}")
+#             print(f"Response text that failed to parse: {response_text[:200]}...")
+            
+#             # Fallback to direct LLM response
+#             print("Using fallback LLM response")
+#             fallback_prompt = f"""
+#             You are a helpful assistant. The user has sent the following message:
+            
+#             "{message}"
+            
+#             Previous conversation:
+#             {conversation_history}
+            
+#             Please provide a helpful response.
+#             """
+            
+#             fallback_response = Settings.llm.complete(fallback_prompt)
+#             print(f"Fallback response generated, length: {len(fallback_response.text)} characters")
+#             print("==== VECTOR CHAT PROCESSING COMPLETE (FALLBACK) ====\n")
+            
+#             return {
+#                 "content": fallback_response.text,
+#                 "error": f"Vector processing failed: {str(e)}",
+#                 "fallback": True
+#             }
+            
+#     except Exception as e:
+#         print(f"CRITICAL ERROR in vector_chat: {str(e)}")
+#         traceback_str = traceback.format_exc()
+#         print(f"Traceback: {traceback_str}")
+#         print("==== VECTOR CHAT PROCESSING FAILED ====\n")
+#         return {
+#             "error": f"Failed to process message: {str(e)}",
+#             "content": "I'm having trouble processing your request. Please try again later."
+#         } 
+
 @app.post("/api/shared/vector_chat")        
 async def vector_flow_chat(request: dict):
     """
     Process a chat message using the vector-based flow knowledge index.
     This endpoint doesn't rely on Firestore or Gemini services.
     """
+    import traceback  # Add missing import
+    
     try:
         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
         message = request.get("message", "")
@@ -7720,43 +8033,6 @@ async def vector_flow_chat(request: dict):
         
         print(f"Conversation history length: {len(conversation_history)} characters")
         
-#         context_text = f"""
-# The user message is: "{message}"
-
-# The current node ID is: {current_node_id or "None - this is the first message"}
-
-# Previous conversation:
-# {conversation_history}
-
-# The session data is:
-# {json.dumps(session_data, indent=2)}
-
-# Based on this information, process the message according to the flow logic.
-
-# If this is the first message, start with the node that has nodeType='starting'.
-# If currentNodeId is set, process that node.
-
-# You MUST follow these steps:
-# 1. Identify the correct node to process
-# 2. Follow the appropriate processing logic for that node type
-# 3. Determine the next node based on the user's message and the flow rules
-# 4. Generate the appropriate response
-# 5. Specify the next node ID and state updates
-# 6. Read the node's INSTRUCTION, which contains a message intended to guide the response.
-# 7. Treat the node's message as an instruction, not the literal text to send. Generate a natural, conversational response that captures the intent of the instruction in a friendly and appropriate tone.
-# 8. Do not repeat the instruction message verbatim under any circumstances.
-
-# Return your response as a JSON object with the following structure:
-# {{
-#     "content": "The response to send to the user",
-#     "next_node_id": "ID of the next node to process",
-#     "state_updates": {{
-#         "key": "value"
-#     }}
-# }}
-# """
-        
-        
         # Get the flow knowledge index
         flow_collection_name = f"flow_{flow_id}_knowledge"
         print(f"Accessing flow collection: {flow_collection_name}")
@@ -7779,101 +8055,108 @@ async def vector_flow_chat(request: dict):
         flow_index = VectorStoreIndex.from_vector_store(flow_vector_store, storage_context=flow_storage_context)
         print("Flow vector index created successfully")
         
-            # Document retrieval section within vector_flow_chat function:
+        # Document retrieval section - MADE OPTIONAL
         document_collection_name = f"documents_{assistant_id}_knowledge"  # flow_id is assistant_id
         print(f"Checking for document collection: {document_collection_name}")
-        document_context = ""
+        document_context = ""  # Initialize empty context
 
         # Check for cached index/retriever in app state first
         document_indexes = getattr(app.state, "document_indexes", {})
         cached_index_data = document_indexes.get(assistant_id)
 
-        if cached_index_data and "retriever" in cached_index_data:
-            print(f"Using cached document retriever for assistant {assistant_id}")
-            document_retriever = cached_index_data["retriever"]
-            
-            # Get initial candidates from vector retriever
-            print(f"Retrieving documents for query: '{message}'")
-            retrieved_nodes = document_retriever.retrieve(message)
-            
-            # Apply BM25 reranking if we have enough nodes
-            try:
-                from llama_index.core.retrievers import BM25Retriever
+        # Try to load document context if available, but don't fail if not
+        try:
+            if cached_index_data and "retriever" in cached_index_data:
+                print(f"Using cached document retriever for assistant {assistant_id}")
+                document_retriever = cached_index_data["retriever"]
                 
-                # Get just the node objects (without scores)
-                node_objs = [n.node for n in retrieved_nodes]
+                # Get initial candidates from vector retriever
+                print(f"Retrieving documents for query: '{message}'")
+                retrieved_nodes = document_retriever.retrieve(message)
                 
-                if len(node_objs) > 1:
-                    print(f"Applying BM25 reranking to {len(node_objs)} nodes")
-                    bm25_retriever = BM25Retriever.from_defaults(
-                        nodes=node_objs, 
-                        similarity_top_k=min(5, len(node_objs))
-                    )
+                # Apply BM25 reranking if we have enough nodes
+                try:
+                    from llama_index.core.retrievers import BM25Retriever
                     
-                    # Get reranked results
-                    reranked_nodes = bm25_retriever.retrieve(message)
+                    # Get just the node objects (without scores)
+                    node_objs = [n.node for n in retrieved_nodes]
                     
-                    # Use these for generating context
-                    if reranked_nodes:
-                        document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+                    if len(node_objs) > 1:
+                        print(f"Applying BM25 reranking to {len(node_objs)} nodes")
+                        bm25_retriever = BM25Retriever.from_defaults(
+                            nodes=node_objs, 
+                            similarity_top_k=min(5, len(node_objs))
+                        )
+                        
+                        # Get reranked results
+                        reranked_nodes = bm25_retriever.retrieve(message)
+                        
+                        # Use these for generating context
+                        if reranked_nodes:
+                            document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+                            document_context = f"Relevant Document Content:\n{document_text}"
+                    else:
+                        # Not enough nodes for reranking, use as is
+                        document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
                         document_context = f"Relevant Document Content:\n{document_text}"
-                else:
-                    # Not enough nodes for reranking, use as is
+                    
+                    print(f"Document retrieval complete, found content with {len(document_context)} characters")
+                except Exception as e:
+                    print(f"Error in BM25 reranking: {str(e)}, using vector results")
                     document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
                     document_context = f"Relevant Document Content:\n{document_text}"
-                
-                print(f"Document retrieval complete, found content with {len(document_context)} characters")
-            except Exception as e:
-                print(f"Error in BM25 reranking: {str(e)}, using vector results")
-                document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
-                document_context = f"Relevant Document Content:\n{document_text}"
-
-        # If no cached index, fall back to the original approach
-        else:
-            try:
-                document_collection = chroma_client.get_collection(document_collection_name)
-                document_count = document_collection.count()
-                print(f"Document collection found with {document_count} entries")
-                
-                if document_count > 0:
-                    print("Creating document vector store and index on the fly")
-                    document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
-                    document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+            
+            # If no cached index, try the original approach
+            elif document_indexes.get(assistant_id) is None:
+                try:
+                    document_collection = chroma_client.get_collection(document_collection_name)
+                    document_count = document_collection.count()
+                    print(f"Document collection found with {document_count} entries")
                     
-                    # Create a better retriever that we'll cache for next time
-                    document_retriever = document_index.as_retriever(similarity_top_k=20)
-                    
-                    # Cache for future use
+                    if document_count > 0:
+                        print("Creating document vector store and index on the fly")
+                        document_vector_store = ChromaVectorStore(chroma_collection=document_collection)
+                        document_index = VectorStoreIndex.from_vector_store(document_vector_store)
+                        
+                        # Create a better retriever that we'll cache for next time
+                        document_retriever = document_index.as_retriever(similarity_top_k=20)
+                        
+                        # Cache for future use
+                        document_indexes[assistant_id] = {
+                            "index": document_index,
+                            "retriever": document_retriever,
+                            "created_at": datetime.now().isoformat()
+                        }
+                        app.state.document_indexes = document_indexes
+                        
+                        # Query using standard approach for now
+                        print(f"Querying document index for: '{message}'")
+                        document_query_engine = document_index.as_query_engine(similarity_top_k=20)
+                        document_response = document_query_engine.query(message)
+                        document_context = f"Relevant Document Content:\n{document_response.response}"
+                        print(f"Document query returned content")
+                        print("Document context summary: " + document_context[:100] + "..." if len(document_context) > 100 else document_context)
+                    else:
+                        print("Document collection exists but is empty")
+                except ValueError as e:
+                    print(f"Document collection {document_collection_name} not found; proceeding with flow only: {str(e)}")
+                    # Save an empty entry to avoid retrying each time
                     document_indexes[assistant_id] = {
-                        "index": document_index,
-                        "retriever": document_retriever,
-                        "created_at": datetime.now().isoformat()
+                        "index": None,
+                        "retriever": None,
+                        "created_at": datetime.now().isoformat(),
+                        "error": str(e)
                     }
                     app.state.document_indexes = document_indexes
-                    
-                    # Query using standard approach for now
-                    print(f"Querying document index for: '{message}'")
-                    document_query_engine = document_index.as_query_engine(similarity_top_k=20)
-                    document_response = document_query_engine.query(message)
-                    document_context = f"Relevant Document Content:\n{document_response.response}"
-                    print(f"Document query returned content")
-                    print("Document context summary: " + document_context[:100] + "..." if len(document_context) > 100 else document_context)
-                else:
-                    print("Document collection exists but is empty")
-            except ValueError:
-                print(f"Document index {document_collection_name} not found; proceeding with flow only.")
+        except Exception as doc_error:
+            # If anything goes wrong with document retrieval, log it but continue
+            print(f"ERROR in document retrieval (non-critical): {str(doc_error)}")
+            print("Continuing without document context")
         
-        context_text = f"""
-The user message is: "{message}"
-
-The current node ID is: {current_node_id or "None - this is the first message"}
-
-Previous conversation:
-{conversation_history}
-
-The session data is:
-{json.dumps(session_data, indent=2)}
-
+        # Define the context text based on whether document context is available
+        document_context_section = ""
+        if document_context:
+            document_context_section = f"""
 Relevant Document Content:
 {document_context}
 
@@ -7887,6 +8170,33 @@ You are a helpful assistant tasked with providing accurate, specific, and contex
 7. Do not repeat the node's INSTRUCTION verbatim; use it as a guide to craft a friendly, relevant response.
 8. If no relevant document content is found, provide a helpful response based on the flow logic or general knowledge, and ask for clarification if needed.
 9. Before finalizing your response, double-check that you've included all resource links, phone numbers, and contact methods from the document context.
+"""
+        else:
+            # Simpler context when no documents are available
+            document_context_section = """
+You are a helpful assistant tasked with providing accurate and context-aware responses. Follow these steps:
+1. Identify the user's intent from the message and conversation history.
+2. Generate a natural, conversational response that directly addresses the user's query.
+3. Maintain continuity with the conversation history to stay focused on the user's current intent.
+4. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION.
+5. Do not repeat the node's INSTRUCTION verbatim; use it as a guide to craft a friendly, relevant response.
+"""
+        
+        context_text = f"""
+The user message is: "{message}"
+
+The current node ID is: {current_node_id or "None - this is the first message"}
+
+IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
+you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
+
+Previous conversation:
+{conversation_history}
+
+The session data is:
+{json.dumps(session_data, indent=2)}
+
+{document_context_section}
 
 Return your response as a JSON object with the following structure:
 {{
@@ -7898,8 +8208,7 @@ Return your response as a JSON object with the following structure:
 }}
 """
         
-        
-        full_context = f"{context_text}\n\n{document_context}"
+        full_context = context_text
         print(f"Full context length: {len(full_context)} characters")
         
         # Create query engine
@@ -7985,8 +8294,8 @@ Return your response as a JSON object with the following structure:
         return {
             "error": f"Failed to process message: {str(e)}",
             "content": "I'm having trouble processing your request. Please try again later."
-        } 
-
+        }
+    
 @app.get("/api/flow-index/{flow_id}")
 async def check_flow_index_status(flow_id: str):
     """
