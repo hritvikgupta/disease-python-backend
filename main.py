@@ -8779,6 +8779,7 @@ async def vector_flow_chat(request: dict):
                 blob.download_to_filename(local_path)
 
             collection_name = metadata["collection_name"]
+            print("DEBUG: Entering Chroma collection block")
             try:
                 chroma_collection = chroma_client.get_collection(collection_name)
                 print(f"Found existing Chroma collection {collection_name}")
@@ -8817,6 +8818,7 @@ async def vector_flow_chat(request: dict):
                         blob.download_to_filename(local_path)
 
                     collection_name = metadata["collection_name"]
+                    print("DEBUG: Entering Chroma collection block for documents")
                     try:
                         chroma_collection = chroma_client.get_collection(collection_name)
                         print(f"Found existing Chroma collection {collection_name} for document index")
