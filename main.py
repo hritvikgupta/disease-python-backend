@@ -8728,6 +8728,8 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
 
+
+
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
         print(f"Flow ID: {flow_id}")
@@ -8735,6 +8737,17 @@ async def vector_flow_chat(request: dict):
         print(f"Session data: {json.dumps(session_data, indent=2)}")
         print(f"Number of previous messages: {len(previous_messages)}")
 
+        # Add after retrieving session data
+        is_new_session = not session_data.get('currentNodeId') and len(previous_messages) <= 6
+        print(f"Is likely new session: {is_new_session}")
+        print(f"session data {session_data}")
+
+        # Try to get starting node info from app state if available
+        if hasattr(app.state, 'starting_node_ids') and flow_id in getattr(app.state, 'starting_node_ids', {}):
+            print(f"Cached starting node for flow {flow_id}: {app.state.starting_node_ids[flow_id]}")
+        else:
+            print("No cached starting node info available")
+            
         if not flow_id:
             print("ERROR: flow_id is required")
             return {
@@ -8796,6 +8809,8 @@ async def vector_flow_chat(request: dict):
             shutil.rmtree(temp_dir)
         else:
             flow_index = app.state.flow_indices[flow_id]
+            print('Flow Data', flow_index)
+            print(f"[CHAT] Using cached flow index for flow_id: {flow_id}")
 
         # Load document index (optional)
         document_retriever = None
@@ -8919,6 +8934,8 @@ Return your response as a JSON object with the following structure:
     }}
 }}
 """
+
+        print(f"[CHAT] Conversation history: {conversation_history}")
 
         full_context = context_text
         print(f"Full context length: {len(full_context)} characters")
