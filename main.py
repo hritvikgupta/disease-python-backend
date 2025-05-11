@@ -8495,6 +8495,13 @@ async def create_flow_knowledge_index(flow_data: dict):
     except ValueError:
         print(f"Collection {collection_name} did not exist")
     
+    try:
+        chroma_client.get_collection(collection_name)
+        print(f"[INDEX] ERROR: Collection {collection_name} still exists after deletion")
+        raise Exception("Chroma collection deletion failed")
+    except chromadb.errors.InvalidCollectionException:
+        print(f"[INDEX] Confirmed collection {collection_name} is deleted")
+
     # Create a new collection explicitly
     chroma_collection = chroma_client.create_collection(collection_name)
     print(f"Created new collection {collection_name}")
