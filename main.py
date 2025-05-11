@@ -8748,6 +8748,7 @@ async def vector_flow_chat(request: dict):
         is_new_session = not session_data.get('currentNodeId') and len(previous_messages) <= 6
         print(f"Is likely new session: {is_new_session}")
         print(f"session data {session_data}")
+        current_node_id = session_data.get('currentNodeId')
 
         survey_questions_length = session_data.get('survey_questions_length', 0)
         user_message_count = sum(1 for msg in previous_messages if msg.get("role") == "user")
