@@ -8743,7 +8743,7 @@ async def vector_flow_chat(request: dict):
         print(f"Assistant ID: {assistant_id}")
         print(f"Session data: {json.dumps(session_data, indent=2)}")
         print(f"Number of previous messages: {len(previous_messages)}")
-
+        print(f"previous messages",previous_messages )
         # Add after retrieving session data
         is_new_session = not session_data.get('currentNodeId') and len(previous_messages) <= 6
         print(f"Is likely new session: {is_new_session}")
@@ -8785,12 +8785,14 @@ async def vector_flow_chat(request: dict):
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
                 conversation_history += f"{role}: {content}\n"
+    
         else:
             # Include all messages for ongoing conversation
             for msg in previous_messages:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
                 conversation_history += f"{role}: {content}\n"
+        print(conversation_history)
         # Load flow index
         if flow_id not in app.state.flow_indices:
             bucket = storage_client.bucket(BUCKET_NAME)
