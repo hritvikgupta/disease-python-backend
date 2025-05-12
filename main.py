@@ -8781,18 +8781,20 @@ async def vector_flow_chat(request: dict):
         if is_post_survey_start:
             print("[CHAT] Excluding survey messages from conversation history")
             # Only include non-survey messages (after survey completion)
-            for msg in previous_messages[user_message_count * 2:]:  # Skip survey Q&A pairs
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                conversation_history += f"{role}: {content}\n"
-    
+            message = 'hi'
+            conversation_history = ""
+            # for msg in previous_messages[user_message_count * 2:]:  # Skip survey Q&A pairs
+            #     role = msg.get("role", "unknown")
+            #     content = msg.get("content", "")
+            #     conversation_history += f"{role}: {content}\n"
+
         else:
             # Include all messages for ongoing conversation
             for msg in previous_messages:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
                 conversation_history += f"{role}: {content}\n"
-        print(conversation_history)
+        print("conversation history", conversation_history, message)
         # Load flow index
         if flow_id not in app.state.flow_indices:
             bucket = storage_client.bucket(BUCKET_NAME)
