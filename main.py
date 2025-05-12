@@ -8335,56 +8335,65 @@ async def create_flow_knowledge_index(flow_data: dict):
             for func in node_data.get("functions", []):
                 func_id = func.get("id")
                 func_content = func.get("content", "")
-                
-                # Find the edge for this function
                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
                 if func_edges:
                     target_node_id = func_edges[0].get("target")
                     doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
-            
+        
         elif node_type == "scriptNode":
             doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
             doc_text += "FUNCTIONS:\n"
             for func in node_data.get("functions", []):
                 func_id = func.get("id")
                 func_content = func.get("content", "")
-                
-                # Find the edge for this function
                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
                 if func_edges:
                     target_node_id = func_edges[0].get("target")
                     doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
-            
+        
         elif node_type == "fieldSetterNode":
             doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
-            
-            # Find the outgoing edge
             setter_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"{node_id}-right"]
             if setter_edges:
                 target_node_id = setter_edges[0].get("target")
                 doc_text += f"After capturing the field value, proceed to node {target_node_id}\n"
-            
+        
         elif node_type == "responseNode":
             doc_text += f"INSTRUCTION: When the user is at this response node, display the message '{node_data.get('message', '')}' and then use the LLM to generate a conversational response.\n\n"
             doc_text += "TRIGGERS:\n"
             for trigger in node_data.get("triggers", []):
                 trigger_id = trigger.get("id")
                 trigger_content = trigger.get("content", "")
-                
-                # Find the edge for this trigger
                 trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
                 if trigger_edges:
                     target_node_id = trigger_edges[0].get("target")
                     doc_text += f"- If user's response matches '{trigger_content}', proceed to node {target_node_id}\n"
-            
+        
         elif node_type == "callTransferNode":
             doc_text += f"INSTRUCTION: When the user is at this call transfer node, display the message '{node_data.get('message', '')}' and create a notification for human takeover.\n\n"
-            
-            # Find any outgoing edge
             transfer_edges = [e for e in edges if e.get("source") == node_id]
             if transfer_edges:
                 target_node_id = transfer_edges[0].get("target")
                 doc_text += f"After notifying about the transfer, proceed to node {target_node_id}\n"
+        
+        elif node_type == "surveyNode":
+            doc_text += f"INSTRUCTION: When the user is at this survey node, display the message '{node_data.get('message', '')}' and present the survey titled '{node_data.get('surveyData', {}).get('title', '')}' with the following details:\n"
+            survey_data = node_data.get("surveyData", {})
+            doc_text += f"  - Survey ID: {survey_data.get('id', '')}\n"
+            doc_text += f"  - Description: {survey_data.get('description', '')}\n"
+            doc_text += f"  - Questions:\n"
+            for question in survey_data.get("questions", []):
+                doc_text += f"    - {question.get('text', '')} (Type: {question.get('type', '')})\n"
+                for option in question.get("options", []):
+                    doc_text += f"      - Option: {option}\n"
+            doc_text += "\nTRIGGERS:\n"
+            for trigger in node_data.get("triggers", []):
+                trigger_id = trigger.get("id")
+                trigger_content = trigger.get("content", "")
+                trigger_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"trigger-{node_id}-{trigger_id}"]
+                if trigger_edges:
+                    target_node_id = trigger_edges[0].get("target")
+                    doc_text += f"- If survey outcome is '{trigger_content}', proceed to node {target_node_id}\n"
         
         # Create document
         documents.append(Document(
@@ -8395,7 +8404,6 @@ async def create_flow_knowledge_index(flow_data: dict):
                 "flow_id": flow_id
             }
         ))
-    
     # Add global flow processing instructions
     starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
                     "nodeType" in node and node["nodeType"] == "starting"), None)
