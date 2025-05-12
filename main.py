@@ -8757,7 +8757,7 @@ async def vector_flow_chat(request: dict):
         print(f"Is likely new session: {is_new_session}")
         print(f"session data {session_data}")
         current_node_id = session_data.get('currentNodeId')
-
+        
         survey_questions_length = session_data.get('survey_questions_length', 0)
         user_message_count = sum(1 for msg in previous_messages if msg.get("role") == "user")
         is_post_survey_start = (current_node_id is None and 
@@ -8766,6 +8766,8 @@ async def vector_flow_chat(request: dict):
         print(f"[CHAT] Survey questions length: {survey_questions_length}")
         print(f"[CHAT] User message count: {user_message_count}")
         print(f"[CHAT] Is post-survey start: {is_post_survey_start}")
+
+        
         
         # Try to get starting node info from app state if available
         if hasattr(app.state, 'starting_node_ids') and flow_id in getattr(app.state, 'starting_node_ids', {}):
@@ -8783,6 +8785,7 @@ async def vector_flow_chat(request: dict):
         # Create context for the query
         current_node_id = session_data.get('currentNodeId')
         print(f"Current node ID: {current_node_id}")
+
 
         # Format previous messages for better context
         conversation_history = ""
