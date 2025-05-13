@@ -8338,7 +8338,7 @@ async def create_flow_knowledge_index(flow_data: dict):
                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
                 if func_edges:
                     target_node_id = func_edges[0].get("target")
-                    doc_text += f"- If user response matches '{func_content}', proceed to node {target_node_id}\n"
+                    doc_text += f"- If user response matches or replied with or user intent matches with '{func_content}', proceed to node {target_node_id}\n"
         
         elif node_type == "scriptNode":
             doc_text += f"INSTRUCTION: When the user is at this script node, display the message '{node_data.get('message', '')}' to the user.\n\n"
@@ -8422,7 +8422,7 @@ async def create_flow_knowledge_index(flow_data: dict):
        - Display the node's message to the user
        - Wait for user input
        - Match user input against the node's functions
-       - If a match is found, transition to the corresponding target node
+       - If a match is found (NOTE: if user input matches  or intent of input matches with particular function for example if function says "if user replied with no" and user replied with i don't know then both are same thing), -> transition to the corresponding target node 
        - If no match is found, generate a response using the LLM
     
     3. SCRIPTNODE PROCESSING:
@@ -8850,6 +8850,22 @@ async def vector_flow_chat(request: dict):
             print('Flow Data', flow_index)
             print(f"[CHAT] Using cached flow index for flow_id: {flow_id}")
 
+
+        current_node_doc = ""
+        if current_node_id:
+            retriever = flow_index.as_retriever(
+                similarity_top_k=1,
+                filters={"node_id": current_node_id}
+            )
+            node_docs = retriever.retrieve("")
+            if node_docs:
+                current_node_doc = node_docs[0].node.get_content()
+                print(f"Retrieved document for node {current_node_id}: {current_node_doc[:100]}...")
+            else:
+                print(f"No document found for node {current_node_id}")
+                current_node_doc = "No specific node instructions available."
+        
+        print(f"[CURRENT NODE DOC] {current_node_doc}")
         # Load document index (optional)
         document_retriever = None
         document_context = ""
@@ -8951,6 +8967,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
 The user message is: "{message}"
 
 The current node ID is: {current_node_id or "None - this is the first message"}
+{current_node_doc}
 
 IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
@@ -8961,6 +8978,9 @@ Previous conversation:
 The session data is:
 {json.dumps(session_data, indent=2)}
 
+Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
+1. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response.
+2. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
