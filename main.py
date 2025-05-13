@@ -8726,7 +8726,7 @@ async def index_assistant_documents(request: dict):
 def get_starting_node(flow_index):
     try:
         retriever = flow_index.as_retriever(similarity_top_k=10)
-        query_str = "STARTING: use"  # Target the flow_instructions document
+        query_str = "GENERAL PROCESSING INSTRUCTIONS"  # Target the flow_instructions document
         print(f"Querying for starting node with: '{query_str}'")
         node_docs = retriever.retrieve(query_str)
         print(f"Retrieved {len(node_docs)} documents for starting node query")
