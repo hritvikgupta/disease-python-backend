@@ -9012,7 +9012,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 5. For Survey Node with Triggers (Completed or Not Completed) keep the flow as it being done OR Stay On That Node After Message "Great Let' Start with Survey" Untill "completed" from user message. 
 5. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
 
-NOTE: keep the next_node_id remain the same node if user {message} does not matches with the Triggers or Functions as given in {current_node_doc}
+NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
