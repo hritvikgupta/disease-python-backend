@@ -9011,6 +9011,8 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 4. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
 5. For Survey Node with Triggers (Completed or Not Completed) keep the flow as it being done OR Stay On That Node After Message "Great Let' Start with Survey" Untill "completed" from user message. 
 5. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
+
+NOTE: keep the next_node_id remain the same node if user {message} does not matches with the Triggers or Functions as given in {current_node_doc}
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
