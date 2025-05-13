@@ -9062,8 +9062,11 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 6. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
 7. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
 8. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
-9. Maintain conversation continuity and ensure responses are contextually appropriate.
+9. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
+10. Maintain conversation continuity and ensure responses are contextually appropriate.
+
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
+
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
@@ -9113,6 +9116,49 @@ Return your response as a JSON object with the following structure:
             ai_response = response_data.get("content", "I'm having trouble processing your request.")
             next_node_id = response_data.get("next_node_id")
             state_updates = response_data.get("state_updates", {})
+
+            # Check if no function match and no progression (e.g., no functions or all unmatched)
+            has_functions = False
+            if "FUNCTIONS:" in current_node_doc:
+                functions_section = current_node_doc.split("FUNCTIONS:")[1]
+                # Check if there are any non-empty lines after FUNCTIONS:
+                has_functions = any(f.strip() for f in functions_section.split("\n") if f.strip())
+            print(f"[HAS FUNCTION] ({has_functions})")
+
+            # Enter fallback if no functions exist
+            print(f"DOCUMENT CONTEXT {document_context}")
+            if not has_functions:
+                print("No function match and no progression detected, generating fallback response")
+                if document_context_section:
+                    print("Using document context for response")
+                    fallback_prompt = f"""
+                    You are a helpful assistant. The user has sent the following message:
+                    
+                    "{message}"
+                    
+                    Previous conversation:
+                    {conversation_history}
+                    
+                    Relevant Document Content:
+                    {document_context_section}
+                    
+                    Please provide a helpful response based on the document content, addressing the user's query.
+                    """
+                else:
+                    print("No document context available, using general fallback")
+                    fallback_prompt = f"""
+                    You are a helpful assistant. The user has sent the following message:
+                    
+                    "{message}"
+                    
+                    Previous conversation:
+                    {conversation_history}
+                    
+                    I couldn't find specific information to proceed. Please provide a helpful response based on the conversation history.
+                    """
+                fallback_response = Settings.llm.complete(fallback_prompt)
+                ai_response = fallback_response.text
+                print(f"Fallback response generated, length: {len(ai_response)} characters")
 
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
