@@ -8584,6 +8584,8 @@ async def create_flow_knowledge_index(flow_data: dict):
         "embeddings_in_collection": collection_count
     }
 
+
+
 @app.post("/api/index/assistant-documents")
 async def index_assistant_documents(request: dict):
     assistant_id = request.get("assistant_id")
@@ -9005,6 +9007,10 @@ The session data is:
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
 2. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
+3. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message
+4. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
+5. For Survey Node with Triggers (Completed or Not Completed) keep the flow as it being done OR Stay On That Node After Message "Great Let' Start with Survey" Untill "completed" from user message. 
+5. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
