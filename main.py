@@ -8722,6 +8722,34 @@ async def index_assistant_documents(request: dict):
         "collection_name": collection_name
     }
 
+
+def get_starting_node(flow_index):
+    try:
+        retriever = flow_index.as_retriever(similarity_top_k=10)
+        query_str = "nodeType:starting"  # For content-based search as a fallback
+        print(f"Querying for starting node with: '{query_str}'")
+        node_docs = retriever.retrieve(query_str)
+        print(f"Retrieved {len(node_docs)} documents for starting node query")
+        for doc in node_docs:
+            print(f"Checking document: {doc.get_content()[:100]}...")
+            print(f"Document metadata: {doc.metadata}")
+            # Check metadata with lowercase 'node_type' to match indexing
+            if doc.metadata.get("node_type") == "starting":
+                node_id = doc.metadata.get("node_id")
+                print(f"Found starting node with ID: {node_id} via metadata")
+                return node_id, doc.get_content()
+            # Fallback to content search (case-insensitive)
+            if "NODE TYPE: starting" in doc.get_content().lower():
+                node_id = doc.metadata.get("node_id")
+                print(f"Found starting node with ID: {node_id} via content")
+                return node_id, doc.get_content()
+        print("No starting node found")
+        return None, ""
+    except Exception as e:
+        print(f"Error finding starting node: {str(e)}")
+        return None, ""
+    
+
 @app.post("/api/shared/vector_chat")
 async def vector_flow_chat(request: dict):
     """
@@ -8892,6 +8920,18 @@ async def vector_flow_chat(request: dict):
                 current_node_doc = "Error retrieving node instructions."
                     
         print(f"[CURRENT NODE DOC] {current_node_doc}")
+
+        if not session_data.get("currentNodeId") and not previous_messages:  # New session
+            starting_node_id, starting_node_doc = get_starting_node(flow_index)
+            print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
+            if starting_node_id:
+                current_node_id = starting_node_id
+                current_node_doc = starting_node_doc
+                session_data["currentNodeId"] = current_node_id
+                app.state.sessions[sessionId] = session_data
+                print(f"Set initial current_node_id to {current_node_id}")
+
+        print(f"[DETECTED NODE] {current_node_id, current_node_doc}")
         # Load document index (optional)
         document_retriever = None
         document_context = ""
