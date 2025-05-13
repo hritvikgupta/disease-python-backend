@@ -8726,29 +8726,39 @@ async def index_assistant_documents(request: dict):
 def get_starting_node(flow_index):
     try:
         retriever = flow_index.as_retriever(similarity_top_k=10)
-        query_str = "nodeType:starting"  # For content-based search as a fallback
+        query_str = "STARTING: use"  # Target the flow_instructions document
         print(f"Querying for starting node with: '{query_str}'")
         node_docs = retriever.retrieve(query_str)
         print(f"Retrieved {len(node_docs)} documents for starting node query")
+        
+        # First, look for the flow_instructions document to get starting_node_id
+        starting_node_id = None
         for doc in node_docs:
-            print(f"Checking document: {doc.get_content()[:100]}...")
-            print(f"Document metadata: {doc.metadata}")
-            # Check metadata with lowercase 'node_type' to match indexing
-            if doc.metadata.get("node_type") == "starting":
-                node_id = doc.metadata.get("node_id")
-                print(f"Found starting node with ID: {node_id} via metadata")
-                return node_id, doc.get_content()
-            # Fallback to content search (case-insensitive)
-            if "NODE TYPE: starting" in doc.get_content().lower():
-                node_id = doc.metadata.get("node_id")
-                print(f"Found starting node with ID: {node_id} via content")
-                return node_id, doc.get_content()
+            if doc.metadata.get("type") == "flow_instructions":
+                content = doc.get_content()
+                print(f"Found flow_instructions: {content[:200]}...")
+                import re
+                match = re.search(r"1\. STARTING: use (\w+)", content)
+                if match:
+                    starting_node_id = match.group(1)
+                    print(f"Found starting node ID '{starting_node_id}' in flow instructions")
+                    break
+        
+        if starting_node_id and starting_node_id != "None":
+            # Re-query for the specific node using its NODE ID
+            specific_docs = retriever.retrieve(f"NODE ID: {starting_node_id}")
+            for specific_doc in specific_docs:
+                print(f"Checking specific document: {specific_doc.get_content()[:100]}...")
+                print(f"Specific document metadata: {specific_doc.metadata}")
+                if specific_doc.metadata.get("node_id") == starting_node_id:
+                    print(f"Verified starting node with ID: {starting_node_id}")
+                    return starting_node_id, specific_doc.get_content()
+        
         print("No starting node found")
         return None, ""
     except Exception as e:
         print(f"Error finding starting node: {str(e)}")
         return None, ""
-    
 
 @app.post("/api/shared/vector_chat")
 async def vector_flow_chat(request: dict):
@@ -8881,6 +8891,14 @@ async def vector_flow_chat(request: dict):
             print(f"[CHAT] Using cached flow index for flow_id: {flow_id}")
 
 
+        if not session_data.get("currentNodeId") and not previous_messages:  # New session
+            starting_node_id, starting_node_doc = get_starting_node(flow_index)
+            print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
+            if starting_node_id:
+                current_node_id = starting_node_id
+                current_node_doc = starting_node_doc
+                
+
         # Basic String Query Approach - No Filters
         current_node_doc = ""
         if current_node_id:
@@ -8921,15 +8939,6 @@ async def vector_flow_chat(request: dict):
                     
         print(f"[CURRENT NODE DOC] {current_node_doc}")
 
-        if not session_data.get("currentNodeId") and not previous_messages:  # New session
-            starting_node_id, starting_node_doc = get_starting_node(flow_index)
-            print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
-            if starting_node_id:
-                current_node_id = starting_node_id
-                current_node_doc = starting_node_doc
-                session_data["currentNodeId"] = current_node_id
-                app.state.sessions[sessionId] = session_data
-                print(f"Set initial current_node_id to {current_node_id}")
 
         print(f"[DETECTED NODE] {current_node_id, current_node_doc}")
         # Load document index (optional)
