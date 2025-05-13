@@ -9054,16 +9054,17 @@ The session data is:
 {json.dumps(session_data, indent=2)}
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
-1. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
-2. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
-3. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
-4. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
-5. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
-6. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
-7. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
-8. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
-9. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
-10. Maintain conversation continuity and ensure responses are contextually appropriate.
+1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
+2. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
+3. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
+4. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
+5. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
+6. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
+7. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
+8. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
+9. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
+10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
+11. Maintain conversation continuity and ensure responses are contextually appropriate.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
@@ -9126,7 +9127,7 @@ Return your response as a JSON object with the following structure:
             print(f"[HAS FUNCTION] ({has_functions})")
 
             # Enter fallback if no functions exist
-            print(f"DOCUMENT CONTEXT {document_context}")
+            # print(f"DOCUMENT CONTEXT {document_context}")
             if not has_functions:
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
