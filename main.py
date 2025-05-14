@@ -9014,6 +9014,8 @@ async def vector_flow_chat(request: dict):
         else:
             print("No document retriever available, proceeding without document context")
 
+
+        is_survey_node = "NODE TYPE: surveyNode" in current_node_doc
         # Define context section
         document_context_section = f"""
 Relevant Document Content:
@@ -9128,7 +9130,7 @@ Return your response as a JSON object with the following structure:
 
             # Enter fallback if no functions exist
             # print(f"DOCUMENT CONTEXT {document_context}")
-            if not has_functions:
+            if not has_functions and not is_survey_node:
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
                     print("Using document context for response")
