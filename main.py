@@ -4292,6 +4292,82 @@ async def read_users_me(current_user = Depends(get_current_user)):
     }
 
 # Patients
+class PatientUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    insurance_provider: Optional[str] = None
+    insurance_id: Optional[str] = None
+    primary_care_provider: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+
+@app.put("/api/patients/{patient_id}", response_model=dict)
+async def update_patient(
+    patient_id: str,
+    patient_update: PatientUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    # Check if patient exists
+    db_patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not db_patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Check if user has access to this patient
+    if not current_user.is_doctor and not user_has_patient_access(db, current_user.id, patient_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this patient")
+    
+    # Check if patient belongs to user's organization
+    if db_patient.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+    
+    # Update fields that were provided
+    update_data = patient_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_patient, key, value)
+    
+    db.commit()
+    db.refresh(db_patient)
+    
+    # Update JSON file
+    patient_path = f"patients/{db_patient.id}.json"
+    with open(patient_path, "w") as f:
+        patient_dict = {
+            "id": db_patient.id,
+            "mrn": db_patient.mrn,
+            "first_name": db_patient.first_name,
+            "last_name": db_patient.last_name,
+            "date_of_birth": db_patient.date_of_birth,
+            "gender": db_patient.gender,
+            "address": db_patient.address,
+            "phone": db_patient.phone,
+            "email": db_patient.email,
+            "insurance_provider": db_patient.insurance_provider,
+            "insurance_id": db_patient.insurance_id,
+            "primary_care_provider": db_patient.primary_care_provider,
+            "emergency_contact_name": db_patient.emergency_contact_name,
+            "emergency_contact_phone": db_patient.emergency_contact_phone,
+            "created_at": db_patient.created_at.isoformat(),
+            "updated_at": db_patient.updated_at.isoformat(),
+            "organization_id": db_patient.organization_id
+        }
+        json.dump(patient_dict, f, indent=2)
+    
+    return {
+        "id": db_patient.id,
+        "mrn": db_patient.mrn,
+        "first_name": db_patient.first_name,
+        "last_name": db_patient.last_name,
+        "date_of_birth": db_patient.date_of_birth,
+        "gender": db_patient.gender,
+        "message": "Patient updated successfully"
+    }
+
 @app.post("/api/patients", response_model=dict)
 async def create_patient(patient: PatientCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
     mrn = generate_mrn()
