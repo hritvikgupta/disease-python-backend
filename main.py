@@ -9389,15 +9389,6 @@ async def check_indexing_status(assistant_id: str):
         }
 
 ## Analyze Message
-from datetime import datetime
-import json
-import uuid
-from fastapi import FastAPI
-from sqlalchemy.orm import Session
-# from models import SessionAnalytics
-from settings import Settings
-
-app = FastAPI()
 
 @app.post("/api/analyze-message")
 async def analyze_message(request: dict):
