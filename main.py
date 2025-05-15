@@ -9389,6 +9389,16 @@ async def check_indexing_status(assistant_id: str):
         }
 
 ## Analyze Message
+from datetime import datetime
+import json
+import uuid
+from fastapi import FastAPI
+from sqlalchemy.orm import Session
+from models import SessionAnalytics
+from settings import Settings
+
+app = FastAPI()
+
 @app.post("/api/analyze-message")
 async def analyze_message(request: dict):
     try:
@@ -9398,8 +9408,11 @@ async def analyze_message(request: dict):
         timestamp = request.get("timestamp", datetime.utcnow().isoformat())
         
         print(f"Analyzing message. SessionID: {session_id}, Message: {message[:50]}...")
-        
-        # Fetch conversation history for context
+        eastern = pytz.timezone('America/New_York')
+        current_time = datetime.now(eastern)
+        current_date = current_time.date().strftime('%m/%d/%Y')
+        print(f"found the current date {current_date}")
+        # Fetch conversation history
         db = SessionLocal()
         recent_messages = db.query(SessionAnalytics).filter(
             SessionAnalytics.session_id == session_id
@@ -9411,8 +9424,10 @@ async def analyze_message(request: dict):
             for msg in reversed(recent_messages)
         ])
         
-        # Enhanced prompt
+        # Enhanced prompt with current date and trimester logic
         prompt = f"""
+        Current date: {current_date}
+
         Conversation context:
         {context}
 
@@ -9438,11 +9453,23 @@ async def analyze_message(request: dict):
            - Measurements: Extract numerical health data reported by the user (e.g., weight, blood pressure).
            - Medications: Identify medications the user explicitly states they are taking.
 
-        3. Pregnancy-Specific Analysis (from sacerdotal only):
-           - Trimester Indicators: Estimate trimester based on user-provided dates (e.g., LMP).
+        3. Pregnancy-Specific Analysis (from *user's message* only):
+           - Trimester Indicators: Calculate gestational age using the user-provided LMP date and the current date (05/15/2025). Use the following rules:
+             - Convert LMP to a datetime object.
+             - Calculate weeks pregnant: ({current_date} - LMP_date).days / 7.
+             - Determine trimester:
+               - First trimester: 0–13 weeks.
+               - Second trimester: 14–26 weeks.
+               - Third trimester: 27–40 weeks.
+             - If LMP is invalid (e.g., future date or >1 year ago), return "Invalid LMP date".
            - Risk Factors: Identify complications or risk factors reported by the user.
            - Fetal Activity: Note user-reported fetal movement or activity.
            - Emotional State: Identify pregnancy-specific emotional states reported by the user.
+
+        4. Contextual Analysis:
+           - Use the AI's response and conversation context to understand the question being answered (e.g., LMP vs. date of birth).
+           - Do not extract medical or pregnancy data from the AI's response.
+           - If a date matches the user's date of birth (e.g., 29/04/1999 from survey responses), do not use it as LMP.
 
         Return your analysis as a JSON object:
         {{
@@ -9465,7 +9492,7 @@ async def analyze_message(request: dict):
             }}
         }}
 
-        If no relevant data is found in the user's message, return empty arrays or null values. Do not extract medical or pregnancy data from the AI's response.
+        If no relevant data is found, return empty arrays or null values.
         """
         
         # Call the LLM
@@ -9497,14 +9524,19 @@ async def analyze_message(request: dict):
                     ]
                     data["medical_data"]["medications"] = valid_medications
                 
-                # Validate dates
+                # Validate dates (handle list or dict)
                 if "dates" in data["medical_data"]:
-                    for date_type, date_value in data["medical_data"]["dates"].items():
-                        if "menstrual" in ai_response.lower() and date_type == "appointment_date":
-                            data["medical_data"]["dates"] = {
-                                "last_menstrual_period": date_value
-                            }
-                            break
+                    if isinstance(data["medical_data"]["dates"], list):
+                        for date_entry in data["medical_data"]["dates"]:
+                            if isinstance(date_entry, dict) and date_entry.get("type") == "last_menstrual_period":
+                                data["medical_data"]["dates"] = {
+                                    "type": "last_menstrual_period",
+                                    "value": date_entry.get("value")
+                                }
+                                break
+                    elif isinstance(data["medical_data"]["dates"], dict):
+                        if "menstrual" in ai_response.lower() and data["medical_data"]["dates"].get("type") == "appointment_date":
+                            data["medical_data"]["dates"]["type"] = "last_menstrual_period"
                 
                 return data
             
@@ -9552,7 +9584,6 @@ async def analyze_message(request: dict):
             
         except json.JSONDecodeError as json_err:
             print(f"JSON parsing error: {str(json_err)}")
-            # Fallback logic remains the same
             analytics_id = str(uuid.uuid4())
             word_count = len(message.split())
             db = SessionLocal()
@@ -9592,7 +9623,7 @@ async def analyze_message(request: dict):
             "status": "error",
             "message": f"Failed to analyze message: {str(e)}"
         }
-    
+      
 @app.get("/api/export-session-analytics/{session_id}")
 async def export_session_analytics(session_id: str):
     """
