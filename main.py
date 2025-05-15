@@ -9389,7 +9389,6 @@ async def check_indexing_status(assistant_id: str):
         }
 
 ## Analyze Message
-
 @app.post("/api/analyze-message")
 async def analyze_message(request: dict):
     try:
@@ -9399,11 +9398,14 @@ async def analyze_message(request: dict):
         timestamp = request.get("timestamp", datetime.utcnow().isoformat())
         
         print(f"Analyzing message. SessionID: {session_id}, Message: {message[:50]}...")
+        
+        # Get current date in Eastern Time
         eastern = pytz.timezone('America/New_York')
         current_time = datetime.now(eastern)
         current_date = current_time.date().strftime('%m/%d/%Y')
-        print(f"found the current date {current_date}")
-        # Fetch conversation history
+        print(f"Found the current date: {current_date}")
+        
+        # Fetch conversation history (last 5 messages for context)
         db = SessionLocal()
         recent_messages = db.query(SessionAnalytics).filter(
             SessionAnalytics.session_id == session_id
@@ -9415,11 +9417,11 @@ async def analyze_message(request: dict):
             for msg in reversed(recent_messages)
         ])
         
-        # Enhanced prompt with current date and trimester logic
+        # Prompt to analyze message and calculate trimester only for LMP responses
         prompt = f"""
         Current date: {current_date}
 
-        Conversation context:
+        Conversation context (recent messages):
         {context}
 
         Current message:
@@ -9437,7 +9439,7 @@ async def analyze_message(request: dict):
 
         2. Medical Data Extraction (from *user's message* only):
            - Dates: Extract dates provided by the user. Categorize based on context:
-             - "last_menstrual_period" if responding to a question about LMP.
+             - "last_menstrual_period" if responding to an AI question about LMP (e.g., "What was the first day of your last menstrual period?").
              - "due_date" for estimated delivery dates.
              - "appointment_date" for explicit appointment mentions.
            - Symptoms: Identify symptoms reported by the user with severity (none, mild, moderate, severe).
@@ -9445,20 +9447,26 @@ async def analyze_message(request: dict):
            - Medications: Identify medications the user explicitly states they are taking.
 
         3. Pregnancy-Specific Analysis (from *user's message* only):
-           - Trimester Indicators: Calculate gestational age using the user-provided LMP date and the current date (05/15/2025). Use the following rules:
-             - Convert LMP to a datetime object.
-             - Calculate weeks pregnant: ({current_date} - LMP_date).days / 7.
-             - Determine trimester:
-               - First trimester: 0–13 weeks.
-               - Second trimester: 14–26 weeks.
-               - Third trimester: 27–40 weeks.
-             - If LMP is invalid (e.g., future date or >1 year ago), return "Invalid LMP date".
-           - Risk Factors: Identify complications or risk factors reported by the user.
-           - Fetal Activity: Note user-reported fetal movement or activity.
-           - Emotional State: Identify pregnancy-specific emotional states reported by the user.
+           - Trimester Indicators:
+             - Only calculate gestational age if:
+               - The AI's most recent message in the context asked for the last menstrual period (e.g., contains "last menstrual period" or "LMP" and requests a date).
+               - The user's current message provides a date in MM/DD/YYYY format.
+             - If both conditions are met:
+               - Convert the provided LMP date to a datetime object.
+               - Calculate weeks pregnant: ({current_date} - LMP_date).days / 7.
+               - Determine trimester:
+                 - First trimester: 0–13 weeks.
+                 - Second trimester: 14–26 weeks.
+                 - Third trimester: 27–40 weeks.
+               - If the LMP date is invalid (e.g., future date relative to {current_date} or >1 year ago), return "Invalid LMP date".
+             - Otherwise, return null.
+           - Risk Factors: Identify any pregnancy-related complications or risk factors reported in the user's message (e.g., "high blood pressure", "gestational diabetes").
+           - Fetal Activity: Identify any user-reported fetal movements or activity (e.g., "I felt the baby kick").
+           - Emotional State: Identify any pregnancy-specific emotional states reported in the user's message (e.g., "I'm anxious about my pregnancy").
 
         4. Contextual Analysis:
-           - Use the AI's response and conversation context to understand the question being answered (e.g., LMP vs. date of birth).
+           - Use the AI's most recent message in the context to determine if it asked for the LMP date for trimester calculation.
+           - Extract pregnancy-specific data (risk factors, fetal activity, emotional state) from the user's message independently of the LMP question.
            - Do not extract medical or pregnancy data from the AI's response.
            - If a date matches the user's date of birth (e.g., 29/04/1999 from survey responses), do not use it as LMP.
 
@@ -9470,20 +9478,20 @@ async def analyze_message(request: dict):
             "topic": "string",
             "keywords": ["string"],
             "medical_data": {{
-                "dates": {{"type": "string", "value": "string"}},
+                "dates": {{"type": "string", "value": "string"}} or null,
                 "symptoms": [{{"name": "string", "severity": "string"}}],
-                "measurements": {{"type": "string", "value": "string"}},
+                "measurements": {{"type": "string", "value": "string"}} or null,
                 "medications": ["string"]
             }},
             "pregnancy_specific": {{
-                "trimester_indicators": "string",
+                "trimester_indicators": "string" or null,
                 "risk_factors": ["string"],
-                "fetal_activity": "string or null",
-                "emotional_state": "string or null"
+                "fetal_activity": "string" or null,
+                "emotional_state": "string" or null
             }}
         }}
 
-        If no relevant data is found, return empty arrays or null values.
+        If no relevant data is found, return empty arrays or null values for the respective fields.
         """
         
         # Call the LLM
@@ -9614,7 +9622,7 @@ async def analyze_message(request: dict):
             "status": "error",
             "message": f"Failed to analyze message: {str(e)}"
         }
-      
+        
 @app.get("/api/export-session-analytics/{session_id}")
 async def export_session_analytics(session_id: str):
     """
