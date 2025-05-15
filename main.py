@@ -9394,7 +9394,7 @@ import json
 import uuid
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
-from models import SessionAnalytics
+# from models import SessionAnalytics
 from settings import Settings
 
 app = FastAPI()
