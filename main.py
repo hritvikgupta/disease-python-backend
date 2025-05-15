@@ -512,6 +512,24 @@ class QuestionCreate(BaseModel):
     type: str
     options: List[str] = []
 
+# class SessionAnalytics(Base):
+#     __tablename__ = "session_analytics"
+    
+#     id = Column(String, primary_key=True, index=True)
+#     session_id = Column(String, index=True)
+#     timestamp = Column(DateTime, default=datetime.utcnow)
+#     message_text = Column(String)  # User's message
+#     assistant_response = Column(String)  # AI's response
+#     sentiment = Column(String)  # Positive, Negative, Neutral
+#     urgency = Column(String)  # High, Medium, Low
+#     intent = Column(String)  # User's intent classification
+#     topic = Column(String)  # Topic of conversation
+#     keywords = Column(String)  # Extracted keywords as JSON
+#     session_duration = Column(Integer)  # Duration in seconds
+#     word_count = Column(Integer)  # Word count in message
+#     response_time = Column(Integer)  # Time to generate response in ms
+#     created_at = Column(DateTime, default=datetime.utcnow)
+    
 class SessionAnalytics(Base):
     __tablename__ = "session_analytics"
     
@@ -530,6 +548,10 @@ class SessionAnalytics(Base):
     response_time = Column(Integer)  # Time to generate response in ms
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # New columns for pregnancy-specific analytics
+    medical_data = Column(String)  # JSON string for dates, symptoms, measurements
+    pregnancy_specific = Column(String)  # JSON string for trimester, risk factors
+    emotional_state = Column(String)  # More detailed emotional analysis
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -9385,30 +9407,57 @@ async def analyze_message(request: dict):
         
         print(f"Analyzing message. SessionID: {session_id}, Message: {message[:50]}...")
         
-        # Create a prompt for the LLM to analyze the message
+        # Create an enhanced prompt for pregnancy-related analysis
         prompt = f"""
-        Analyze the following chat conversation between a user and an AI assistant.
-        
+        Analyze the following chat conversation between a pregnant patient and an AI assistant.
+
         User message: "{message}"
-        
+
         AI response: "{response}"
-        
-        Perform the following analysis and return the results in JSON format:
-        1. Sentiment: Determine if the user's message sentiment is positive, negative, or neutral
-        2. Urgency: Determine if the message indicates high, medium, or low urgency
-        3. Intent: Classify the primary intent of the user (e.g., question, request, complaint, etc.)
-        4. Topic: Identify the main topic of the conversation
-        5. Keywords: Extract 3-5 key terms from the message
-        
+
+        Perform the following specialized pregnancy-related analysis and return the results in JSON format:
+
+        1. Basic Analysis:
+           - Sentiment: Determine if the patient's message sentiment is positive, negative, neutral, anxious, or confused
+           - Urgency: Determine if the message indicates high, medium, or low medical urgency
+           - Intent: Classify the primary intent (question, sharing information, seeking reassurance, reporting symptom)
+           - Topic: Identify the main topic of the conversation
+           - Keywords: Extract 3-5 key terms from the message
+
+        2. Medical Data Extraction:
+           - Dates: Extract any dates mentioned (especially last menstrual period, due dates)
+           - Symptoms: Identify any symptoms mentioned with their severity (none, mild, moderate, severe)
+           - Measurements: Extract any numerical health data (weight, blood pressure, etc.)
+           - Medications: Identify any medications or supplements mentioned
+
+        3. Pregnancy-Specific Analysis:
+           - Trimester Indicators: Based on dates or mentions, estimate which trimester is being discussed
+           - Risk Factors: Identify potential complications or risk factors mentioned
+           - Fetal Activity: Note any mentions of fetal movement or activity
+           - Emotional State: Identify pregnancy-specific emotional states (nesting, bonding, anxiety about delivery)
+
         Return your analysis as a JSON object with the following structure:
         {{
-            "sentiment": "positive/negative/neutral",
+            "sentiment": "positive/negative/neutral/anxious/confused",
             "urgency": "high/medium/low",
             "intent": "string",
             "topic": "string",
-            "keywords": ["keyword1", "keyword2", ...]
+            "keywords": ["keyword1", "keyword2", ...],
+            "medical_data": {{
+                "dates": {{"type": "value", ...}},
+                "symptoms": [{{"name": "symptom", "severity": "mild/moderate/severe"}}, ...],
+                "measurements": {{"type": "value", ...}},
+                "medications": ["med1", "med2", ...]
+            }},
+            "pregnancy_specific": {{
+                "trimester_indicators": "first/second/third/postpartum",
+                "risk_factors": ["factor1", "factor2", ...],
+                "fetal_activity": "description or null",
+                "emotional_state": "description or null"
+            }}
         }}
-        
+
+        If certain fields have no detected information, leave them as empty arrays or null values as appropriate.
         Your response must be a valid JSON object only, with no additional text or explanations.
         """
         
@@ -9441,6 +9490,11 @@ async def analyze_message(request: dict):
             analytics_id = str(uuid.uuid4())
             word_count = len(message.split())
             
+            # For SQLite, convert JSON objects to strings
+            medical_data_json = json.dumps(analytics_data.get("medical_data", {}))
+            pregnancy_specific_json = json.dumps(analytics_data.get("pregnancy_specific", {}))
+            emotional_state = analytics_data.get("pregnancy_specific", {}).get("emotional_state")
+            
             db = SessionLocal()
             db_analytics = SessionAnalytics(
                 id=analytics_id,
@@ -9454,6 +9508,10 @@ async def analyze_message(request: dict):
                 topic=analytics_data.get("topic", ""),
                 keywords=json.dumps(analytics_data.get("keywords", [])),
                 word_count=word_count,
+                # New fields - stored as JSON strings for SQLite
+                medical_data=medical_data_json,
+                pregnancy_specific=pregnancy_specific_json,
+                emotional_state=emotional_state,
                 # These would need to be provided from the frontend
                 session_duration=0,  
                 response_time=0
@@ -9464,7 +9522,7 @@ async def analyze_message(request: dict):
             db.refresh(db_analytics)
             db.close()
             
-            print(f"Analytics saved successfully for session {session_id}")
+            print(f"Enhanced pregnancy analytics saved successfully for session {session_id}")
             
             return {
                 "status": "success",
@@ -9493,6 +9551,9 @@ async def analyze_message(request: dict):
                 topic="general",      # Default value
                 keywords=json.dumps([]),
                 word_count=word_count,
+                medical_data=json.dumps({}),  # Empty JSON objects as strings
+                pregnancy_specific=json.dumps({}),
+                emotional_state=None,
                 session_duration=0,
                 response_time=0
             )
@@ -9525,14 +9586,14 @@ async def analyze_message(request: dict):
             "status": "error",
             "message": f"Failed to analyze message: {str(e)}"
         }
-
+    
 @app.get("/api/export-session-analytics/{session_id}")
 async def export_session_analytics(session_id: str):
     """
-    Export all analytics data for a given session to an Excel file.
+    Export all analytics data for a given session to an Excel file with pregnancy-specific data.
     """
     try:
-        print(f"Exporting analytics for session: {session_id}")
+        print(f"Exporting pregnancy analytics for session: {session_id}")
         
         db = SessionLocal()
         analytics_records = db.query(SessionAnalytics).filter(
@@ -9545,8 +9606,13 @@ async def export_session_analytics(session_id: str):
                 content={"message": f"No analytics found for session {session_id}"}
             )
         
-        # Create a pandas DataFrame from the records
-        data = []
+        # Create a pandas DataFrame for basic data
+        basic_data = []
+        
+        # Create separate DataFrames for medical data and pregnancy-specific data
+        medical_data_rows = []
+        pregnancy_data_rows = []
+        
         for record in analytics_records:
             # Parse keywords if it's a JSON string
             try:
@@ -9554,8 +9620,9 @@ async def export_session_analytics(session_id: str):
                 keywords_str = ", ".join(keywords)
             except:
                 keywords_str = record.keywords or ""
-                
-            data.append({
+            
+            # Basic data for main sheet    
+            basic_data.append({
                 "timestamp": record.timestamp.isoformat() if record.timestamp else "",
                 "message": record.message_text or "",
                 "response": record.assistant_response or "",
@@ -9565,19 +9632,127 @@ async def export_session_analytics(session_id: str):
                 "topic": record.topic or "",
                 "keywords": keywords_str,
                 "word_count": record.word_count or 0,
-                # "session_duration": record.session_duration or 0,
-                # "response_time": record.response_time or 0
+                "emotional_state": record.emotional_state or ""
             })
+            
+            # Parse JSON strings for medical_data and pregnancy_specific
+            medical_data_dict = {}
+            pregnancy_specific_dict = {}
+            
+            try:
+                if record.medical_data and record.medical_data.strip():
+                    medical_data_dict = json.loads(record.medical_data)
+            except json.JSONDecodeError:
+                print(f"Error parsing medical_data JSON for record ID: {record.id}")
+            
+            try:
+                if record.pregnancy_specific and record.pregnancy_specific.strip():
+                    pregnancy_specific_dict = json.loads(record.pregnancy_specific)
+            except json.JSONDecodeError:
+                print(f"Error parsing pregnancy_specific JSON for record ID: {record.id}")
+            
+            # Process medical data if available
+            if medical_data_dict:
+                # Dates processing
+                if medical_data_dict.get("dates"):
+                    for date_type, date_value in medical_data_dict["dates"].items():
+                        medical_data_rows.append({
+                            "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                            "type": "date",
+                            "subtype": date_type,
+                            "value": date_value,
+                            "details": "",
+                            "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                        })
+                
+                # Symptoms processing
+                if medical_data_dict.get("symptoms"):
+                    for symptom in medical_data_dict["symptoms"]:
+                        medical_data_rows.append({
+                            "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                            "type": "symptom",
+                            "subtype": symptom.get("name", ""),
+                            "value": symptom.get("severity", ""),
+                            "details": json.dumps(symptom),
+                            "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                        })
+                
+                # Measurements processing
+                if medical_data_dict.get("measurements"):
+                    for measure_type, measure_value in medical_data_dict["measurements"].items():
+                        medical_data_rows.append({
+                            "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                            "type": "measurement",
+                            "subtype": measure_type,
+                            "value": str(measure_value),
+                            "details": "",
+                            "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                        })
+                
+                # Medications processing
+                if medical_data_dict.get("medications"):
+                    for medication in medical_data_dict["medications"]:
+                        medical_data_rows.append({
+                            "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                            "type": "medication",
+                            "subtype": medication,
+                            "value": "",
+                            "details": "",
+                            "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                        })
+            
+            # Process pregnancy-specific data if available
+            if pregnancy_specific_dict:
+                # Trimester indicators
+                if pregnancy_specific_dict.get("trimester_indicators"):
+                    pregnancy_data_rows.append({
+                        "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                        "type": "trimester",
+                        "value": pregnancy_specific_dict["trimester_indicators"],
+                        "details": "",
+                        "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                    })
+                
+                # Risk factors
+                if pregnancy_specific_dict.get("risk_factors"):
+                    for risk in pregnancy_specific_dict["risk_factors"]:
+                        pregnancy_data_rows.append({
+                            "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                            "type": "risk_factor",
+                            "value": risk,
+                            "details": "",
+                            "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                        })
+                
+                # Fetal activity
+                if pregnancy_specific_dict.get("fetal_activity"):
+                    pregnancy_data_rows.append({
+                        "timestamp": record.timestamp.isoformat() if record.timestamp else "",
+                        "type": "fetal_activity",
+                        "value": pregnancy_specific_dict["fetal_activity"],
+                        "details": "",
+                        "message_reference": record.message_text[:50] + "..." if record.message_text else ""
+                    })
         
-        df = pd.DataFrame(data)
+        # Create DataFrames
+        df_basic = pd.DataFrame(basic_data)
+        df_medical = pd.DataFrame(medical_data_rows) if medical_data_rows else pd.DataFrame()
+        df_pregnancy = pd.DataFrame(pregnancy_data_rows) if pregnancy_data_rows else pd.DataFrame()
         
-        # Create an Excel file without xlsxwriter (simpler approach)
+        # Create Excel file with multiple sheets
         output = BytesIO()
-        df.to_excel(output, sheet_name="Session Analytics", index=False)
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_basic.to_excel(writer, sheet_name="Conversation Analytics", index=False)
+            
+            if not df_medical.empty:
+                df_medical.to_excel(writer, sheet_name="Medical Data", index=False)
+            
+            if not df_pregnancy.empty:
+                df_pregnancy.to_excel(writer, sheet_name="Pregnancy Data", index=False)
         
         # Save the Excel file to disk for backup
         output.seek(0)
-        filename = f"session_analytics_{session_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"pregnancy_analytics_{session_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
         # Make sure the directory exists
         os.makedirs("./session_analytics", exist_ok=True)
@@ -9586,7 +9761,7 @@ async def export_session_analytics(session_id: str):
         with open(filepath, "wb") as f:
             f.write(output.getvalue())
             
-        print(f"Excel file saved to {filepath}")
+        print(f"Enhanced pregnancy analytics Excel file saved to {filepath}")
         
         # Return the file as a downloadable attachment
         output.seek(0)
@@ -9601,12 +9776,12 @@ async def export_session_analytics(session_id: str):
         )
         
     except Exception as e:
-        print(f"Error exporting session analytics: {str(e)}")
+        print(f"Error exporting pregnancy analytics: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"message": f"Failed to export analytics: {str(e)}"}
+            content={"message": f"Failed to export pregnancy analytics: {str(e)}"}
         )
-
+    
 # Additional endpoints for session analytics
 
 @app.get("/api/session-analytics")
