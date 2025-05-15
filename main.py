@@ -9391,15 +9391,6 @@ async def check_indexing_status(assistant_id: str):
 ## Analyze Message
 @app.post("/api/analyze-message")
 async def analyze_message(request: dict):
-    """
-    Analyze a chat message using the LLM and store analytics data.
-    
-    This endpoint accepts:
-    - message: The user's message text
-    - response: The assistant's response
-    - session_id: The current session ID
-    - timestamp: When the message was sent
-    """
     try:
         message = request.get("message", "")
         response = request.get("response", "")
@@ -9408,90 +9399,120 @@ async def analyze_message(request: dict):
         
         print(f"Analyzing message. SessionID: {session_id}, Message: {message[:50]}...")
         
-        # Create an enhanced prompt for pregnancy-related analysis
+        # Fetch conversation history for context
+        db = SessionLocal()
+        recent_messages = db.query(SessionAnalytics).filter(
+            SessionAnalytics.session_id == session_id
+        ).order_by(SessionAnalytics.timestamp.desc()).limit(5).all()
+        db.close()
+        
+        context = "\n".join([
+            f"AI: {msg.assistant_response}\nUser: {msg.message_text}"
+            for msg in reversed(recent_messages)
+        ])
+        
+        # Enhanced prompt
         prompt = f"""
-        Analyze the following chat conversation between a pregnant patient and an AI assistant.
+        Conversation context:
+        {context}
 
+        Current message:
         User message: "{message}"
-
         AI response: "{response}"
 
-        Perform the following specialized pregnancy-related analysis and return the results in JSON format:
+        Analyze the current user message using the conversation context to understand the intent and categorize data correctly. Return results in JSON format:
 
         1. Basic Analysis:
-           - Sentiment: Determine if the patient's message sentiment is positive, negative, neutral, anxious, or confused
-           - Urgency: Determine if the message indicates high, medium, or low medical urgency
-           - Intent: Classify the primary intent (question, sharing information, seeking reassurance, reporting symptom)
-           - Topic: Identify the main topic of the conversation
-           - Keywords: Extract 3-5 key terms from the message
+           - Sentiment: Analyze the *user's message* for sentiment (positive, negative, neutral, anxious, confused).
+           - Urgency: Determine urgency based on the *user's message* (high, medium, low).
+           - Intent: Classify the *user's intent* (question, sharing information, seeking reassurance, reporting symptom).
+           - Topic: Identify the main topic of the *user's message*.
+           - Keywords: Extract 3-5 key terms from the *user's message*.
 
-        2. Medical Data Extraction:
-           - Dates: Extract any dates mentioned (especially last menstrual period, due dates)
-           - Symptoms: Identify any symptoms mentioned with their severity (none, mild, moderate, severe)
-           - Measurements: Extract any numerical health data (weight, blood pressure, etc.)
-           - Medications: Identify any medications or supplements mentioned
+        2. Medical Data Extraction (from *user's message* only):
+           - Dates: Extract dates provided by the user. Categorize based on context:
+             - "last_menstrual_period" if responding to a question about LMP.
+             - "due_date" for estimated delivery dates.
+             - "appointment_date" for explicit appointment mentions.
+           - Symptoms: Identify symptoms reported by the user with severity (none, mild, moderate, severe).
+           - Measurements: Extract numerical health data reported by the user (e.g., weight, blood pressure).
+           - Medications: Identify medications the user explicitly states they are taking.
 
-        3. Pregnancy-Specific Analysis:
-           - Trimester Indicators: Based on dates or mentions, estimate which trimester is being discussed
-           - Risk Factors: Identify potential complications or risk factors mentioned
-           - Fetal Activity: Note any mentions of fetal movement or activity
-           - Emotional State: Identify pregnancy-specific emotional states (nesting, bonding, anxiety about delivery)
+        3. Pregnancy-Specific Analysis (from sacerdotal only):
+           - Trimester Indicators: Estimate trimester based on user-provided dates (e.g., LMP).
+           - Risk Factors: Identify complications or risk factors reported by the user.
+           - Fetal Activity: Note user-reported fetal movement or activity.
+           - Emotional State: Identify pregnancy-specific emotional states reported by the user.
 
-        Return your analysis as a JSON object with the following structure:
+        Return your analysis as a JSON object:
         {{
-            "sentiment": "positive/negative/neutral/anxious/confused",
-            "urgency": "high/medium/low",
+            "sentiment": "string",
+            "urgency": "string",
             "intent": "string",
             "topic": "string",
-            "keywords": ["keyword1", "keyword2", ...],
+            "keywords": ["string"],
             "medical_data": {{
-                "dates": {{"type": "value", ...}},
-                "symptoms": [{{"name": "symptom", "severity": "mild/moderate/severe"}}, ...],
-                "measurements": {{"type": "value", ...}},
-                "medications": ["med1", "med2", ...]
+                "dates": {{"type": "string", "value": "string"}},
+                "symptoms": [{{"name": "string", "severity": "string"}}],
+                "measurements": {{"type": "string", "value": "string"}},
+                "medications": ["string"]
             }},
             "pregnancy_specific": {{
-                "trimester_indicators": "first/second/third/postpartum",
-                "risk_factors": ["factor1", "factor2", ...],
-                "fetal_activity": "description or null",
-                "emotional_state": "description or null"
+                "trimester_indicators": "string",
+                "risk_factors": ["string"],
+                "fetal_activity": "string or null",
+                "emotional_state": "string or null"
             }}
         }}
 
-        If certain fields have no detected information, leave them as empty arrays or null values as appropriate.
-        Your response must be a valid JSON object only, with no additional text or explanations.
+        If no relevant data is found in the user's message, return empty arrays or null values. Do not extract medical or pregnancy data from the AI's response.
         """
         
-        # Call the LLM with the prompt
+        # Call the LLM
         llm_response = Settings.llm.complete(prompt)
-        
-        # Debug: print the raw response
         print(f"Raw LLM response: {llm_response.text[:200]}...")
         
+        # Parse and clean response
+        cleaned_response = llm_response.text.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]
+        cleaned_response = cleaned_response.strip()
+        
+        print(f"Cleaned response: {cleaned_response[:200]}...")
+        
+        # Parse JSON
         try:
-            # Clean up the response before parsing as JSON
-            cleaned_response = llm_response.text.strip()
-            
-            # If the response is wrapped in markdown code blocks, remove them
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-            
-            # Remove any leading/trailing whitespace again after cleanup
-            cleaned_response = cleaned_response.strip()
-            
-            # Debug: print the cleaned response
-            print(f"Cleaned response FROM SESSION ANALYTICS: {cleaned_response[:200]}...")
-            
-            # Try to parse as JSON
             analytics_data = json.loads(cleaned_response)
             
-            # Create a record in the database
+            # Validate analytics data
+            def validate_analytics_data(data, user_message, ai_response):
+                # Validate medications
+                if "medications" in data["medical_data"]:
+                    user_words = set(user_message.lower().split())
+                    valid_medications = [
+                        med for med in data["medical_data"]["medications"]
+                        if any(word in user_words for word in med.lower().split())
+                    ]
+                    data["medical_data"]["medications"] = valid_medications
+                
+                # Validate dates
+                if "dates" in data["medical_data"]:
+                    for date_type, date_value in data["medical_data"]["dates"].items():
+                        if "menstrual" in ai_response.lower() and date_type == "appointment_date":
+                            data["medical_data"]["dates"] = {
+                                "last_menstrual_period": date_value
+                            }
+                            break
+                
+                return data
+            
+            analytics_data = validate_analytics_data(analytics_data, message, response)
+            
+            # Store in database
             analytics_id = str(uuid.uuid4())
             word_count = len(message.split())
-            
-            # For SQLite, convert JSON objects to strings
             medical_data_json = json.dumps(analytics_data.get("medical_data", {}))
             pregnancy_specific_json = json.dumps(analytics_data.get("pregnancy_specific", {}))
             emotional_state = analytics_data.get("pregnancy_specific", {}).get("emotional_state")
@@ -9509,52 +9530,9 @@ async def analyze_message(request: dict):
                 topic=analytics_data.get("topic", ""),
                 keywords=json.dumps(analytics_data.get("keywords", [])),
                 word_count=word_count,
-                # New fields - stored as JSON strings for SQLite
                 medical_data=medical_data_json,
                 pregnancy_specific=pregnancy_specific_json,
                 emotional_state=emotional_state,
-                # These would need to be provided from the frontend
-                session_duration=0,  
-                response_time=0
-            )
-            
-            db.add(db_analytics)
-            db.commit()
-            db.refresh(db_analytics)
-            db.close()
-            
-            print(f"Enhanced pregnancy analytics saved successfully for session {session_id}")
-            
-            return {
-                "status": "success",
-                "analytics_id": analytics_id,
-                "data": analytics_data
-            }
-            
-        except json.JSONDecodeError as json_err:
-            print(f"JSON parsing error: {str(json_err)}")
-            
-            # Fallback: create a basic analytics record with default values
-            analytics_id = str(uuid.uuid4())
-            word_count = len(message.split())
-            
-            # Create a default analytics record
-            db = SessionLocal()
-            db_analytics = SessionAnalytics(
-                id=analytics_id,
-                session_id=session_id,
-                timestamp=datetime.fromisoformat(timestamp),
-                message_text=message,
-                assistant_response=response,
-                sentiment="neutral",  # Default value
-                urgency="low",        # Default value
-                intent="unknown",     # Default value
-                topic="general",      # Default value
-                keywords=json.dumps([]),
-                word_count=word_count,
-                medical_data=json.dumps({}),  # Empty JSON objects as strings
-                pregnancy_specific=json.dumps({}),
-                emotional_state=None,
                 session_duration=0,
                 response_time=0
             )
@@ -9564,7 +9542,42 @@ async def analyze_message(request: dict):
             db.refresh(db_analytics)
             db.close()
             
-            print(f"Saved fallback analytics for session {session_id}")
+            print(f"Analytics saved for session {session_id}")
+            
+            return {
+                "status": "success",
+                "analytics_id": analytics_id,
+                "data": analytics_data
+            }
+            
+        except json.JSONDecodeError as json_err:
+            print(f"JSON parsing error: {str(json_err)}")
+            # Fallback logic remains the same
+            analytics_id = str(uuid.uuid4())
+            word_count = len(message.split())
+            db = SessionLocal()
+            db_analytics = SessionAnalytics(
+                id=analytics_id,
+                session_id=session_id,
+                timestamp=datetime.fromisoformat(timestamp),
+                message_text=message,
+                assistant_response=response,
+                sentiment="neutral",
+                urgency="low",
+                intent="unknown",
+                topic="general",
+                keywords=json.dumps([]),
+                word_count=word_count,
+                medical_data=json.dumps({}),
+                pregnancy_specific=json.dumps({}),
+                emotional_state=None,
+                session_duration=0,
+                response_time=0
+            )
+            db.add(db_analytics)
+            db.commit()
+            db.refresh(db_analytics)
+            db.close()
             
             return {
                 "status": "partial_success",
@@ -9573,14 +9586,6 @@ async def analyze_message(request: dict):
                 "raw_response": llm_response.text
             }
             
-        except Exception as e:
-            print(f"Error processing LLM response: {str(e)}")
-            return {
-                "status": "error",
-                "message": f"Failed to process LLM analysis: {str(e)}",
-                "raw_response": llm_response.text
-            }
-    
     except Exception as e:
         print(f"Error in analyze-message endpoint: {str(e)}")
         return {
@@ -10084,6 +10089,9 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Failed to get session analytics: {str(e)}"
         )
+
+
+
 # Make sure to add these imports at the top of your Python file if not already present:
 # from sqlalchemy import func
 # from io import BytesIO
