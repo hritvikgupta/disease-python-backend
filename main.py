@@ -9165,6 +9165,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 9. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
 10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
+12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
@@ -9789,8 +9790,6 @@ async def get_session_analytics_list(db: Session = Depends(get_db)):
     """
     Get a list of all sessions with analytics data.
     """
-    # print(f"Received request for session_id: {session_id}")
-
     try:
         print('FUNCTION FOUND [SESSION ANALYTICS]')
         # Get unique session IDs with counts
@@ -9832,6 +9831,13 @@ async def get_session_analytics_list(db: Session = Depends(get_db)):
             
             main_topic = topics.topic if topics else "Unknown"
             
+            # Get pregnancy-related information
+            pregnancy_data_exists = db.query(SessionAnalytics).filter(
+                SessionAnalytics.session_id == stat.session_id,
+                SessionAnalytics.pregnancy_specific.isnot(None),
+                SessionAnalytics.pregnancy_specific != '{}'
+            ).count() > 0
+            
             results.append({
                 "session_id": stat.session_id,
                 "message_count": stat.message_count,
@@ -9839,7 +9845,8 @@ async def get_session_analytics_list(db: Session = Depends(get_db)):
                 "end_time": end_time.isoformat(),
                 "duration_seconds": duration_seconds,
                 "sentiment_distribution": sentiment_distribution,
-                "main_topic": main_topic
+                "main_topic": main_topic,
+                "has_pregnancy_data": pregnancy_data_exists
             })
         
         return {
@@ -9875,6 +9882,16 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
         
         # Format the data
         messages = []
+        
+        # For pregnancy summary aggregation
+        all_dates = {}
+        all_symptoms = []
+        all_measurements = {}
+        all_medications = set()
+        all_risk_factors = set()
+        trimester_mentions = {}
+        fetal_activity_mentions = []
+        
         for entry in analytics:
             # Parse keywords JSON
             try:
@@ -9882,7 +9899,53 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
             except json.JSONDecodeError:
                 keywords = []
             
-            messages.append({
+            # Parse medical_data and pregnancy_specific JSON
+            medical_data = {}
+            pregnancy_specific = {}
+            
+            try:
+                if entry.medical_data and entry.medical_data.strip():
+                    medical_data = json.loads(entry.medical_data)
+                    
+                    # Aggregate dates for summary
+                    if "dates" in medical_data and medical_data["dates"]:
+                        for date_type, date_value in medical_data["dates"].items():
+                            all_dates[date_type] = date_value
+                    
+                    # Aggregate symptoms for summary
+                    if "symptoms" in medical_data and medical_data["symptoms"]:
+                        all_symptoms.extend(medical_data["symptoms"])
+                    
+                    # Aggregate measurements for summary
+                    if "measurements" in medical_data and medical_data["measurements"]:
+                        all_measurements.update(medical_data["measurements"])
+                    
+                    # Aggregate medications for summary
+                    if "medications" in medical_data and medical_data["medications"]:
+                        all_medications.update(medical_data["medications"])
+            except json.JSONDecodeError:
+                print(f"Error parsing medical_data for entry ID: {entry.id}")
+            
+            try:
+                if entry.pregnancy_specific and entry.pregnancy_specific.strip():
+                    pregnancy_specific = json.loads(entry.pregnancy_specific)
+                    
+                    # Aggregate trimester mentions
+                    if "trimester_indicators" in pregnancy_specific and pregnancy_specific["trimester_indicators"]:
+                        trimester = pregnancy_specific["trimester_indicators"]
+                        trimester_mentions[trimester] = trimester_mentions.get(trimester, 0) + 1
+                    
+                    # Aggregate risk factors
+                    if "risk_factors" in pregnancy_specific and pregnancy_specific["risk_factors"]:
+                        all_risk_factors.update(pregnancy_specific["risk_factors"])
+                    
+                    # Aggregate fetal activity
+                    if "fetal_activity" in pregnancy_specific and pregnancy_specific["fetal_activity"]:
+                        fetal_activity_mentions.append(pregnancy_specific["fetal_activity"])
+            except json.JSONDecodeError:
+                print(f"Error parsing pregnancy_specific for entry ID: {entry.id}")
+            
+            message_data = {
                 "id": entry.id,
                 "timestamp": entry.timestamp.isoformat(),
                 "message": entry.message_text,
@@ -9894,8 +9957,13 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
                 "keywords": keywords,
                 "word_count": entry.word_count,
                 "session_duration": entry.session_duration,
-                "response_time": entry.response_time
-            })
+                "response_time": entry.response_time,
+                "medical_data": medical_data,
+                "pregnancy_specific": pregnancy_specific,
+                "emotional_state": entry.emotional_state
+            }
+            
+            messages.append(message_data)
         
         # Calculate session summary stats
         sentiment_counts = {}
@@ -9941,6 +10009,55 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
         end_time = analytics[-1].timestamp
         duration_seconds = (end_time - start_time).total_seconds()
         
+        # Create pregnancy summary
+        current_trimester = None
+        trimester_mention_count = 0
+        
+        if trimester_mentions:
+            # Find the most mentioned trimester
+            current_trimester = max(trimester_mentions.items(), key=lambda x: x[1])[0]
+            trimester_mention_count = trimester_mentions[current_trimester]
+        
+        # Sort symptoms by severity for the top symptoms
+        top_symptoms = []
+        if all_symptoms:
+            # Create a severity ranking
+            severity_rank = {
+                "severe": 3,
+                "moderate": 2,
+                "mild": 1,
+                None: 0
+            }
+            
+            # Count symptoms by name and get the highest severity
+            symptom_severity = {}
+            for symptom in all_symptoms:
+                name = symptom.get("name", "")
+                severity = symptom.get("severity", "mild")
+                
+                if name in symptom_severity:
+                    # Update with higher severity if found
+                    if severity_rank.get(severity, 0) > severity_rank.get(symptom_severity[name], 0):
+                        symptom_severity[name] = severity
+                else:
+                    symptom_severity[name] = severity
+            
+            # Convert to list and sort by severity
+            top_symptoms = [{"name": name, "severity": sev} for name, sev in symptom_severity.items()]
+            top_symptoms.sort(key=lambda x: severity_rank.get(x["severity"], 0), reverse=True)
+            top_symptoms = top_symptoms[:5]  # Limit to top 5
+        
+        # Create a pregnancy summary object
+        pregnancy_summary = {
+            "trimester": current_trimester,
+            "trimester_mention_count": trimester_mention_count,
+            "top_symptoms": top_symptoms,
+            "risk_factors": list(all_risk_factors),
+            "key_dates": all_dates,
+            "medications": list(all_medications),
+            "has_fetal_activity": len(fetal_activity_mentions) > 0
+        }
+        
         # Return the complete analytics data
         return {
             "session_id": session_id,
@@ -9954,7 +10071,8 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
             "intent_distribution": intent_counts,
             "topic_distribution": topic_counts,
             "top_keywords": dict(top_keywords),
-            "messages": messages
+            "messages": messages,
+            "pregnancy_summary": pregnancy_summary
         }
         
     except HTTPException:
@@ -9966,7 +10084,6 @@ async def get_session_analytics(session_id: str, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Failed to get session analytics: {str(e)}"
         )
-
 # Make sure to add these imports at the top of your Python file if not already present:
 # from sqlalchemy import func
 # from io import BytesIO
