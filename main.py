@@ -9481,7 +9481,7 @@ async def analyze_message(request: dict):
             cleaned_response = cleaned_response.strip()
             
             # Debug: print the cleaned response
-            print(f"Cleaned response: {cleaned_response[:200]}...")
+            print(f"Cleaned response FROM SESSION ANALYTICS: {cleaned_response[:200]}...")
             
             # Try to parse as JSON
             analytics_data = json.loads(cleaned_response)
