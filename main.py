@@ -9142,7 +9142,8 @@ You are a helpful assistant tasked with providing accurate and context-aware res
 The user message is: "{message}"
 
 The current node ID is: {current_node_id or "None - this is the first message"}
-{current_node_doc}
+
+current node documentation: {current_node_doc}
 
 IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
@@ -9154,6 +9155,7 @@ The session data is:
 {json.dumps(session_data, indent=2)}
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
+1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
 1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
 2. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
 3. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
