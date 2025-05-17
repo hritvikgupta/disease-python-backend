@@ -9195,6 +9195,13 @@ Previous conversation:
 The session data is:
 {json.dumps(session_data, indent=2)}
 
+Language Instruction (MOST IMPORTANT):
+1. The user is communicating in language: {detected_language}
+2. **CRITICAL**: You MUST translate all node instructions, functions, and responses into the user's language ({detected_language}) if the Previous conversation in the {detected_language} language. 
+3. First translate all text in the current node documentation to {detected_language}, including:
+   - Translate all instruction text into {detected_language}
+   - Translate all function match conditions into {detected_language} 
+4. THEN match the user message against these translated functions/conditions
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
