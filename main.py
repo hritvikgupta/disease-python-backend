@@ -8870,7 +8870,8 @@ async def vector_flow_chat(request: dict):
     from llama_index.core import VectorStoreIndex, StorageContext
     from llama_index.vector_stores.chroma import ChromaVectorStore
     from llama_index.retrievers.bm25 import BM25Retriever
-
+    from langdetect import detect, DetectorFactory
+    from langdetect.lang_detect_exception import LangDetectException
 
     try:
         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
@@ -8881,7 +8882,12 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
 
-
+        detected_language = 'en'  # Default to English
+        try:
+            detected_language = detect(message)
+            print(f"Detected language: {detected_language}")
+        except LangDetectException:
+            print("Could not detect language, defaulting to English")
 
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
@@ -9168,6 +9174,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
 12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
+13. **CRITICAL**: Respond to the user in the detected language: {detected_language}.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
