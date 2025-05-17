@@ -8416,7 +8416,7 @@ class TranslationResponse(BaseModel):
     translated_text: str
     detected_language: str
 
-@app.post("/translate-to-language")
+@app.post("/api/translate-to-language")
 async def translate_to_language(request: TranslationRequest, target_language: str):
     try:
         text = request.text
@@ -8436,7 +8436,7 @@ async def translate_to_language(request: TranslationRequest, target_language: st
         print(f"Translation error: {str(e)}")
         return {"translated_text": text}
     
-@app.post("/translate-to-english")
+@app.post("/api/translate-to-english")
 async def translate_to_english(request: TranslationRequest):
     """
     Simple endpoint to translate any text to English.
