@@ -122,9 +122,9 @@ Base = declarative_base()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Initialize GCS client - keep existing configuration
-credentials_path = "op8imize-58b8c4ee316b.json"  # Replace with your actual path
+credentials_path = "vermalab-gemini-psom-e3ea-b93f97927cc3.json"  # Replace with your actual path
 storage_client = storage.Client.from_service_account_json(credentials_path)
-BUCKET_NAME = "persist-ai"
+BUCKET_NAME = "circa-ai"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
