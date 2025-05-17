@@ -8406,27 +8406,27 @@ async def get_lab_order(
 app.state.flow_indices = {}
 app.state.document_indexes = {}
 
-
-class TranslationRequest(BaseModel):
-    text: str
-    target_language: str = None
-
 class TranslationResponse(BaseModel):
     original_text: str
     translated_text: str
     detected_language: str
 
-@app.post("/api/translate-to-language")
-async def translate_to_language(request: TranslationRequest, target_language: str):
+class TranslationRequest(BaseModel):
+    text: str
+    target_language: str  # Make it required or keep it optional with a default
+
+@app.post("/translate-to-language")
+async def translate_to_language(request: TranslationRequest):
     try:
         text = request.text
+        target_language = request.target_language
         if not text or len(text.strip()) < 1 or target_language == 'en':
             return {"translated_text": text}
         translation_prompt = f"""
         Translate the following English text to {target_language}:
-        
+
         Text: "{text}"
-        
+
         Translation:
         """
         translation_response = Settings.llm.complete(translation_prompt)
