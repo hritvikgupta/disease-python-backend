@@ -9195,14 +9195,6 @@ Previous conversation:
 The session data is:
 {json.dumps(session_data, indent=2)}
 
-Language Instruction (MOST IMPORTANT):
-1. The user is communicating in language: {detected_language}
-2. **CRITICAL**: You MUST translate all node instructions, functions, and responses into the user's language ({detected_language}) if the Previous conversation in the {detected_language} language. 
-3. First translate all text in the current node documentation to {detected_language}, including:
-   - Translate all instruction text into {detected_language}
-   - Translate all function match conditions into {detected_language} 
-4. THEN match the user message against these translated functions/conditions
-
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
 1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
@@ -9316,7 +9308,7 @@ Return your response as a JSON object with the following structure:
                 ai_response = fallback_response.text
                 print(f"Fallback response generated, length: {len(ai_response)} characters")
 
-
+            translated_response = ai_response
             if detected_language != 'en':
                 try:
                     translation_prompt = f"""
@@ -9327,8 +9319,8 @@ Return your response as a JSON object with the following structure:
                     {detected_language} translation (just the translation, nothing else):
                     """
                     translation_response = Settings.llm.complete(translation_prompt)
-                    ai_response = translation_response.text.strip()
-                    print(f"Translated response to {detected_language}, length: {len(ai_response)} characters")
+                    translated_response = translation_response.text.strip()
+                    print(f"Translated response to {detected_language}, length: {len(translated_response)} characters")
                 except Exception as e:
                     print(f"Response translation failed: {str(e)}, using English response")
 
@@ -9339,6 +9331,7 @@ Return your response as a JSON object with the following structure:
 
             return {
                 "content": ai_response,
+                "translated_response": translated_response,
                 "next_node_id": next_node_id,
                 "state_updates": state_updates
             }
