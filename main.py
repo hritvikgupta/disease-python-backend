@@ -8883,11 +8883,26 @@ async def vector_flow_chat(request: dict):
         previous_messages = request.get("previous_messages", [])
 
         detected_language = 'en'  # Default to English
-        try:
-            detected_language = detect(message)
-            print(f"Detected language: {detected_language}")
-        except LangDetectException:
-            print("Could not detect language, defaulting to English")
+        if message and len(message) > 1:  # Only detect if we have enough text
+            try:
+                language_prompt = f"""
+                Detect the language of the following text and respond with only the ISO language code (e.g., 'en' for English, 'hi' for Hindi, 'es' for Spanish):
+                
+                Text: "{message}"
+                
+                Language code:
+                """
+                language_response = Settings.llm.complete(language_prompt)
+                detected_language = language_response.text.strip().lower()
+                # Normalize some common responses
+                if detected_language == 'hindi' or detected_language.startswith('hi'):
+                    detected_language = 'hi'
+                elif detected_language == 'english' or detected_language.startswith('en'):
+                    detected_language = 'en'
+                print(f"LLM detected language: {detected_language}")
+            except Exception as e:
+                print(f"Language detection failed: {str(e)}, defaulting to English")
+
 
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
