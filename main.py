@@ -8406,14 +8406,36 @@ async def get_lab_order(
 app.state.flow_indices = {}
 app.state.document_indexes = {}
 
+
 class TranslationRequest(BaseModel):
     text: str
+    target_language: str = None
 
 class TranslationResponse(BaseModel):
     original_text: str
     translated_text: str
     detected_language: str
 
+@app.post("/translate-to-language")
+async def translate_to_language(request: TranslationRequest, target_language: str):
+    try:
+        text = request.text
+        if not text or len(text.strip()) < 1 or target_language == 'en':
+            return {"translated_text": text}
+        translation_prompt = f"""
+        Translate the following English text to {target_language}:
+        
+        Text: "{text}"
+        
+        Translation:
+        """
+        translation_response = Settings.llm.complete(translation_prompt)
+        translated_text = translation_response.text.strip()
+        return {"translated_text": translated_text}
+    except Exception as e:
+        print(f"Translation error: {str(e)}")
+        return {"translated_text": text}
+    
 @app.post("/translate-to-english")
 async def translate_to_english(request: TranslationRequest):
     """
@@ -8958,47 +8980,6 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
 
-        original_message = message  # Store the original message
-        # Detect language and translate to English if needed
-        detected_language = 'en'  # Default to English
-        if message and len(message) > 1:
-            try:
-                # First detect the language
-                language_prompt = f"""
-                Detect the language of the following text and respond with only the ISO language code (e.g., 'en' for English, 'hi' for Hindi, 'es' for Spanish):
-                
-                Text: "{message}"
-                
-                Language code:
-                """
-                language_response = Settings.llm.complete(language_prompt)
-                detected_language = language_response.text.strip().lower()
-                
-                # Normalize common responses
-                if detected_language in ['hindi', 'hin'] or detected_language.startswith('hi'):
-                    detected_language = 'hi'
-                elif detected_language in ['english', 'eng'] or detected_language.startswith('en'):
-                    detected_language = 'en'
-                
-                print(f"LLM detected language: {detected_language}")
-                
-                # If not English, translate to English for processing
-                if detected_language != 'en' and len(message.strip()) > 0:
-                    translation_prompt = f"""
-                    Translate the following text from {detected_language} to English:
-                    
-                    Text: "{message}"
-                    
-                    English translation (just the translation, nothing else):
-                    """
-                    translation_response = Settings.llm.complete(translation_prompt)
-                    message = translation_response.text.strip()
-                    print(f"Translated message: '{original_message}' -> '{message}'")
-            except Exception as e:
-                print(f"Language detection/translation failed: {str(e)}, using original message")
-                message = original_message
-
-
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
         print(f"Flow ID: {flow_id}")
@@ -9285,9 +9266,6 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
 12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
 
-LANGUAGE INSTRUCTIONS:
-1
-2. **CRITICAL**: Respond to the user in the detected language: {detected_language}.
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
 {document_context_section}
@@ -9383,22 +9361,7 @@ Return your response as a JSON object with the following structure:
                 ai_response = fallback_response.text
                 print(f"Fallback response generated, length: {len(ai_response)} characters")
 
-            translated_response = ai_response
-            if detected_language != 'en':
-                try:
-                    translation_prompt = f"""
-                    Translate the following text from English to {detected_language}:
-                    
-                    Text: "{ai_response}"
-                    
-                    {detected_language} translation (just the translation, nothing else):
-                    """
-                    translation_response = Settings.llm.complete(translation_prompt)
-                    translated_response = translation_response.text.strip()
-                    print(f"Translated response to {detected_language}, length: {len(translated_response)} characters")
-                except Exception as e:
-                    print(f"Response translation failed: {str(e)}, using English response")
-
+            
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
             print(f"State updates: {json.dumps(state_updates, indent=2)}")
@@ -9406,7 +9369,6 @@ Return your response as a JSON object with the following structure:
 
             return {
                 "content": ai_response,
-                "translated_response": translated_response,
                 "next_node_id": next_node_id,
                 "state_updates": state_updates
             }
