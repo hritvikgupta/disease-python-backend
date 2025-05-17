@@ -8406,6 +8406,82 @@ async def get_lab_order(
 app.state.flow_indices = {}
 app.state.document_indexes = {}
 
+class TranslationRequest(BaseModel):
+    text: str
+
+class TranslationResponse(BaseModel):
+    original_text: str
+    translated_text: str
+    detected_language: str
+
+@app.post("/translate-to-english")
+async def translate_to_english(request: TranslationRequest):
+    """
+    Simple endpoint to translate any text to English.
+    Returns original text, translated text, and detected language.
+    """
+    try:
+        text = request.text
+        
+        # Skip empty text
+        if not text or len(text.strip()) < 1:
+            return {
+                "original_text": text,
+                "translated_text": text,
+                "detected_language": "en"
+            }
+        
+        # Detect language
+        language_prompt = f"""
+        Detect the language of the following text and respond with only the ISO language code:
+        
+        Text: "{text}"
+        
+        Language code:
+        """
+        language_response = Settings.llm.complete(language_prompt)
+        detected_language = language_response.text.strip().lower()
+        
+        # Normalize common responses
+        if detected_language in ['hindi', 'hin'] or detected_language.startswith('hi'):
+            detected_language = 'hi'
+        elif detected_language in ['english', 'eng'] or detected_language.startswith('en'):
+            detected_language = 'en'
+        
+        # If already English, return as is
+        if detected_language == 'en':
+            return {
+                "original_text": text,
+                "translated_text": text,
+                "detected_language": "en"
+            }
+        
+        # Translate to English
+        translation_prompt = f"""
+        Translate the following text to English:
+        
+        Text: "{text}"
+        
+        English translation:
+        """
+        translation_response = Settings.llm.complete(translation_prompt)
+        translated_text = translation_response.text.strip()
+        
+        return {
+            "original_text": text,
+            "translated_text": translated_text,
+            "detected_language": detected_language
+        }
+        
+    except Exception as e:
+        print(f"Translation error: {str(e)}")
+        # In case of error, return original text
+        return {
+            "original_text": text,
+            "translated_text": text,
+            "detected_language": "unknown"
+        }
+    
 @app.post("/api/index/flow-knowledge")
 async def create_flow_knowledge_index(flow_data: dict):
     """
@@ -8883,7 +8959,6 @@ async def vector_flow_chat(request: dict):
         previous_messages = request.get("previous_messages", [])
 
         original_message = message  # Store the original message
-
         # Detect language and translate to English if needed
         detected_language = 'en'  # Default to English
         if message and len(message) > 1:
