@@ -8423,10 +8423,12 @@ async def translate_to_language(request: TranslationRequest):
         if not text or len(text.strip()) < 1 or target_language == 'en':
             return {"translated_text": text}
         translation_prompt = f"""
-        Translate the following English text to {target_language}:
-
-        Text: "{text}"
-
+        Translate the following English text to {target_language}.
+        
+        IMPORTANT: Return ONLY the translated text with no explanations, options, or additional content.
+        
+        Text to translate: "{text}"
+        
         Translation:
         """
         translation_response = Settings.llm.complete(translation_prompt)
@@ -8482,6 +8484,8 @@ async def translate_to_english(request: TranslationRequest):
         translation_prompt = f"""
         Translate the following text to English:
         
+        IMPORTANT: Return ONLY the translated text with no explanations, options, or additional content.
+
         Text: "{text}"
         
         English translation:
