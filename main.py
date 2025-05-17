@@ -8413,9 +8413,9 @@ class TranslationResponse(BaseModel):
 
 class TranslationRequest(BaseModel):
     text: str
-    target_language: str  # Make it required or keep it optional with a default
+    target_language: str = "en"  # Make target_language optional with default value
 
-@app.post("/translate-to-language")
+@app.post("/api/translate-to-language")
 async def translate_to_language(request: TranslationRequest):
     try:
         text = request.text
