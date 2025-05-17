@@ -8882,9 +8882,13 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
 
+        original_message = message  # Store the original message
+
+        # Detect language and translate to English if needed
         detected_language = 'en'  # Default to English
-        if message and len(message) > 1:  # Only detect if we have enough text
+        if message and len(message) > 1:
             try:
+                # First detect the language
                 language_prompt = f"""
                 Detect the language of the following text and respond with only the ISO language code (e.g., 'en' for English, 'hi' for Hindi, 'es' for Spanish):
                 
@@ -8894,14 +8898,30 @@ async def vector_flow_chat(request: dict):
                 """
                 language_response = Settings.llm.complete(language_prompt)
                 detected_language = language_response.text.strip().lower()
-                # Normalize some common responses
-                if detected_language == 'hindi' or detected_language.startswith('hi'):
+                
+                # Normalize common responses
+                if detected_language in ['hindi', 'hin'] or detected_language.startswith('hi'):
                     detected_language = 'hi'
-                elif detected_language == 'english' or detected_language.startswith('en'):
+                elif detected_language in ['english', 'eng'] or detected_language.startswith('en'):
                     detected_language = 'en'
+                
                 print(f"LLM detected language: {detected_language}")
+                
+                # If not English, translate to English for processing
+                if detected_language != 'en' and len(message.strip()) > 0:
+                    translation_prompt = f"""
+                    Translate the following text from {detected_language} to English:
+                    
+                    Text: "{message}"
+                    
+                    English translation (just the translation, nothing else):
+                    """
+                    translation_response = Settings.llm.complete(translation_prompt)
+                    message = translation_response.text.strip()
+                    print(f"Translated message: '{original_message}' -> '{message}'")
             except Exception as e:
-                print(f"Language detection failed: {str(e)}, defaulting to English")
+                print(f"Language detection/translation failed: {str(e)}, using original message")
+                message = original_message
 
 
         print(f"Message: '{message}'")
@@ -9175,15 +9195,6 @@ Previous conversation:
 The session data is:
 {json.dumps(session_data, indent=2)}
 
-LANGUAGE INSTRUCTIONS (MOST IMPORTANT):
-1. The user is communicating in language: {detected_language}
-2. **CRITICAL**: You MUST translate all node instructions, functions, and responses into the user's language ({detected_language})
-3. First translate all text in the current node documentation to {detected_language}, including:
-   - Translate all instruction text into {detected_language}
-   - Translate all function match conditions into {detected_language} 
-4. THEN match the user message against these translated functions/conditions
-5. Respond ONLY in {detected_language} - do not include any English
-
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
@@ -9297,6 +9308,22 @@ Return your response as a JSON object with the following structure:
                 fallback_response = Settings.llm.complete(fallback_prompt)
                 ai_response = fallback_response.text
                 print(f"Fallback response generated, length: {len(ai_response)} characters")
+
+
+            if detected_language != 'en':
+                try:
+                    translation_prompt = f"""
+                    Translate the following text from English to {detected_language}:
+                    
+                    Text: "{ai_response}"
+                    
+                    {detected_language} translation (just the translation, nothing else):
+                    """
+                    translation_response = Settings.llm.complete(translation_prompt)
+                    ai_response = translation_response.text.strip()
+                    print(f"Translated response to {detected_language}, length: {len(ai_response)} characters")
+                except Exception as e:
+                    print(f"Response translation failed: {str(e)}, using English response")
 
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
