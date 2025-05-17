@@ -9160,6 +9160,16 @@ Previous conversation:
 The session data is:
 {json.dumps(session_data, indent=2)}
 
+LANGUAGE INSTRUCTIONS (MOST IMPORTANT):
+1. The user is communicating in language: {detected_language}
+2. **CRITICAL**: You MUST translate all node instructions, functions, and responses into the user's language ({detected_language})
+3. First translate all text in the current node documentation to {detected_language}, including:
+   - Translate all instruction text into {detected_language}
+   - Translate all function match conditions into {detected_language} 
+4. THEN match the user message against these translated functions/conditions
+5. Respond ONLY in {detected_language} - do not include any English
+
+
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
 1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
@@ -9174,8 +9184,10 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
 12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
-13. **CRITICAL**: Respond to the user in the detected language: {detected_language}.
 
+LANGUAGE INSTRUCTIONS:
+1
+2. **CRITICAL**: Respond to the user in the detected language: {detected_language}.
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
 {document_context_section}
