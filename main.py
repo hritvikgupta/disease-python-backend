@@ -10140,7 +10140,11 @@ async def analyze_session(request: dict):
                 # We'll only update empty/null fields to avoid overwriting verified data
                 fields_updated = 0
                 
-                if patient_details.get("first_name") and not patient_record.first_name and confidence_scores.get("name", 0) >= 75:
+                # if patient_details.get("first_name") and not patient_record.first_name and confidence_scores.get("name", 0) >= 75:
+                #     patient_record.first_name = patient_details["first_name"]
+                #     fields_updated += 1
+                #     updates_made["updated_fields"].append("first_name")
+                if patient_details.get("first_name") and confidence_scores.get("name", 0) >= 75:
                     patient_record.first_name = patient_details["first_name"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("first_name")
