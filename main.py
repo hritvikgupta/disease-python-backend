@@ -9985,7 +9985,6 @@ async def analyze_session(request: dict):
             }
         
         conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation])
-        # + Log the conversation being sent to LLM
         print(f"[API] Conversation sent to LLM:\n{conversation_text}")
         
         # Create a comprehensive prompt to extract patient information
@@ -10006,12 +10005,16 @@ async def analyze_session(request: dict):
            - Address or location
 
         2. Medical Information:
-           - Medical conditions/diagnoses mentioned
+           - Medical conditions/diagnoses mentioned (including pregnancy status)
            - Symptoms reported
            - Medications mentioned (with dosages if available)
            - Allergies mentioned
            - Vital signs or health measurements
-           - Any important dates mentioned (appointments, symptom onset, etc.)
+           - Important pregnancy-related information:
+             * Last menstrual period date
+             * Positive pregnancy test status
+             * Due date if mentioned
+             * Gestational age if mentioned
 
         Return the extracted information in JSON format:
         {{
@@ -10026,7 +10029,12 @@ async def analyze_session(request: dict):
             }},
             "medical_info": {{
                 "conditions": [
-                    {{"condition": "string", "status": "active/resolved/unknown"}}
+                    {{
+                        "condition": "string", 
+                        "status": "active/resolved/unknown",
+                        "onset_date": "YYYY-MM-DD",
+                        "notes": "string"
+                    }}
                 ],
                 "symptoms": [
                     {{"symptom": "string", "severity": "mild/moderate/severe/unknown"}}
@@ -10046,6 +10054,12 @@ async def analyze_session(request: dict):
                     "oxygen_saturation": "number",
                     "weight": "number"
                 }},
+                "pregnancy_info": {{
+                    "is_pregnant": "yes/no/unknown",
+                    "last_menstrual_period": "YYYY-MM-DD",
+                    "due_date": "YYYY-MM-DD",
+                    "gestational_age_weeks": "number"
+                }},
                 "important_dates": [
                     {{"description": "string", "date": "YYYY-MM-DD"}}
                 ]
@@ -10056,7 +10070,8 @@ async def analyze_session(request: dict):
                 "dob": 0-100,
                 "gender": 0-100,
                 "conditions": 0-100,
-                "medications": 0-100
+                "medications": 0-100,
+                "pregnancy": 0-100
             }}
         }}
         
@@ -10070,7 +10085,6 @@ async def analyze_session(request: dict):
         print(f"[API] Sending prompt to LLM for patient data extraction")
         llm_response = Settings.llm.complete(prompt)
         
-        # + Log the raw LLM response
         print(f"[API] Raw LLM response:\n{llm_response.text}")
         
         # Parse the response
@@ -10082,7 +10096,6 @@ async def analyze_session(request: dict):
         elif "```" in clean_response:
             clean_response = clean_response.split("```")[1].split("```")[0].strip()
             
-        # + Log the cleaned response
         print(f"[API] Cleaned LLM response:\n{clean_response}")
             
         # Handle potential JSON formatting issues
@@ -10094,7 +10107,6 @@ async def analyze_session(request: dict):
             clean_response = clean_response.replace("'", '"')  # Replace single quotes with double quotes
             clean_response = re.sub(r',\s*}', '}', clean_response)  # Remove trailing commas
             
-            # + Log the response after cleanup attempt
             print(f"[API] Response after JSON cleanup attempt:\n{clean_response}")
             
             try:
@@ -10108,7 +10120,6 @@ async def analyze_session(request: dict):
                     "raw_response": llm_response.text
                 }
         
-        # + Log the parsed extracted data
         print(f"[API] Parsed extracted data:\n{json.dumps(extracted_data, indent=2)}")
         
         # Process the extracted data
@@ -10116,7 +10127,6 @@ async def analyze_session(request: dict):
         medical_info = extracted_data.get("medical_info", {})
         confidence_scores = extracted_data.get("confidence_scores", {})
         
-        # + Log the confidence scores
         print(f"[API] Confidence scores:\n{json.dumps(confidence_scores, indent=2)}")
         
         # Initialize a dictionary to track all updates
@@ -10136,61 +10146,51 @@ async def analyze_session(request: dict):
             if patient_record:
                 print(f"[API] Found patient record: {patient_record.id}")
                 
-                # Update patient details with confidence threshold (only if missing in DB)
-                # We'll only update empty/null fields to avoid overwriting verified data
+                # Update patient details with confidence threshold
                 fields_updated = 0
                 
-                # if patient_details.get("first_name") and not patient_record.first_name and confidence_scores.get("name", 0) >= 75:
-                #     patient_record.first_name = patient_details["first_name"]
-                #     fields_updated += 1
-                #     updates_made["updated_fields"].append("first_name")
+                # Allow updating first name regardless of whether it's already set
                 if patient_details.get("first_name") and confidence_scores.get("name", 0) >= 75:
                     patient_record.first_name = patient_details["first_name"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("first_name")
-                    # + Log field update
                     print(f"[API] Updating patient first_name: {patient_details['first_name']}")
                 
+                # For other fields, only update if they're empty
                 if patient_details.get("last_name") and not patient_record.last_name and confidence_scores.get("name", 0) >= 75:
                     patient_record.last_name = patient_details["last_name"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("last_name")
-                    # + Log field update
                     print(f"[API] Updating patient last_name: {patient_details['last_name']}")
                 
                 if patient_details.get("phone") and not patient_record.phone and confidence_scores.get("phone", 0) >= 75:
                     patient_record.phone = patient_details["phone"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("phone")
-                    # + Log field update
                     print(f"[API] Updating patient phone: {patient_details['phone']}")
                 
                 if patient_details.get("date_of_birth") and not patient_record.date_of_birth and confidence_scores.get("dob", 0) >= 75:
                     patient_record.date_of_birth = patient_details["date_of_birth"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("date_of_birth")
-                    # + Log field update
                     print(f"[API] Updating patient date_of_birth: {patient_details['date_of_birth']}")
                 
                 if patient_details.get("gender") and not patient_record.gender and confidence_scores.get("gender", 0) >= 75:
                     patient_record.gender = patient_details["gender"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("gender")
-                    # + Log field update
                     print(f"[API] Updating patient gender: {patient_details['gender']}")
                 
                 if patient_details.get("email") and not patient_record.email and confidence_scores.get("email", 0) >= 75:
                     patient_record.email = patient_details["email"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("email")
-                    # + Log field update
                     print(f"[API] Updating patient email: {patient_details['email']}")
                 
                 if patient_details.get("address") and not patient_record.address and confidence_scores.get("address", 0) >= 75:
                     patient_record.address = patient_details["address"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("address")
-                    # + Log field update
                     print(f"[API] Updating patient address: {patient_details['address']}")
                 
                 # Only update the patient record if fields were changed
@@ -10199,11 +10199,13 @@ async def analyze_session(request: dict):
                     updates_made["patient_details_updated"] = True
                     print(f"[API] Updated {fields_updated} patient detail fields")
                 
-                # Add medical conditions if not already present
+                # Add medical conditions including pregnancy status if not already present
                 if medical_info.get("conditions") and confidence_scores.get("conditions", 0) >= 70:
                     for condition_data in medical_info["conditions"]:
                         condition_name = condition_data.get("condition")
                         condition_status = condition_data.get("status", "active")
+                        onset_date = condition_data.get("onset_date")
+                        notes = condition_data.get("notes", "")
                         
                         if condition_name:
                             # Check if this condition is already recorded
@@ -10219,13 +10221,110 @@ async def analyze_session(request: dict):
                                     patient_id=patient_id,
                                     condition=condition_name,
                                     status=condition_status,
+                                    onset_date=onset_date,
+                                    notes=notes,
                                     created_at=datetime.utcnow(),
                                     updated_at=datetime.utcnow()
                                 )
                                 db.add(new_condition)
                                 updates_made["medical_conditions_added"] += 1
-                                # + Log new condition
                                 print(f"[API] Added medical condition: {condition_name} (status: {condition_status})")
+                
+                # Handle pregnancy information - add as medical condition if pregnant
+                pregnancy_info = medical_info.get("pregnancy_info", {})
+                if pregnancy_info and confidence_scores.get("pregnancy", 0) >= 70:
+                    is_pregnant = pregnancy_info.get("is_pregnant")
+                    lmp_date = pregnancy_info.get("last_menstrual_period")
+                    due_date = pregnancy_info.get("due_date")
+                    
+                    if is_pregnant == "yes" or lmp_date:
+                        # Check if pregnancy is already recorded
+                        existing_pregnancy = db.query(MedicalHistory).filter(
+                            MedicalHistory.patient_id == patient_id,
+                            func.lower(MedicalHistory.condition) == "pregnancy"
+                        ).first()
+                        
+                        if not existing_pregnancy:
+                            # Format notes with relevant pregnancy information
+                            pregnancy_notes = "Pregnancy confirmed. "
+                            if lmp_date:
+                                pregnancy_notes += f"LMP: {lmp_date}. "
+                            if due_date:
+                                pregnancy_notes += f"EDD: {due_date}. "
+                            
+                            # Add pregnancy as a condition
+                            new_pregnancy = MedicalHistory(
+                                id=str(uuid.uuid4()),
+                                patient_id=patient_id,
+                                condition="Pregnancy",
+                                status="Active",
+                                onset_date=lmp_date,  # LMP date as onset
+                                notes=pregnancy_notes.strip(),
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow()
+                            )
+                            db.add(new_pregnancy)
+                            updates_made["medical_conditions_added"] += 1
+                            print(f"[API] Added pregnancy as medical condition with LMP: {lmp_date}")
+                
+                # Handle Last Menstrual Period specifically if it's not part of pregnancy info
+                # Sometimes it might be in important_dates instead
+                if not lmp_date and medical_info.get("important_dates"):
+                    for date_entry in medical_info["important_dates"]:
+                        description = date_entry.get("description", "").lower()
+                        date = date_entry.get("date")
+                        
+                        if date and ("menstrual" in description or "lmp" in description):
+                            # Check if LMP is already recorded
+                            existing_lmp = db.query(MedicalHistory).filter(
+                                MedicalHistory.patient_id == patient_id,
+                                func.lower(MedicalHistory.condition) == "last menstrual period"
+                            ).first()
+                            
+                            if not existing_lmp:
+                                # Add LMP as a medical history entry
+                                new_lmp = MedicalHistory(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    condition="Last Menstrual Period",
+                                    status="Completed",
+                                    onset_date=date,
+                                    notes=f"LMP recorded on {date}",
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_lmp)
+                                updates_made["medical_conditions_added"] += 1
+                                print(f"[API] Added LMP as medical condition: {date}")
+                                
+                                # Also check if patient is pregnant and add that condition
+                                pregnancy_in_conditions = False
+                                for condition in medical_info.get("conditions", []):
+                                    if "pregn" in condition.get("condition", "").lower():
+                                        pregnancy_in_conditions = True
+                                        break
+                                        
+                                if not pregnancy_in_conditions:
+                                    existing_pregnancy = db.query(MedicalHistory).filter(
+                                        MedicalHistory.patient_id == patient_id,
+                                        func.lower(MedicalHistory.condition) == "pregnancy"
+                                    ).first()
+                                    
+                                    if not existing_pregnancy:
+                                        # Add pregnancy as a condition
+                                        new_pregnancy = MedicalHistory(
+                                            id=str(uuid.uuid4()),
+                                            patient_id=patient_id,
+                                            condition="Pregnancy",
+                                            status="Active",
+                                            onset_date=date,
+                                            notes=f"Pregnancy inferred from LMP date: {date}",
+                                            created_at=datetime.utcnow(),
+                                            updated_at=datetime.utcnow()
+                                        )
+                                        db.add(new_pregnancy)
+                                        updates_made["medical_conditions_added"] += 1
+                                        print(f"[API] Added inferred pregnancy from LMP date: {date}")
                 
                 # Add medications if not already present
                 if medical_info.get("medications") and confidence_scores.get("medications", 0) >= 70:
@@ -10257,11 +10356,10 @@ async def analyze_session(request: dict):
                                 )
                                 db.add(new_medication)
                                 updates_made["medications_added"] += 1
-                                # + Log new medication
-                                print(f"[API] Added medication: {med_name} (dosage: {med_dosage}, frequency: {med_frequency}, route: {med_route})")
+                                print(f"[API] Added medication: {med_name}")
                 
                 # Add allergies if not already present
-                if medical_info.get("allerg to allergies") and confidence_scores.get("allergies", 0) >= 70:
+                if medical_info.get("allergies") and confidence_scores.get("allergies", 0) >= 70:
                     for allergy_data in medical_info["allergies"]:
                         allergen_name = allergy_data.get("allergen")
                         reaction = allergy_data.get("reaction", "")
@@ -10287,13 +10385,11 @@ async def analyze_session(request: dict):
                                 )
                                 db.add(new_allergy)
                                 updates_made["allergies_added"] += 1
-                                # + Log new allergy
-                                print(f"[API] Added allergy: {allergen_name} (reaction: {reaction}, severity: {severity})")
+                                print(f"[API] Added allergy: {allergen_name}")
                 
                 # Commit all changes to the database
                 db.commit()
                 
-                # + Log final updates made
                 print(f"[API] Database updates summary:\n{json.dumps(updates_made, indent=2)}")
             else:
                 print(f"[API] Warning: Patient ID {patient_id} not found in database")
@@ -10318,7 +10414,6 @@ async def analyze_session(request: dict):
             "message": f"Failed to analyze session: {str(e)}",
             "error_details": traceback_str
         }
-
 # Additional endpoints for session analytics
 
 @app.get("/api/session-analytics")
