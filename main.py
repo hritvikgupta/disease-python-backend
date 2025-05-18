@@ -8484,8 +8484,9 @@ async def translate_to_english(request: TranslationRequest):
         translation_prompt = f"""
         Translate the following text to English:
         
-        IMPORTANT: Return ONLY the translated text with no explanations, options, or additional content.
-
+        Return ONLY the translated text with no explanations, options, or additional content.
+        NOTE : For Date like for example : 29/04/1999 or any other Dates consider them english"
+        
         Text: "{text}"
         
         English translation:
