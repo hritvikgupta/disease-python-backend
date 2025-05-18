@@ -7139,7 +7139,13 @@ async def download_patient_report(patient_id: str, type: str = "full", db: Sessi
 
 # Add this endpoint to your API section in the backend
 # Update the API endpoint with improved error handling
-
+class MedicalHistoryUpdate(BaseModel):
+    """Schema for updating medical history records"""
+    condition: Optional[str] = None
+    onset_date: Optional[date] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    
 @app.post("/api/medical-histories", response_model=dict)
 async def create_medical_history(
     medical_history: MedicalHistoryCreate, 
@@ -7196,6 +7202,64 @@ async def create_medical_history(
         print(f"[API] Error creating medical history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create medical history: {str(e)}")
 
+@app.put("/api/medical-histories/{record_id}", response_model=dict)
+async def update_medical_history(
+    record_id: str,
+    medical_history: MedicalHistoryUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update an existing medical history record.
+    """
+    print(f"[API] Updating medical history record {record_id}")
+    print(f"[API] Update data received: {medical_history}")
+    
+    try:
+        # Get the existing record
+        existing_record = db.query(MedicalHistory).filter(MedicalHistory.id == record_id).first()
+        if not existing_record:
+            raise HTTPException(status_code=404, detail="Medical history record not found")
+        
+        # Optional: Check permissions (uncomment if needed)
+        # if not current_user.is_doctor:
+        #     raise HTTPException(status_code=403, detail="Only doctors can update medical history records")
+        
+        # Update fields
+        if medical_history.condition is not None:
+            existing_record.condition = medical_history.condition
+        if medical_history.onset_date is not None:
+            existing_record.onset_date = medical_history.onset_date
+        if medical_history.status is not None:
+            existing_record.status = medical_history.status
+        if medical_history.notes is not None:
+            existing_record.notes = medical_history.notes
+            
+        existing_record.updated_at = datetime.utcnow()
+        
+        # Commit changes
+        db.commit()
+        db.refresh(existing_record)
+        
+        print(f"[API] Updated medical history record {record_id}")
+        
+        return {
+            "id": existing_record.id,
+            "patient_id": existing_record.patient_id,
+            "condition": existing_record.condition,
+            "onset_date": existing_record.onset_date,
+            "status": existing_record.status,
+            "notes": existing_record.notes,
+            "message": "Medical history record updated successfully"
+        }
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise e
+    except Exception as e:
+        # Log any other exceptions
+        print(f"[API] Error updating medical history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update medical history: {str(e)}")
+    
 # Add Lab Order Endpoint
 @app.post("/api/lab-orders", response_model=dict)
 async def create_lab_order(
