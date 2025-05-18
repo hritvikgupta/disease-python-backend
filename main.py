@@ -8405,37 +8405,30 @@ async def get_lab_order(
 ## GCS
 app.state.flow_indices = {}
 app.state.document_indexes = {}
-from dateutil.parser import parse
-class TranslationRequest(BaseModel):
-    text: str
-    session_data: dict = {}
 
 class TranslationResponse(BaseModel):
     original_text: str
     translated_text: str
     detected_language: str
 
-def is_date(text):
-    try:
-        parse(text, fuzzy=False)
-        return True
-    except ValueError:
-        return False
-    
+class TranslationRequest(BaseModel):
+    text: str
+    target_language: str = "en"  # Make target_language optional with default value
+
 @app.post("/api/translate-to-language")
 async def translate_to_language(request: TranslationRequest):
     try:
         text = request.text
-        session_data = request.session_data or {}
-        target_language = session_data.get("preferredLanguage", request.target_language or "en")
-
-        if not text or len(text.strip()) < 1 or target_language == "en":
+        target_language = request.target_language
+        if not text or len(text.strip()) < 1 or target_language == 'en':
             return {"translated_text": text}
-
         translation_prompt = f"""
         Translate the following English text to {target_language}.
-        Return ONLY the translated text with no explanations.
+        
+        IMPORTANT: Return ONLY the translated text with no explanations, options, or additional content.
+        
         Text to translate: "{text}"
+        
         Translation:
         """
         translation_response = Settings.llm.complete(translation_prompt)
@@ -8447,67 +8440,75 @@ async def translate_to_language(request: TranslationRequest):
     
 @app.post("/api/translate-to-english")
 async def translate_to_english(request: TranslationRequest):
+    """
+    Simple endpoint to translate any text to English.
+    Returns original text, translated text, and detected language.
+    """
     try:
         text = request.text
-        session_data = request.session_data
-        preferred_language = session_data.get("preferredLanguage", "en")
-
+        
+        # Skip empty text
         if not text or len(text.strip()) < 1:
             return {
                 "original_text": text,
                 "translated_text": text,
-                "detected_language": preferred_language
+                "detected_language": "en"
             }
-
-        # Treat names and dates as preferred language
-        detected_language = preferred_language
-        if not (is_date(text) or text.isalpha()):  # Only detect for non-names, non-dates
-            language_prompt = f"""
-            Detect the language of the following text and respond with only the ISO language code:
-            Text: "{text}"
-            Language code:
-            """
-            language_response = Settings.llm.complete(language_prompt)
-            detected_language = language_response.text.strip().lower()
-
-        # Normalize language codes
-        if detected_language in ["hindi", "hin"] or detected_language.startswith("hi"):
-            detected_language = "hi"
-        elif detected_language in ["english", "eng"] or detected_language.startswith("en"):
-            detected_language = "en"
-
-        # If already English or a date, return as is
-        if detected_language == preferred_language or is_date(text):
+        
+        # Detect language
+        language_prompt = f"""
+        Detect the language of the following text and respond with only the ISO language code:
+        
+        Text: "{text}"
+        
+        Language code:
+        """
+        language_response = Settings.llm.complete(language_prompt)
+        detected_language = language_response.text.strip().lower()
+        
+        # Normalize common responses
+        if detected_language in ['hindi', 'hin'] or detected_language.startswith('hi'):
+            detected_language = 'hi'
+        elif detected_language in ['english', 'eng'] or detected_language.startswith('en'):
+            detected_language = 'en'
+        
+        # If already English, return as is
+        if detected_language == 'en':
             return {
                 "original_text": text,
                 "translated_text": text,
-                "detected_language": preferred_language
+                "detected_language": "en"
             }
-
+        
         # Translate to English
         translation_prompt = f"""
         Translate the following text to English:
+        
         Return ONLY the translated text with no explanations, options, or additional content.
+        NOTE : For Date like for example : 29/04/1999 or any other Dates consider them english"
+        
         Text: "{text}"
+        
         English translation:
         """
         translation_response = Settings.llm.complete(translation_prompt)
         translated_text = translation_response.text.strip()
-
+        
         return {
             "original_text": text,
             "translated_text": translated_text,
             "detected_language": detected_language
         }
+        
     except Exception as e:
         print(f"Translation error: {str(e)}")
+        # In case of error, return original text
         return {
             "original_text": text,
             "translated_text": text,
-            "detected_language": preferred_language
+            "detected_language": "unknown"
         }
     
-
 @app.post("/api/index/flow-knowledge")
 async def create_flow_knowledge_index(flow_data: dict):
     """
