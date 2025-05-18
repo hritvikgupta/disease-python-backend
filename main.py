@@ -4532,7 +4532,9 @@ async def get_patient(patient_id: str, db = Depends(get_db), current_user = Depe
             "id": history.id,
             "condition": history.condition,
             "onset_date": history.onset_date,
-            "status": history.status
+            "status": history.status,
+                "notes": history.notes  # Add this line
+
         } for history in medical_history],
         "family_history": [{
             "id": history.id,
