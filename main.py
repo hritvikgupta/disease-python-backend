@@ -10215,7 +10215,31 @@ async def analyze_session(request: dict):
                     MedicalHistory.condition.ilike('%menstrual%')
                 ).all()
                 
-                print(f"[API] Found {len(existing_pregnancies)} existing pregnancy records and {len(existing_lmps)} LMP records")
+                existing_gestational_age = db.query(MedicalHistory).filter(
+                    MedicalHistory.patient_id == patient_id,
+                    MedicalHistory.condition.ilike('%gestational age%')
+                ).all()
+                
+                print(f"[API] Found {len(existing_pregnancies)} existing pregnancy records, {len(existing_lmps)} LMP records, and {len(existing_gestational_age)} gestational age records")
+                
+                # Calculate gestational age if we have LMP date
+                gestational_age_weeks = None
+                if lmp_date:
+                    try:
+                        # Parse LMP date
+                        eastern = pytz.timezone('America/New_York')
+                        current_time = datetime.now(eastern)
+                        today = current_time.date().strftime('%m/%d/%Y')
+
+                        lmp_date_obj = datetime.strptime(lmp_date, '%Y-%m-%d').date()
+                        # Calculate days since LMP
+                        # today = datetime.now().date()
+                        days_since_lmp = (today - lmp_date_obj).days
+                        # Convert to weeks
+                        gestational_age_weeks = days_since_lmp / 7
+                        print(f"[API] Calculated gestational age: {gestational_age_weeks:.1f} weeks from LMP on {lmp_date}")
+                    except Exception as e:
+                        print(f"[API] Error calculating gestational age: {str(e)}")
                 
                 # Check if we have LMP and/or pregnancy info to update
                 pregnancy_updating = False
@@ -10283,6 +10307,35 @@ async def analyze_session(request: dict):
                         db.add(lmp_record)
                         updates_made["medical_conditions_added"] += 1
                         print(f"[API] Added dedicated LMP record: {lmp_date}")
+                    
+                    # Case 4: Add or update Gestational Age as a separate condition
+                    if gestational_age_weeks:
+                        # Format the gestational age for display
+                        formatted_ga = f"{int(gestational_age_weeks)} weeks {int((gestational_age_weeks % 1) * 7)} days"
+                        
+                        if existing_gestational_age:
+                            # Update existing gestational age record
+                            ga_record = existing_gestational_age[0]
+                            ga_record.status = "Active"
+                            ga_record.notes = f"Calculated based on LMP date: {lmp_date}. Current gestational age: {formatted_ga}"
+                            ga_record.updated_at = datetime.utcnow()
+                            updates_made["updated_fields"].append("gestational_age")
+                            print(f"[API] Updated gestational age record: {formatted_ga}")
+                        else:
+                            # Create new gestational age record
+                            ga_record = MedicalHistory(
+                                id=str(uuid.uuid4()),
+                                patient_id=patient_id,
+                                condition=f"Gestational Age",
+                                status="Active",
+                                onset_date=lmp_date,
+                                notes=f"Calculated based on LMP date: {lmp_date}. Current gestational age: {formatted_ga}",
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow()
+                            )
+                            db.add(ga_record)
+                            updates_made["medical_conditions_added"] += 1
+                            print(f"[API] Added gestational age record: {formatted_ga}")
                 
                 # Process regular medical conditions
                 if medical_info.get("conditions") and confidence_scores.get("conditions", 0) >= 70:
@@ -10323,6 +10376,8 @@ async def analyze_session(request: dict):
                         date = date_entry.get("date")
                         
                         if date and ("menstrual" in description or "lmp" in description):
+                            lmp_date = date  # Set this for possible gestational age calculation
+                            
                             # Add this as a LMP if not already added
                             if not existing_lmps:
                                 lmp_record = MedicalHistory(
@@ -10338,6 +10393,38 @@ async def analyze_session(request: dict):
                                 db.add(lmp_record)
                                 updates_made["medical_conditions_added"] += 1
                                 print(f"[API] Added LMP from important dates: {date}")
+                                
+                                # Calculate gestational age for this LMP date
+                                try:
+                                    # Parse LMP date
+                                    eastern = pytz.timezone('America/New_York')
+                                    current_time = datetime.now(eastern)
+                                    today = current_time.date().strftime('%m/%d/%Y')
+                                    lmp_date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+                                    # Calculate days since LMP
+                                    # today = datetime.now().date()
+                                    days_since_lmp = (today - lmp_date_obj).days
+                                    # Convert to weeks
+                                    gestational_age_weeks = days_since_lmp / 7
+                                    formatted_ga = f"{int(gestational_age_weeks)} weeks {int((gestational_age_weeks % 1) * 7)} days"
+                                    
+                                    # Add gestational age record
+                                    if not existing_gestational_age:
+                                        ga_record = MedicalHistory(
+                                            id=str(uuid.uuid4()),
+                                            patient_id=patient_id,
+                                            condition=f"Gestational Age",
+                                            status="Active",
+                                            onset_date=date,
+                                            notes=f"Calculated based on LMP date: {date}. Current gestational age: {formatted_ga}",
+                                            created_at=datetime.utcnow(),
+                                            updated_at=datetime.utcnow()
+                                        )
+                                        db.add(ga_record)
+                                        updates_made["medical_conditions_added"] += 1
+                                        print(f"[API] Added gestational age from important dates LMP: {formatted_ga}")
+                                except Exception as e:
+                                    print(f"[API] Error calculating gestational age from important dates: {str(e)}")
                                 
                                 # Also update existing pregnancy record if we have one
                                 if existing_pregnancies and not existing_pregnancies[0].onset_date:
@@ -10438,7 +10525,6 @@ async def analyze_session(request: dict):
             "message": f"Failed to analyze session: {str(e)}",
             "error_details": traceback_str
         }
-
 
 # Additional endpoints for session analytics
 
