@@ -10255,16 +10255,7 @@ async def analyze_session(request: dict):
                 # Commit all changes to the database
                 db.commit()
                 
-                # Update the chat_sessions table to mark as analyzed
-                try:
-                    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
-                    if chat_session:
-                        chat_session.last_data_analysis = datetime.utcnow().isoformat()
-                        chat_session.data_analysis_status = 'success'
-                        chat_session.data_analysis_results = json.dumps(updates_made)
-                        db.commit()
-                except Exception as update_err:
-                    print(f"[API] Error updating chat session: {str(update_err)}")
+                # REMOVED: Don't try to update ChatSession here as it's not defined in Python
             else:
                 print(f"[API] Warning: Patient ID {patient_id} not found in database")
         
