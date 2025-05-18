@@ -7139,13 +7139,15 @@ async def download_patient_report(patient_id: str, type: str = "full", db: Sessi
 
 # Add this endpoint to your API section in the backend
 # Update the API endpoint with improved error handling
+from datetime import date
+
 class MedicalHistoryUpdate(BaseModel):
     """Schema for updating medical history records"""
     condition: Optional[str] = None
     onset_date: Optional[date] = None
     status: Optional[str] = None
     notes: Optional[str] = None
-    
+
 @app.post("/api/medical-histories", response_model=dict)
 async def create_medical_history(
     medical_history: MedicalHistoryCreate, 
