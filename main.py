@@ -10229,7 +10229,7 @@ async def analyze_session(request: dict):
                         # Parse LMP date
                         eastern = pytz.timezone('America/New_York')
                         current_time = datetime.now(eastern)
-                        today = current_time.date().strftime('%m/%d/%Y')
+                        today = current_time.date()
 
                         lmp_date_obj = datetime.strptime(lmp_date, '%Y-%m-%d').date()
                         # Calculate days since LMP
@@ -10399,7 +10399,7 @@ async def analyze_session(request: dict):
                                     # Parse LMP date
                                     eastern = pytz.timezone('America/New_York')
                                     current_time = datetime.now(eastern)
-                                    today = current_time.date().strftime('%m/%d/%Y')
+                                    today = current_time.date()
                                     lmp_date_obj = datetime.strptime(date, '%Y-%m-%d').date()
                                     # Calculate days since LMP
                                     # today = datetime.now().date()
