@@ -10199,7 +10199,92 @@ async def analyze_session(request: dict):
                     updates_made["patient_details_updated"] = True
                     print(f"[API] Updated {fields_updated} patient detail fields")
                 
-                # Add medical conditions including pregnancy status if not already present
+                # Check for pregnancy info and merge with existing conditions to avoid duplicates
+                pregnancy_info = medical_info.get("pregnancy_info", {})
+                lmp_date = pregnancy_info.get("last_menstrual_period")
+                is_pregnant = pregnancy_info.get("is_pregnant") == "yes"
+                
+                # Get all existing pregnancy and LMP conditions for this patient
+                existing_pregnancies = db.query(MedicalHistory).filter(
+                    MedicalHistory.patient_id == patient_id,
+                    MedicalHistory.condition.ilike('%pregnancy%')
+                ).all()
+                
+                existing_lmps = db.query(MedicalHistory).filter(
+                    MedicalHistory.patient_id == patient_id,
+                    MedicalHistory.condition.ilike('%menstrual%')
+                ).all()
+                
+                print(f"[API] Found {len(existing_pregnancies)} existing pregnancy records and {len(existing_lmps)} LMP records")
+                
+                # Check if we have LMP and/or pregnancy info to update
+                pregnancy_updating = False
+                
+                if is_pregnant or lmp_date:
+                    # Format notes string
+                    notes = "Pregnancy"
+                    if lmp_date:
+                        notes += f" with LMP date: {lmp_date}"
+                    if is_pregnant:
+                        notes += ". Positive pregnancy test confirmed."
+                    
+                    # Case 1: We have existing pregnancy records
+                    if existing_pregnancies:
+                        # Update most recent one
+                        existing_pregnancy = existing_pregnancies[0]
+                        print(f"[API] Updating existing pregnancy record: {existing_pregnancy.id}")
+                        if lmp_date and not existing_pregnancy.onset_date:
+                            existing_pregnancy.onset_date = lmp_date
+                            pregnancy_updating = True
+                        
+                        # Update notes if empty
+                        if not existing_pregnancy.notes:
+                            existing_pregnancy.notes = notes
+                            pregnancy_updating = True
+                        elif "LMP date" not in existing_pregnancy.notes and lmp_date:
+                            existing_pregnancy.notes += f" LMP date: {lmp_date}"
+                            pregnancy_updating = True
+                        
+                        if pregnancy_updating:
+                            existing_pregnancy.updated_at = datetime.utcnow()
+                            updates_made["updated_fields"].append("pregnancy")
+                            print(f"[API] Updated existing pregnancy record with LMP: {lmp_date}")
+                    
+                    # Case 2: No existing pregnancy records but we have info
+                    else:
+                        # Create new pregnancy record
+                        new_pregnancy = MedicalHistory(
+                            id=str(uuid.uuid4()),
+                            patient_id=patient_id,
+                            condition="Pregnancy",
+                            status="Active",
+                            onset_date=lmp_date,
+                            notes=notes,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(new_pregnancy)
+                        updates_made["medical_conditions_added"] += 1
+                        print(f"[API] Added new pregnancy record with LMP: {lmp_date}")
+                    
+                    # Case 3: We have explicit LMP date but no dedicated LMP record
+                    if lmp_date and not existing_lmps:
+                        # Add a dedicated LMP record
+                        lmp_record = MedicalHistory(
+                            id=str(uuid.uuid4()),
+                            patient_id=patient_id,
+                            condition="Last Menstrual Period",
+                            status="Completed",
+                            onset_date=lmp_date,
+                            notes=f"Last menstrual period started on {lmp_date}",
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(lmp_record)
+                        updates_made["medical_conditions_added"] += 1
+                        print(f"[API] Added dedicated LMP record: {lmp_date}")
+                
+                # Process regular medical conditions
                 if medical_info.get("conditions") and confidence_scores.get("conditions", 0) >= 70:
                     for condition_data in medical_info["conditions"]:
                         condition_name = condition_data.get("condition")
@@ -10207,7 +10292,8 @@ async def analyze_session(request: dict):
                         onset_date = condition_data.get("onset_date")
                         notes = condition_data.get("notes", "")
                         
-                        if condition_name:
+                        # Skip pregnancy conditions as they're handled separately
+                        if condition_name and "pregnancy" not in condition_name.lower():
                             # Check if this condition is already recorded
                             existing_condition = db.query(MedicalHistory).filter(
                                 MedicalHistory.patient_id == patient_id,
@@ -10230,101 +10316,39 @@ async def analyze_session(request: dict):
                                 updates_made["medical_conditions_added"] += 1
                                 print(f"[API] Added medical condition: {condition_name} (status: {condition_status})")
                 
-                # Handle pregnancy information - add as medical condition if pregnant
-                pregnancy_info = medical_info.get("pregnancy_info", {})
-                if pregnancy_info and confidence_scores.get("pregnancy", 0) >= 70:
-                    is_pregnant = pregnancy_info.get("is_pregnant")
-                    lmp_date = pregnancy_info.get("last_menstrual_period")
-                    due_date = pregnancy_info.get("due_date")
-                    
-                    if is_pregnant == "yes" or lmp_date:
-                        # Check if pregnancy is already recorded
-                        existing_pregnancy = db.query(MedicalHistory).filter(
-                            MedicalHistory.patient_id == patient_id,
-                            func.lower(MedicalHistory.condition) == "pregnancy"
-                        ).first()
-                        
-                        if not existing_pregnancy:
-                            # Format notes with relevant pregnancy information
-                            pregnancy_notes = "Pregnancy confirmed. "
-                            if lmp_date:
-                                pregnancy_notes += f"LMP: {lmp_date}. "
-                            if due_date:
-                                pregnancy_notes += f"EDD: {due_date}. "
-                            
-                            # Add pregnancy as a condition
-                            new_pregnancy = MedicalHistory(
-                                id=str(uuid.uuid4()),
-                                patient_id=patient_id,
-                                condition="Pregnancy",
-                                status="Active",
-                                onset_date=lmp_date,  # LMP date as onset
-                                notes=pregnancy_notes.strip(),
-                                created_at=datetime.utcnow(),
-                                updated_at=datetime.utcnow()
-                            )
-                            db.add(new_pregnancy)
-                            updates_made["medical_conditions_added"] += 1
-                            print(f"[API] Added pregnancy as medical condition with LMP: {lmp_date}")
-                
-                # Handle Last Menstrual Period specifically if it's not part of pregnancy info
-                # Sometimes it might be in important_dates instead
+                # Also check for LMP in important dates if not found in pregnancy info
                 if not lmp_date and medical_info.get("important_dates"):
                     for date_entry in medical_info["important_dates"]:
                         description = date_entry.get("description", "").lower()
                         date = date_entry.get("date")
                         
                         if date and ("menstrual" in description or "lmp" in description):
-                            # Check if LMP is already recorded
-                            existing_lmp = db.query(MedicalHistory).filter(
-                                MedicalHistory.patient_id == patient_id,
-                                func.lower(MedicalHistory.condition) == "last menstrual period"
-                            ).first()
-                            
-                            if not existing_lmp:
-                                # Add LMP as a medical history entry
-                                new_lmp = MedicalHistory(
+                            # Add this as a LMP if not already added
+                            if not existing_lmps:
+                                lmp_record = MedicalHistory(
                                     id=str(uuid.uuid4()),
                                     patient_id=patient_id,
                                     condition="Last Menstrual Period",
                                     status="Completed",
                                     onset_date=date,
-                                    notes=f"LMP recorded on {date}",
+                                    notes=f"Last menstrual period started on {date}",
                                     created_at=datetime.utcnow(),
                                     updated_at=datetime.utcnow()
                                 )
-                                db.add(new_lmp)
+                                db.add(lmp_record)
                                 updates_made["medical_conditions_added"] += 1
-                                print(f"[API] Added LMP as medical condition: {date}")
+                                print(f"[API] Added LMP from important dates: {date}")
                                 
-                                # Also check if patient is pregnant and add that condition
-                                pregnancy_in_conditions = False
-                                for condition in medical_info.get("conditions", []):
-                                    if "pregn" in condition.get("condition", "").lower():
-                                        pregnancy_in_conditions = True
-                                        break
-                                        
-                                if not pregnancy_in_conditions:
-                                    existing_pregnancy = db.query(MedicalHistory).filter(
-                                        MedicalHistory.patient_id == patient_id,
-                                        func.lower(MedicalHistory.condition) == "pregnancy"
-                                    ).first()
-                                    
-                                    if not existing_pregnancy:
-                                        # Add pregnancy as a condition
-                                        new_pregnancy = MedicalHistory(
-                                            id=str(uuid.uuid4()),
-                                            patient_id=patient_id,
-                                            condition="Pregnancy",
-                                            status="Active",
-                                            onset_date=date,
-                                            notes=f"Pregnancy inferred from LMP date: {date}",
-                                            created_at=datetime.utcnow(),
-                                            updated_at=datetime.utcnow()
-                                        )
-                                        db.add(new_pregnancy)
-                                        updates_made["medical_conditions_added"] += 1
-                                        print(f"[API] Added inferred pregnancy from LMP date: {date}")
+                                # Also update existing pregnancy record if we have one
+                                if existing_pregnancies and not existing_pregnancies[0].onset_date:
+                                    existing_pregnancies[0].onset_date = date
+                                    if not existing_pregnancies[0].notes:
+                                        existing_pregnancies[0].notes = f"Pregnancy with LMP date: {date}"
+                                    elif "LMP date" not in existing_pregnancies[0].notes:
+                                        existing_pregnancies[0].notes += f" LMP date: {date}"
+                                    existing_pregnancies[0].updated_at = datetime.utcnow()
+                                    updates_made["updated_fields"].append("pregnancy")
+                                    print(f"[API] Updated existing pregnancy with LMP from important dates: {date}")
                 
                 # Add medications if not already present
                 if medical_info.get("medications") and confidence_scores.get("medications", 0) >= 70:
@@ -10414,6 +10438,8 @@ async def analyze_session(request: dict):
             "message": f"Failed to analyze session: {str(e)}",
             "error_details": traceback_str
         }
+
+
 # Additional endpoints for session analytics
 
 @app.get("/api/session-analytics")
