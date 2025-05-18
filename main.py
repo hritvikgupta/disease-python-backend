@@ -8421,7 +8421,30 @@ def is_date(text):
         return True
     except ValueError:
         return False
+    
+@app.post("/api/translate-to-language")
+async def translate_to_language(request: TranslationRequest):
+    try:
+        text = request.text
+        session_data = request.session_data or {}
+        target_language = session_data.get("preferredLanguage", request.target_language or "en")
 
+        if not text or len(text.strip()) < 1 or target_language == "en":
+            return {"translated_text": text}
+
+        translation_prompt = f"""
+        Translate the following English text to {target_language}.
+        Return ONLY the translated text with no explanations.
+        Text to translate: "{text}"
+        Translation:
+        """
+        translation_response = Settings.llm.complete(translation_prompt)
+        translated_text = translation_response.text.strip()
+        return {"translated_text": translated_text}
+    except Exception as e:
+        print(f"Translation error: {str(e)}")
+        return {"translated_text": text}
+    
 @app.post("/api/translate-to-english")
 async def translate_to_english(request: TranslationRequest):
     try:
@@ -8484,77 +8507,7 @@ async def translate_to_english(request: TranslationRequest):
             "detected_language": preferred_language
         }
     
-@app.post("/api/translate-to-english")
-async def translate_to_english(request: TranslationRequest):
-    """
-    Simple endpoint to translate any text to English.
-    Returns original text, translated text, and detected language.
-    """
-    try:
-        text = request.text
-        
-        # Skip empty text
-        if not text or len(text.strip()) < 1:
-            return {
-                "original_text": text,
-                "translated_text": text,
-                "detected_language": "en"
-            }
-        
-        # Detect language
-        language_prompt = f"""
-        Detect the language of the following text and respond with only the ISO language code:
-        
-        Text: "{text}"
-        
-        Language code:
-        """
-        language_response = Settings.llm.complete(language_prompt)
-        detected_language = language_response.text.strip().lower()
-        
-        # Normalize common responses
-        if detected_language in ['hindi', 'hin'] or detected_language.startswith('hi'):
-            detected_language = 'hi'
-        elif detected_language in ['english', 'eng'] or detected_language.startswith('en'):
-            detected_language = 'en'
-        
-        # If already English, return as is
-        if detected_language == 'en':
-            return {
-                "original_text": text,
-                "translated_text": text,
-                "detected_language": "en"
-            }
-        
-        # Translate to English
-        translation_prompt = f"""
-        Translate the following text to English:
-        
-        Return ONLY the translated text with no explanations, options, or additional content.
-        NOTE : For Date like for example : 29/04/1999 or any other Dates consider them english"
 
-        Text: "{text}"
-        
-        English translation:
-        """
-        translation_response = Settings.llm.complete(translation_prompt)
-        translated_text = translation_response.text.strip()
-        
-        return {
-            "original_text": text,
-            "translated_text": translated_text,
-            "detected_language": detected_language
-        }
-        
-    except Exception as e:
-        print(f"Translation error: {str(e)}")
-        # In case of error, return original text
-        return {
-            "original_text": text,
-            "translated_text": text,
-            "detected_language": "unknown"
-        }
-    
 @app.post("/api/index/flow-knowledge")
 async def create_flow_knowledge_index(flow_data: dict):
     """
