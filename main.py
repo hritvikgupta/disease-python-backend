@@ -8458,7 +8458,7 @@ async def translate_to_english(request: TranslationRequest):
         # Detect language
         language_prompt = f"""
         Detect the language of the following text and respond with only the ISO language code:
-        
+        If the text is a proper noun (e.g., a name), a date (e.g., 29/04/1999), or ambiguous, assume it is English ('en').
         Text: "{text}"
         
         Language code:
@@ -9923,6 +9923,371 @@ async def export_session_analytics(session_id: str):
             content={"message": f"Failed to export pregnancy analytics: {str(e)}"}
         )
     
+@app.post("/api/analyze-session")
+async def analyze_session(request: dict):
+    """
+    Analyze a complete session to extract patient information and update database tables.
+    
+    This endpoint processes all messages in a session to extract:
+    - Patient details (name, phone number, date of birth, etc.)
+    - Medical data (symptoms, medications, allergies, etc.)
+    - Update the appropriate database tables
+    
+    Args:
+        request (dict): Contains sessionId and other parameters
+        
+    Returns:
+        dict: Extracted information and update status
+    """
+    try:
+        session_id = request.get("sessionId")
+        patient_id = request.get("patientId")
+        
+        if not session_id:
+            return {
+                "status": "error",
+                "message": "sessionId is required"
+            }
+            
+        print(f"[API] Analyzing session {session_id} for patient data extraction")
+        
+        # Get database connection
+        db = SessionLocal()
+        
+        # Fetch all analytics for this session
+        analytics = db.query(SessionAnalytics).filter(
+            SessionAnalytics.session_id == session_id
+        ).order_by(SessionAnalytics.timestamp).all()
+        
+        if not analytics:
+            print(f"[API] No session analytics found for session {session_id}")
+            db.close()
+            return {
+                "status": "error",
+                "message": f"No analytics found for session {session_id}"
+            }
+        
+        # Prepare conversation history for the LLM
+        conversation = []
+        for entry in analytics:
+            if entry.message_text:
+                conversation.append({"role": "user", "content": entry.message_text})
+            if entry.assistant_response:
+                conversation.append({"role": "assistant", "content": entry.assistant_response})
+        
+        # If we somehow don't have any valid messages, exit
+        if not conversation:
+            print(f"[API] No valid messages found for session {session_id}")
+            db.close()
+            return {
+                "status": "error",
+                "message": f"No valid messages found for session {session_id}"
+            }
+        
+        conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation])
+        
+        # Create a comprehensive prompt to extract patient information
+        prompt = f"""
+        You are tasked with extracting structured patient information from the following conversation between a patient and a healthcare AI assistant. 
+        
+        Conversation History:
+        {conversation_text}
+        
+        Based on this conversation, extract the following information:
+        
+        1. Patient Details:
+           - Name (first name, last name)
+           - Phone number
+           - Date of birth
+           - Gender
+           - Email address
+           - Address or location
+
+        2. Medical Information:
+           - Medical conditions/diagnoses mentioned
+           - Symptoms reported
+           - Medications mentioned (with dosages if available)
+           - Allergies mentioned
+           - Vital signs or health measurements
+           - Any important dates mentioned (appointments, symptom onset, etc.)
+
+        Return the extracted information in JSON format:
+        {{
+            "patient_details": {{
+                "first_name": "string",
+                "last_name": "string",
+                "phone": "string",
+                "date_of_birth": "YYYY-MM-DD",
+                "gender": "string",
+                "email": "string",
+                "address": "string"
+            }},
+            "medical_info": {{
+                "conditions": [
+                    {{"condition": "string", "status": "active/resolved/unknown"}}
+                ],
+                "symptoms": [
+                    {{"symptom": "string", "severity": "mild/moderate/severe/unknown"}}
+                ],
+                "medications": [
+                    {{"name": "string", "dosage": "string", "frequency": "string", "route": "string"}}
+                ],
+                "allergies": [
+                    {{"allergen": "string", "reaction": "string", "severity": "string"}}
+                ],
+                "vital_signs": {{
+                    "temperature": "number",
+                    "heart_rate": "number",
+                    "blood_pressure_systolic": "number",
+                    "blood_pressure_diastolic": "number",
+                    "respiratory_rate": "number",
+                    "oxygen_saturation": "number",
+                    "weight": "number"
+                }},
+                "important_dates": [
+                    {{"description": "string", "date": "YYYY-MM-DD"}}
+                ]
+            }},
+            "confidence_scores": {{
+                "name": 0-100,
+                "phone": 0-100,
+                "dob": 0-100,
+                "gender": 0-100,
+                "conditions": 0-100,
+                "medications": 0-100
+            }}
+        }}
+        
+        For each field, only include information explicitly stated in the conversation. For missing fields, leave them null or empty.
+        For each major category (name, phone, etc.), include a confidence score from 0-100 indicating how certain you are of the extraction.
+        Use the standard format provided for dates (YYYY-MM-DD).
+        Phone numbers should be in a standardized format (e.g., "+1234567890" or "123-456-7890").
+        """
+        
+        # Get LLM response
+        print(f"[API] Sending prompt to LLM for patient data extraction")
+        llm_response = Settings.llm.complete(prompt)
+        
+        # Parse the response
+        clean_response = llm_response.text.strip()
+        
+        # Clean up response if it contains markdown code blocks
+        if "```json" in clean_response:
+            clean_response = clean_response.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_response:
+            clean_response = clean_response.split("```")[1].split("```")[0].strip()
+            
+        # Handle potential JSON formatting issues
+        try:
+            extracted_data = json.loads(clean_response)
+        except json.JSONDecodeError as e:
+            print(f"[API] JSON parse error: {str(e)}, attempting cleanup")
+            # Try to fix common JSON issues
+            clean_response = clean_response.replace("'", '"')  # Replace single quotes with double quotes
+            clean_response = re.sub(r',\s*}', '}', clean_response)  # Remove trailing commas
+            
+            try:
+                extracted_data = json.loads(clean_response)
+            except json.JSONDecodeError:
+                print(f"[API] Failed to parse LLM response as JSON even after cleanup")
+                db.close()
+                return {
+                    "status": "error",
+                    "message": "Failed to parse extracted data from LLM response",
+                    "raw_response": llm_response.text
+                }
+        
+        # Process the extracted data
+        patient_details = extracted_data.get("patient_details", {})
+        medical_info = extracted_data.get("medical_info", {})
+        confidence_scores = extracted_data.get("confidence_scores", {})
+        
+        # Initialize a dictionary to track all updates
+        updates_made = {
+            "patient_details_updated": False,
+            "medical_conditions_added": 0,
+            "medications_added": 0,
+            "allergies_added": 0,
+            "updated_fields": []
+        }
+        
+        # Only proceed with updates if we have a patient ID
+        if patient_id:
+            # Update patient record if data is available with reasonable confidence
+            patient_record = db.query(Patient).filter(Patient.id == patient_id).first()
+            
+            if patient_record:
+                print(f"[API] Found patient record: {patient_record.id}")
+                
+                # Update patient details with confidence threshold (only if missing in DB)
+                # We'll only update empty/null fields to avoid overwriting verified data
+                fields_updated = 0
+                
+                if patient_details.get("first_name") and not patient_record.first_name and confidence_scores.get("name", 0) >= 75:
+                    patient_record.first_name = patient_details["first_name"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("first_name")
+                
+                if patient_details.get("last_name") and not patient_record.last_name and confidence_scores.get("name", 0) >= 75:
+                    patient_record.last_name = patient_details["last_name"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("last_name")
+                
+                if patient_details.get("phone") and not patient_record.phone and confidence_scores.get("phone", 0) >= 75:
+                    patient_record.phone = patient_details["phone"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("phone")
+                
+                if patient_details.get("date_of_birth") and not patient_record.date_of_birth and confidence_scores.get("dob", 0) >= 75:
+                    patient_record.date_of_birth = patient_details["date_of_birth"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("date_of_birth")
+                
+                if patient_details.get("gender") and not patient_record.gender and confidence_scores.get("gender", 0) >= 75:
+                    patient_record.gender = patient_details["gender"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("gender")
+                
+                if patient_details.get("email") and not patient_record.email and confidence_scores.get("email", 0) >= 75:
+                    patient_record.email = patient_details["email"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("email")
+                
+                if patient_details.get("address") and not patient_record.address and confidence_scores.get("address", 0) >= 75:
+                    patient_record.address = patient_details["address"]
+                    fields_updated += 1
+                    updates_made["updated_fields"].append("address")
+                
+                # Only update the patient record if fields were changed
+                if fields_updated > 0:
+                    patient_record.updated_at = datetime.utcnow()
+                    updates_made["patient_details_updated"] = True
+                    print(f"[API] Updated {fields_updated} patient detail fields")
+                
+                # Add medical conditions if not already present
+                if medical_info.get("conditions") and confidence_scores.get("conditions", 0) >= 70:
+                    for condition_data in medical_info["conditions"]:
+                        condition_name = condition_data.get("condition")
+                        condition_status = condition_data.get("status", "active")
+                        
+                        if condition_name:
+                            # Check if this condition is already recorded
+                            existing_condition = db.query(MedicalHistory).filter(
+                                MedicalHistory.patient_id == patient_id,
+                                func.lower(MedicalHistory.condition) == func.lower(condition_name)
+                            ).first()
+                            
+                            if not existing_condition:
+                                # Add new condition
+                                new_condition = MedicalHistory(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    condition=condition_name,
+                                    status=condition_status,
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_condition)
+                                updates_made["medical_conditions_added"] += 1
+                                print(f"[API] Added medical condition: {condition_name}")
+                
+                # Add medications if not already present
+                if medical_info.get("medications") and confidence_scores.get("medications", 0) >= 70:
+                    for medication_data in medical_info["medications"]:
+                        med_name = medication_data.get("name")
+                        med_dosage = medication_data.get("dosage", "")
+                        med_frequency = medication_data.get("frequency", "")
+                        med_route = medication_data.get("route", "")
+                        
+                        if med_name:
+                            # Check if this medication is already recorded
+                            existing_medication = db.query(Medication).filter(
+                                Medication.patient_id == patient_id,
+                                func.lower(Medication.name) == func.lower(med_name)
+                            ).first()
+                            
+                            if not existing_medication:
+                                # Add new medication
+                                new_medication = Medication(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    name=med_name,
+                                    dosage=med_dosage,
+                                    frequency=med_frequency,
+                                    route=med_route,
+                                    active=True,
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_medication)
+                                updates_made["medications_added"] += 1
+                                print(f"[API] Added medication: {med_name}")
+                
+                # Add allergies if not already present
+                if medical_info.get("allergies") and confidence_scores.get("allergies", 0) >= 70:
+                    for allergy_data in medical_info["allergies"]:
+                        allergen_name = allergy_data.get("allergen")
+                        reaction = allergy_data.get("reaction", "")
+                        severity = allergy_data.get("severity", "")
+                        
+                        if allergen_name:
+                            # Check if this allergy is already recorded
+                            existing_allergy = db.query(Allergy).filter(
+                                Allergy.patient_id == patient_id,
+                                func.lower(Allergy.allergen) == func.lower(allergen_name)
+                            ).first()
+                            
+                            if not existing_allergy:
+                                # Add new allergy
+                                new_allergy = Allergy(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    allergen=allergen_name,
+                                    reaction=reaction,
+                                    severity=severity,
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_allergy)
+                                updates_made["allergies_added"] += 1
+                                print(f"[API] Added allergy: {allergen_name}")
+                
+                # Commit all changes to the database
+                db.commit()
+                
+                # Update the chat_sessions table to mark as analyzed
+                try:
+                    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+                    if chat_session:
+                        chat_session.last_data_analysis = datetime.utcnow().isoformat()
+                        chat_session.data_analysis_status = 'success'
+                        chat_session.data_analysis_results = json.dumps(updates_made)
+                        db.commit()
+                except Exception as update_err:
+                    print(f"[API] Error updating chat session: {str(update_err)}")
+            else:
+                print(f"[API] Warning: Patient ID {patient_id} not found in database")
+        
+        db.close()
+        
+        # Return the extracted data and update status
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "extracted_data": extracted_data,
+            "updates_made": updates_made,
+            "message": "Session analyzed successfully"
+        }
+        
+    except Exception as e:
+        print(f"[API] Error analyzing session: {str(e)}")
+        traceback_str = traceback.format_exc()
+        print(f"[API] Traceback: {traceback_str}")
+        return {
+            "status": "error",
+            "message": f"Failed to analyze session: {str(e)}",
+            "error_details": traceback_str
+        }
 # Additional endpoints for session analytics
 
 @app.get("/api/session-analytics")
