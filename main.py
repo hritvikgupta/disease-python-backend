@@ -10319,6 +10319,7 @@ async def analyze_session(request: dict):
                             ga_record.status = "Active"
                             ga_record.notes = f"Calculated based on LMP date: {lmp_date}. Current gestational age: {formatted_ga}"
                             ga_record.updated_at = datetime.utcnow()
+                            db.add(ga_record)  # Add this line to ensure the update is staged
                             updates_made["updated_fields"].append("gestational_age")
                             print(f"[API] Updated gestational age record: {formatted_ga}")
                         else:
