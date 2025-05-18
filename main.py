@@ -9985,6 +9985,8 @@ async def analyze_session(request: dict):
             }
         
         conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation])
+        # + Log the conversation being sent to LLM
+        print(f"[API] Conversation sent to LLM:\n{conversation_text}")
         
         # Create a comprehensive prompt to extract patient information
         prompt = f"""
@@ -10068,6 +10070,9 @@ async def analyze_session(request: dict):
         print(f"[API] Sending prompt to LLM for patient data extraction")
         llm_response = Settings.llm.complete(prompt)
         
+        # + Log the raw LLM response
+        print(f"[API] Raw LLM response:\n{llm_response.text}")
+        
         # Parse the response
         clean_response = llm_response.text.strip()
         
@@ -10077,6 +10082,9 @@ async def analyze_session(request: dict):
         elif "```" in clean_response:
             clean_response = clean_response.split("```")[1].split("```")[0].strip()
             
+        # + Log the cleaned response
+        print(f"[API] Cleaned LLM response:\n{clean_response}")
+            
         # Handle potential JSON formatting issues
         try:
             extracted_data = json.loads(clean_response)
@@ -10085,6 +10093,9 @@ async def analyze_session(request: dict):
             # Try to fix common JSON issues
             clean_response = clean_response.replace("'", '"')  # Replace single quotes with double quotes
             clean_response = re.sub(r',\s*}', '}', clean_response)  # Remove trailing commas
+            
+            # + Log the response after cleanup attempt
+            print(f"[API] Response after JSON cleanup attempt:\n{clean_response}")
             
             try:
                 extracted_data = json.loads(clean_response)
@@ -10097,10 +10108,16 @@ async def analyze_session(request: dict):
                     "raw_response": llm_response.text
                 }
         
+        # + Log the parsed extracted data
+        print(f"[API] Parsed extracted data:\n{json.dumps(extracted_data, indent=2)}")
+        
         # Process the extracted data
         patient_details = extracted_data.get("patient_details", {})
         medical_info = extracted_data.get("medical_info", {})
         confidence_scores = extracted_data.get("confidence_scores", {})
+        
+        # + Log the confidence scores
+        print(f"[API] Confidence scores:\n{json.dumps(confidence_scores, indent=2)}")
         
         # Initialize a dictionary to track all updates
         updates_made = {
@@ -10127,36 +10144,50 @@ async def analyze_session(request: dict):
                     patient_record.first_name = patient_details["first_name"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("first_name")
+                    # + Log field update
+                    print(f"[API] Updating patient first_name: {patient_details['first_name']}")
                 
                 if patient_details.get("last_name") and not patient_record.last_name and confidence_scores.get("name", 0) >= 75:
                     patient_record.last_name = patient_details["last_name"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("last_name")
+                    # + Log field update
+                    print(f"[API] Updating patient last_name: {patient_details['last_name']}")
                 
                 if patient_details.get("phone") and not patient_record.phone and confidence_scores.get("phone", 0) >= 75:
                     patient_record.phone = patient_details["phone"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("phone")
+                    # + Log field update
+                    print(f"[API] Updating patient phone: {patient_details['phone']}")
                 
                 if patient_details.get("date_of_birth") and not patient_record.date_of_birth and confidence_scores.get("dob", 0) >= 75:
                     patient_record.date_of_birth = patient_details["date_of_birth"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("date_of_birth")
+                    # + Log field update
+                    print(f"[API] Updating patient date_of_birth: {patient_details['date_of_birth']}")
                 
                 if patient_details.get("gender") and not patient_record.gender and confidence_scores.get("gender", 0) >= 75:
                     patient_record.gender = patient_details["gender"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("gender")
+                    # + Log field update
+                    print(f"[API] Updating patient gender: {patient_details['gender']}")
                 
                 if patient_details.get("email") and not patient_record.email and confidence_scores.get("email", 0) >= 75:
                     patient_record.email = patient_details["email"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("email")
+                    # + Log field update
+                    print(f"[API] Updating patient email: {patient_details['email']}")
                 
                 if patient_details.get("address") and not patient_record.address and confidence_scores.get("address", 0) >= 75:
                     patient_record.address = patient_details["address"]
                     fields_updated += 1
                     updates_made["updated_fields"].append("address")
+                    # + Log field update
+                    print(f"[API] Updating patient address: {patient_details['address']}")
                 
                 # Only update the patient record if fields were changed
                 if fields_updated > 0:
@@ -10189,7 +10220,8 @@ async def analyze_session(request: dict):
                                 )
                                 db.add(new_condition)
                                 updates_made["medical_conditions_added"] += 1
-                                print(f"[API] Added medical condition: {condition_name}")
+                                # + Log new condition
+                                print(f"[API] Added medical condition: {condition_name} (status: {condition_status})")
                 
                 # Add medications if not already present
                 if medical_info.get("medications") and confidence_scores.get("medications", 0) >= 70:
@@ -10221,10 +10253,11 @@ async def analyze_session(request: dict):
                                 )
                                 db.add(new_medication)
                                 updates_made["medications_added"] += 1
-                                print(f"[API] Added medication: {med_name}")
+                                # + Log new medication
+                                print(f"[API] Added medication: {med_name} (dosage: {med_dosage}, frequency: {med_frequency}, route: {med_route})")
                 
                 # Add allergies if not already present
-                if medical_info.get("allergies") and confidence_scores.get("allergies", 0) >= 70:
+                if medical_info.get("allerg to allergies") and confidence_scores.get("allergies", 0) >= 70:
                     for allergy_data in medical_info["allergies"]:
                         allergen_name = allergy_data.get("allergen")
                         reaction = allergy_data.get("reaction", "")
@@ -10250,12 +10283,14 @@ async def analyze_session(request: dict):
                                 )
                                 db.add(new_allergy)
                                 updates_made["allergies_added"] += 1
-                                print(f"[API] Added allergy: {allergen_name}")
+                                # + Log new allergy
+                                print(f"[API] Added allergy: {allergen_name} (reaction: {reaction}, severity: {severity})")
                 
                 # Commit all changes to the database
                 db.commit()
                 
-                # REMOVED: Don't try to update ChatSession here as it's not defined in Python
+                # + Log final updates made
+                print(f"[API] Database updates summary:\n{json.dumps(updates_made, indent=2)}")
             else:
                 print(f"[API] Warning: Patient ID {patient_id} not found in database")
         
@@ -10279,6 +10314,7 @@ async def analyze_session(request: dict):
             "message": f"Failed to analyze session: {str(e)}",
             "error_details": traceback_str
         }
+
 # Additional endpoints for session analytics
 
 @app.get("/api/session-analytics")
