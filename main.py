@@ -10138,6 +10138,7 @@ async def analyze_session(request: dict):
                 "dob": 0-100,
                 "gender": 0-100,
                 "conditions": 0-100,
+                "allergies":0-100,
                 "symptoms": 0-100,  
                 "medications": 0-100,
                 "pregnancy": 0-100
