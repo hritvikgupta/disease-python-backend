@@ -10538,14 +10538,45 @@ async def analyze_session(request: dict):
                                 updates_made["medications_added"] += 1
                                 print(f"[API] Added medication: {med_name}")
                 
+                # Process symptoms
+                if medical_info.get("symptoms") and confidence_scores.get("conditions", 0) >= 70:
+                    for symptom_data in medical_info["symptoms"]:
+                        symptom_name = symptom_data.get("symptom")
+                        symptom_severity = symptom_data.get("severity", "unknown")
+                        
+                        if symptom_name:
+                            # Check if this symptom is already recorded
+                            existing_symptom = db.query(MedicalHistory).filter(
+                                MedicalHistory.patient_id == patient_id,
+                                func.lower(MedicalHistory.condition) == func.lower(symptom_name)
+                            ).first()
+                            
+                            if not existing_symptom:
+                                # Add new symptom as a medical history condition
+                                new_symptom = MedicalHistory(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    condition=symptom_name,
+                                    status="Active",
+                                    onset_date=datetime.utcnow().date(),
+                                    notes=f"Severity: {symptom_severity}. Reported during chat session.",
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_symptom)
+                                updates_made["medical_conditions_added"] += 1
+                                print(f"[API] Added symptom: {symptom_name} (severity: {symptom_severity})")
+                                
                 # Add allergies if not already present
+                # Process allergies
                 if medical_info.get("allergies") and confidence_scores.get("allergies", 0) >= 70:
                     for allergy_data in medical_info["allergies"]:
                         allergen_name = allergy_data.get("allergen")
                         reaction = allergy_data.get("reaction", "")
                         severity = allergy_data.get("severity", "")
                         
-                        if allergen_name:
+                        # Only proceed if we have a valid allergen name
+                        if allergen_name and allergen_name != "null":
                             # Check if this allergy is already recorded
                             existing_allergy = db.query(Allergy).filter(
                                 Allergy.patient_id == patient_id,
@@ -10566,7 +10597,25 @@ async def analyze_session(request: dict):
                                 db.add(new_allergy)
                                 updates_made["allergies_added"] += 1
                                 print(f"[API] Added allergy: {allergen_name}")
-                
+                        else:
+                            # If allergen name is not specified but allergies were mentioned
+                            # Create a general allergy entry
+                            if not db.query(Allergy).filter(
+                                Allergy.patient_id == patient_id,
+                                Allergy.allergen == "Unknown allergies"
+                            ).first():
+                                new_allergy = Allergy(
+                                    id=str(uuid.uuid4()),
+                                    patient_id=patient_id,
+                                    allergen="Unknown allergies",
+                                    reaction="Patient mentioned having allergies but did not specify",
+                                    severity="Unknown",
+                                    created_at=datetime.utcnow(),
+                                    updated_at=datetime.utcnow()
+                                )
+                                db.add(new_allergy)
+                                updates_made["allergies_added"] += 1
+                                print(f"[API] Added general allergy note")
                 # Commit all changes to the database
                 db.commit()
                 
