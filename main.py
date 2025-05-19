@@ -144,10 +144,10 @@ llm = Gemini(
     model="models/gemini-1.5-flash",
     api_key=GOOGLE_API_KEY,  
 )
-MODEL_ID = "gemini-2.5-pro-preview-05-06"  # Latest version as of May 2025
+MODEL_ID = "gemini-2.0-flash"  # Latest version as of May 2025
 # vecto_chat = genai.GenerativeModel(MODEL_ID)
 gemini_model = Gemini(
-    model="models/gemini-2.5-pro-preview-05-06",  # Add the "models/" prefix
+    model=MODEL_ID,  # Add the "models/" prefix
     api_key=GOOGLE_API_KEY,
     # Optional: Configure "thinking" capabilities 
     thinking_config={"thinking_budget": 8000}  # Adjust as needed
