@@ -9514,11 +9514,12 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
 12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
 13. If a date is provided in response to a function:
-   - Validate the date in MM/DD/YYYY format (e.g., '05/14/2025'). A date is valid if it matches MM/DD/YYYY, represents a real calendar date, and is not in the future beyond the current date ({current_date}).
-   - Accept dates with or without leading zeros (e.g., '5/5/2025' or '05/05/2025').
-   - If valid, store the date in MM/DD/YYYY format in 'state_updates' as 'last_menstrual_period' and proceed to the next node as specified in the function.
-   - If invalid (e.g., incorrect format, non-existent date, or future date), respond with: "The date provided is invalid. Please enter the date in MM/DD/YYYY format (e.g., 01/15/2025 or 03/03/2025)." and set 'next_node_id' to the current node ID.
-
+     - Validate the date as MM/DD/YYYY (e.g., '05/14/2025' or '5/5/2025'). A date is valid if:
+     - It matches the format MM/DD/YYYY (with or without leading zeros for month/day).
+     - It represents a real calendar date (e.g., not '02/30/2025').
+     - It is not after the current date ({current_date}).
+     - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
+     
 14. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
    - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
    - Convert the gestational age to weeks (integer division of days by 7).
