@@ -10217,12 +10217,13 @@ async def analyze_session(request: dict):
 
         previous_summary_section = ""
         if previous_session_summary:
+            previous_session_date = request.get("previousSessionDate", "unknown timestamp")
             previous_summary_section = f"""
             Previous Session Summary (for session_summary only):
             On {previous_session_date}, the patient reported: {previous_session_summary}
             
             For the session_summary:
-            - Start with: "On {previous_session_date}, the patient reported [key details from previous summary, including diagnoses and significant findings]. In the current session on {current_time.strftime('%Y-%m-%d')}, the patient reported [current session findings]."
+            - Start with: "On {previous_session_date}, the patient reported [key details from previous summary, including diagnoses and significant findings]. In the current session on {time.strftime('%Y-%m-%d %H:%M:%S')}, the patient reported [current session findings]."
             - Include all current session medical information (pregnancy status, LMP date, symptoms, allergies, medications).
             - Use proper medical terminology and ensure clinical significance.
             - Do NOT use the previous session summary to populate patient_details, medical_info, or any other fields unless explicitly stated in the current conversation.
