@@ -144,7 +144,7 @@ llm = Gemini(
     model="models/gemini-1.5-flash",
     api_key=GOOGLE_API_KEY,  
 )
-MODEL_ID = "gemini-2.0-flash"  # Latest version as of May 2025
+MODEL_ID = "models/gemini-2.0-flash"  # Latest version as of May 2025
 # vecto_chat = genai.GenerativeModel(MODEL_ID)
 gemini_model = Gemini(
     model=MODEL_ID,  # Add the "models/" prefix
