@@ -9929,10 +9929,10 @@ async def analyze_message(request: dict):
                         if any(word in user_words for word in med.lower().split())
                     ]
                     data["medical_data"]["medications"] = valid_medications
-                
-                # Validate dates and trimester
+
+                # Validate dates and ensure LMP is correctly identified
                 if "medical_data" in data and "dates" in data["medical_data"]:
-                    # Handle null dates
+                    # Handle null or invalid dates
                     if data["medical_data"]["dates"] is None:
                         data["medical_data"]["dates"] = None
                     # Handle list of dates
@@ -9945,19 +9945,22 @@ async def analyze_message(request: dict):
                                 }
                                 break
                         else:
-                            data["medical_data"]["dates"] = None  # No valid LMP date
+                            data["medical_data"]["dates"] = None
                     # Handle dict dates
                     elif isinstance(data["medical_data"]["dates"], dict):
-                        if data["medical_data"]["dates"].get("type") != "last_menstrual_period" or "menstrual" not in ai_response.lower():
+                        # Ensure it's an LMP date if AI asked for it
+                        if (data["medical_data"]["dates"].get("type") != "last_menstrual_period" or
+                            "last menstrual period" not in ai_response.lower()):  # Fixed condition
                             data["medical_data"]["dates"] = None
-                
+
                 # Validate trimester_indicators
                 if "pregnancy_specific" in data and "trimester_indicators" in data["pregnancy_specific"]:
-                    # Only allow trimester if valid LMP date and AI asked for it
+                    # Only calculate trimester if valid LMP date and AI asked for it
                     if not (
-                        isinstance(data.get("medical_data", {}).get("dates"), dict)
-                        and data["medical_data"]["dates"].get("type") == "last_menstrual_period"
-                        and "menstrual" in ai_response.lower()
+                        isinstance(data.get("medical_data", {}).get("dates"), dict) and
+                        data["medical_data"]["dates"] is not None and
+                        data["medical_data"]["dates"].get("type") == "last_menstrual_period" and
+                        "last menstrual period" in ai_response.lower()  # Fixed condition
                     ):
                         data["pregnancy_specific"]["trimester_indicators"] = None
                     else:
@@ -9967,8 +9970,11 @@ async def analyze_message(request: dict):
                             lmp_date = datetime.strptime(lmp_date_str, '%m/%d/%Y').date()
                             current_date_obj = datetime.strptime(current_date, '%m/%d/%Y').date()
                             days_since_lmp = (current_date_obj - lmp_date).days
-                            weeks_pregnant = days_since_lmp / 7
-                            if days_since_lmp < 0 or days_since_lmp > 365:
+                            weeks_pregnant = days_since_lmp / 7.0
+                            # Validate LMP date
+                            if days_since_lmp < 0:  # Future date
+                                data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
+                            elif days_since_lmp > 365:  # More than 1 year ago
                                 data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
                             elif 0 <= weeks_pregnant <= 13:
                                 data["pregnancy_specific"]["trimester_indicators"] = "First trimester"
@@ -9980,8 +9986,10 @@ async def analyze_message(request: dict):
                                 data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
                         except ValueError:
                             data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
-                
+
                 return data
+            
+            
             analytics_data = validate_analytics_data(analytics_data, message, response)
             
             # Store in database
