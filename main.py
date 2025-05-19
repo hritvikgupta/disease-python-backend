@@ -7137,6 +7137,123 @@ async def download_patient_report(patient_id: str, type: str = "full", db: Sessi
         }
     )
 
+## Allergies
+@app.post("/api/allergies", response_model=dict)
+async def create_allergy(
+    allergy: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a new allergy record for a patient.
+    """
+    print(f"[API] Creating allergy record with data: {allergy}")
+    
+    # Verify patient exists
+    patient = db.query(Patient).filter(Patient.id == allergy["patient_id"]).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Create allergy record
+    db_allergy = Allergy(
+        id=str(uuid.uuid4()),
+        patient_id=allergy["patient_id"],
+        allergen=allergy["allergen"],
+        reaction=allergy.get("reaction"),
+        severity=allergy.get("severity", "Unknown"),
+        onset_date=allergy.get("onset_date"),
+        notes=allergy.get("notes")
+    )
+    
+    db.add(db_allergy)
+    db.commit()
+    db.refresh(db_allergy)
+    
+    return {
+        "id": db_allergy.id,
+        "patient_id": db_allergy.patient_id,
+        "allergen": db_allergy.allergen,
+        "reaction": db_allergy.reaction,
+        "severity": db_allergy.severity,
+        "message": "Allergy record created successfully"
+    }
+
+@app.put("/api/allergies/{allergy_id}", response_model=dict)
+async def update_allergy(
+    allergy_id: str,
+    allergy_update: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update an existing allergy record.
+    """
+    print(f"[API] Updating allergy record {allergy_id} with data: {allergy_update}")
+    
+    # Find the allergy record
+    db_allergy = db.query(Allergy).filter(Allergy.id == allergy_id).first()
+    if not db_allergy:
+        raise HTTPException(status_code=404, detail="Allergy record not found")
+    
+    # Verify the user has access to this patient's data
+    patient = db.query(Patient).filter(Patient.id == db_allergy.patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Associated patient not found")
+    
+    # Update fields
+    if "allergen" in allergy_update:
+        db_allergy.allergen = allergy_update["allergen"]
+    
+    if "reaction" in allergy_update:
+        db_allergy.reaction = allergy_update["reaction"]
+    
+    if "severity" in allergy_update:
+        db_allergy.severity = allergy_update["severity"]
+    
+    if "onset_date" in allergy_update:
+        db_allergy.onset_date = allergy_update["onset_date"]
+    
+    if "notes" in allergy_update:
+        db_allergy.notes = allergy_update["notes"]
+    
+    db_allergy.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_allergy)
+    
+    return {
+        "id": db_allergy.id,
+        "patient_id": db_allergy.patient_id,
+        "allergen": db_allergy.allergen,
+        "reaction": db_allergy.reaction,
+        "severity": db_allergy.severity,
+        "message": "Allergy record updated successfully"
+    }
+
+@app.delete("/api/allergies/{allergy_id}", response_model=dict)
+async def delete_allergy(
+    allergy_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete an allergy record.
+    """
+    print(f"[API] Deleting allergy record {allergy_id}")
+    
+    # Find the allergy record
+    db_allergy = db.query(Allergy).filter(Allergy.id == allergy_id).first()
+    if not db_allergy:
+        raise HTTPException(status_code=404, detail="Allergy record not found")
+    
+    # Delete the record
+    db.delete(db_allergy)
+    db.commit()
+    
+    return {
+        "id": allergy_id,
+        "message": "Allergy record deleted successfully"
+    }
 # Add this endpoint to your API section in the backend
 # Update the API endpoint with improved error handling
 from datetime import date
