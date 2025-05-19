@@ -9200,6 +9200,10 @@ async def vector_flow_chat(request: dict):
     from langdetect import detect, DetectorFactory
     from langdetect.lang_detect_exception import LangDetectException
 
+    eastern = pytz.timezone('America/New_York')
+    current_time = datetime.now(eastern)
+    current_date = current_time.date().strftime('%m/%d/%Y')
+
     try:
         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
         message = request.get("message", "")
@@ -9471,6 +9475,8 @@ The current node ID is: {current_node_id or "None - this is the first message"}
 
 current node documentation: {current_node_doc}
 
+The current date in Eastern Time (MM/DD/YYYY) is: {current_date}
+
 IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
 
@@ -9494,6 +9500,17 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 11. Maintain conversation continuity and ensure responses are contextually appropriate.
 12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
+13. If a date is provided in response to a function:
+   - Validate the date in MM/DD/YYYY format (e.g., '05/14/2025'). A date is valid if it matches MM/DD/YYYY, represents a real calendar date, and is not in the future beyond the current date ({current_date}).
+   - Accept dates with or without leading zeros (e.g., '5/5/2025' or '05/05/2025').
+   - If valid, store the date in MM/DD/YYYY format in 'state_updates' as 'last_menstrual_period' and proceed to the next node as specified in the function.
+   - If invalid (e.g., incorrect format, non-existent date, or future date), respond with: "The date provided is invalid. Please enter the date in MM/DD/YYYY format (e.g., 01/15/2025 or 03/03/2025)." and set 'next_node_id' to the current node ID.
+14. If asked to calculate the gestational age calculate it using following:
+   - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
+   - Convert the gestational age to weeks (integer division of days by 7).
+   - Determine the trimester: First (≤12 weeks), Second (13–27 weeks), or Third (≥28 weeks).
+   - Append to the node's instructed response: "Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester."
+   - Store 'gestational_age_weeks' and 'trimester' in 'state_updates'.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
