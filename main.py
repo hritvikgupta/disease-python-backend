@@ -9921,7 +9921,7 @@ async def analyze_message(request: dict):
             # Validate analytics data
             def validate_analytics_data(data, user_message, ai_response):
                 # Validate medications
-                if "medications" in data["medical_data"]:
+                if "medications" in data.get("medical_data", {}):
                     user_words = set(user_message.lower().split())
                     valid_medications = [
                         med for med in data["medical_data"]["medications"]
@@ -9931,8 +9931,11 @@ async def analyze_message(request: dict):
                 
                 # Validate dates and trimester
                 if "medical_data" in data and "dates" in data["medical_data"]:
-                    # Handle list or dict for dates
-                    if isinstance(data["medical_data"]["dates"], list):
+                    # Handle null dates
+                    if data["medical_data"]["dates"] is None:
+                        data["medical_data"]["dates"] = None
+                    # Handle list of dates
+                    elif isinstance(data["medical_data"]["dates"], list):
                         for date_entry in data["medical_data"]["dates"]:
                             if isinstance(date_entry, dict) and date_entry.get("type") == "last_menstrual_period":
                                 data["medical_data"]["dates"] = {
@@ -9941,20 +9944,21 @@ async def analyze_message(request: dict):
                                 }
                                 break
                         else:
-                            data["medical_data"]["dates"] = null  # No valid LMP date
+                            data["medical_data"]["dates"] = None  # No valid LMP date
+                    # Handle dict dates
                     elif isinstance(data["medical_data"]["dates"], dict):
-                        if data["medical_data"]["dates"].get("type") != "last_menstrual_period":
-                            # Only allow LMP if AI asked for it
-                            if "menstrual" not in ai_response.lower():
-                                data["medical_data"]["dates"] = null
+                        if data["medical_data"]["dates"].get("type") != "last_menstrual_period" or "menstrual" not in ai_response.lower():
+                            data["medical_data"]["dates"] = None
                 
                 # Validate trimester_indicators
                 if "pregnancy_specific" in data and "trimester_indicators" in data["pregnancy_specific"]:
+                    # Only allow trimester if valid LMP date and AI asked for it
                     if not (
-                        data.get("medical_data", {}).get("dates", {}).get("type") == "last_menstrual_period"
+                        isinstance(data.get("medical_data", {}).get("dates"), dict)
+                        and data["medical_data"]["dates"].get("type") == "last_menstrual_period"
                         and "menstrual" in ai_response.lower()
                     ):
-                        data["pregnancy_specific"]["trimester_indicators"] = null
+                        data["pregnancy_specific"]["trimester_indicators"] = None
                     else:
                         # Recalculate trimester to ensure correctness
                         lmp_date_str = data["medical_data"]["dates"].get("value")
