@@ -9747,82 +9747,159 @@ async def analyze_message(request: dict):
         ])
         
         # Prompt to analyze message and calculate trimester only for LMP responses
+        # prompt = f"""
+        # Current date: {current_date}
+
+        # Conversation context (recent messages):
+        # {context}
+
+        # Current message:
+        # User message: "{message}"
+        # AI response: "{response}"
+
+        # Analyze the current user message using the conversation context to understand the intent and categorize data correctly. Return results in JSON format:
+
+        # 1. Basic Analysis:
+        #    - Sentiment: Analyze the *user's message* for sentiment (positive, negative, neutral, anxious, confused).
+        #    - Urgency: Determine urgency based on the *user's message* (high, medium, low).
+        #    - Intent: Classify the *user's intent* (question, sharing information, seeking reassurance, reporting symptom).
+        #    - Topic: Identify the main topic of the *user's message*.
+        #    - Keywords: Extract 3-5 key terms from the *user's message*.
+
+        # 2. Medical Data Extraction (from *user's message* only):
+        #    - Dates: Extract dates provided by the user. Categorize based on context:
+        #      - "last_menstrual_period" if responding to an AI question about LMP (e.g., "What was the first day of your last menstrual period?").
+        #      - "due_date" for estimated delivery dates.
+        #      - "appointment_date" for explicit appointment mentions.
+        #    - Symptoms: Identify symptoms reported by the user with severity (none, mild, moderate, severe).
+        #    - Measurements: Extract numerical health data reported by the user (e.g., weight, blood pressure).
+        #    - Medications: Identify medications the user explicitly states they are taking.
+
+        # 3. Pregnancy-Specific Analysis (from *user's message* only):
+        #    - Trimester Indicators:
+        #      - Only calculate gestational age if:
+        #        - The AI's most recent message in the context asked for the last menstrual period (e.g., contains "last menstrual period" or "LMP" and requests a date).
+        #        - The user's current message provides a date in MM/DD/YYYY format.
+        #      - If both conditions are met:
+        #        - Convert the provided LMP date to a datetime object.
+        #        - Calculate weeks pregnant: ({current_date} - LMP_date).days / 7.
+        #        - Determine trimester:
+        #          - First trimester: 0–13 weeks.
+        #          - Second trimester: 14–26 weeks.
+        #          - Third trimester: 27–40 weeks.
+        #        - If the LMP date is invalid (e.g., future date relative to {current_date} or >1 year ago), return "Invalid LMP date".
+        #      - Otherwise, return null.
+        #    - Risk Factors: Identify any pregnancy-related complications or risk factors reported in the user's message (e.g., "high blood pressure", "gestational diabetes").
+        #    - Fetal Activity: Identify any user-reported fetal movements or activity (e.g., "I felt the baby kick").
+        #    - Emotional State: Identify any pregnancy-specific emotional states reported in the user's message (e.g., "I'm anxious about my pregnancy").
+
+        # 4. Contextual Analysis:
+        #    - Use the AI's most recent message in the context to determine if it asked for the LMP date for trimester calculation.
+        #    - Extract pregnancy-specific data (risk factors, fetal activity, emotional state) from the user's message independently of the LMP question.
+        #    - Do not extract medical or pregnancy data from the AI's response.
+        #    - If a date matches the user's date of birth (e.g., 29/04/1999 from survey responses), do not use it as LMP.
+
+        # Return your analysis as a JSON object:
+        # {{
+        #     "sentiment": "string",
+        #     "urgency": "string",
+        #     "intent": "string",
+        #     "topic": "string",
+        #     "keywords": ["string"],
+        #     "medical_data": {{
+        #         "dates": {{"type": "string", "value": "string"}} or null,
+        #         "symptoms": [{{"name": "string", "severity": "string"}}],
+        #         "measurements": {{"type": "string", "value": "string"}} or null,
+        #         "medications": ["string"]
+        #     }},
+        #     "pregnancy_specific": {{
+        #         "trimester_indicators": "string" or null,
+        #         "risk_factors": ["string"],
+        #         "fetal_activity": "string" or null,
+        #         "emotional_state": "string" or null
+        #     }}
+        # }}
+
+        # If no relevant data is found, return empty arrays or null values for the respective fields.
+        # """
         prompt = f"""
-        Current date: {current_date}
+            Current date: {current_date}
 
-        Conversation context (recent messages):
-        {context}
+            Conversation context (recent messages):
+            {context}
 
-        Current message:
-        User message: "{message}"
-        AI response: "{response}"
+            Current message:
+            User message: "{message}"
+            AI response: "{response}"
 
-        Analyze the current user message using the conversation context to understand the intent and categorize data correctly. Return results in JSON format:
+            Analyze the current user message using the conversation context to understand the intent and categorize data correctly. Return results in JSON format:
 
-        1. Basic Analysis:
-           - Sentiment: Analyze the *user's message* for sentiment (positive, negative, neutral, anxious, confused).
-           - Urgency: Determine urgency based on the *user's message* (high, medium, low).
-           - Intent: Classify the *user's intent* (question, sharing information, seeking reassurance, reporting symptom).
-           - Topic: Identify the main topic of the *user's message*.
-           - Keywords: Extract 3-5 key terms from the *user's message*.
+            1. Basic Analysis:
+            - Sentiment: Analyze the *user's message* for sentiment (positive, negative, neutral, anxious, confused).
+            - Urgency: Determine urgency based on the *user's message* (high, medium, low).
+            - Intent: Classify the *user's intent* (question, sharing information, seeking reassurance, reporting symptom).
+            - Topic: Identify the main topic of the *user's message*.
+            - Keywords: Extract 3-5 key terms from the *user's message*.
 
-        2. Medical Data Extraction (from *user's message* only):
-           - Dates: Extract dates provided by the user. Categorize based on context:
-             - "last_menstrual_period" if responding to an AI question about LMP (e.g., "What was the first day of your last menstrual period?").
-             - "due_date" for estimated delivery dates.
-             - "appointment_date" for explicit appointment mentions.
-           - Symptoms: Identify symptoms reported by the user with severity (none, mild, moderate, severe).
-           - Measurements: Extract numerical health data reported by the user (e.g., weight, blood pressure).
-           - Medications: Identify medications the user explicitly states they are taking.
+            2. Medical Data Extraction (from *user's message* only):
+            - Dates: Extract dates provided by the user in MM/DD/YYYY format. Categorize based on context:
+                - "last_menstrual_period" if the AI's most recent message in the context explicitly asked for LMP (e.g., contains "last menstrual period" or "LMP" and requests a date).
+                - "due_date" for estimated delivery dates.
+                - "appointment_date" for explicit appointment mentions.
+            - Symptoms: Identify symptoms reported by the user with severity (none, mild, moderate, severe).
+            - Measurements: Extract numerical health data reported by the user (e.g., weight, blood pressure).
+            - Medications: Identify medications the user explicitly states they are taking.
 
-        3. Pregnancy-Specific Analysis (from *user's message* only):
-           - Trimester Indicators:
-             - Only calculate gestational age if:
-               - The AI's most recent message in the context asked for the last menstrual period (e.g., contains "last menstrual period" or "LMP" and requests a date).
-               - The user's current message provides a date in MM/DD/YYYY format.
-             - If both conditions are met:
-               - Convert the provided LMP date to a datetime object.
-               - Calculate weeks pregnant: ({current_date} - LMP_date).days / 7.
-               - Determine trimester:
-                 - First trimester: 0–13 weeks.
-                 - Second trimester: 14–26 weeks.
-                 - Third trimester: 27–40 weeks.
-               - If the LMP date is invalid (e.g., future date relative to {current_date} or >1 year ago), return "Invalid LMP date".
-             - Otherwise, return null.
-           - Risk Factors: Identify any pregnancy-related complications or risk factors reported in the user's message (e.g., "high blood pressure", "gestational diabetes").
-           - Fetal Activity: Identify any user-reported fetal movements or activity (e.g., "I felt the baby kick").
-           - Emotional State: Identify any pregnancy-specific emotional states reported in the user's message (e.g., "I'm anxious about my pregnancy").
+            3. Pregnancy-Specific Analysis (from *user's message* only):
+            - Trimester Indicators:
+                - Only calculate gestational age if:
+                - The AI's most recent message in the context contains "last menstrual period" or "LMP" and requests a date (e.g., "What was the first day of your last menstrual period?").
+                - The user's current message provides a date in MM/DD/YYYY format.
+                - If both conditions are met:
+                - Parse the provided LMP date as a datetime object in MM/DD/YYYY format.
+                - Calculate weeks pregnant: (({current_date} - LMP_date).days / 7).
+                - Determine trimester:
+                    - First trimester: 0 to 13 weeks (inclusive).
+                    - Second trimester: 14 to 26 weeks (inclusive).
+                    - Third trimester: 27 to 40 weeks (inclusive).
+                - Validate the LMP date:
+                    - If the LMP date is in the future relative to {current_date}, return "Invalid LMP date".
+                    - If the LMP date is more than 365 days (1 year) before {current_date}, return "Invalid LMP date".
+                - Return the trimester as a string (e.g., "First trimester") or "Invalid LMP date" if validation fails.
+                - Otherwise, return null (e.g., for symptom reports or non-LMP date messages).
+            - Risk Factors: Identify any pregnancy-related complications or risk factors reported in the user's message (e.g., "high blood pressure", "gestational diabetes").
+            - Fetal Activity: Identify any user-reported fetal movements or activity (e.g., "I felt the baby kick").
+            - Emotional State: Identify any pregnancy-specific emotional states reported in the user's message (e.g., "I'm anxious about my pregnancy").
 
-        4. Contextual Analysis:
-           - Use the AI's most recent message in the context to determine if it asked for the LMP date for trimester calculation.
-           - Extract pregnancy-specific data (risk factors, fetal activity, emotional state) from the user's message independently of the LMP question.
-           - Do not extract medical or pregnancy data from the AI's response.
-           - If a date matches the user's date of birth (e.g., 29/04/1999 from survey responses), do not use it as LMP.
+            4. Contextual Analysis:
+            - Use the AI's most recent message in the context to determine if it asked for the LMP date for trimester calculation.
+            - Extract pregnancy-specific data (risk factors, fetal activity, emotional state) from the user's message independently of the LMP question.
+            - Do not extract medical or pregnancy data from the AI's response.
+            - If a date matches the user's date of birth (e.g., 29/04/1999 from survey responses), do not use it as LMP.
 
-        Return your analysis as a JSON object:
-        {{
-            "sentiment": "string",
-            "urgency": "string",
-            "intent": "string",
-            "topic": "string",
-            "keywords": ["string"],
-            "medical_data": {{
-                "dates": {{"type": "string", "value": "string"}} or null,
-                "symptoms": [{{"name": "string", "severity": "string"}}],
-                "measurements": {{"type": "string", "value": "string"}} or null,
-                "medications": ["string"]
-            }},
-            "pregnancy_specific": {{
-                "trimester_indicators": "string" or null,
-                "risk_factors": ["string"],
-                "fetal_activity": "string" or null,
-                "emotional_state": "string" or null
+            Return your analysis as a JSON object:
+            {{
+                "sentiment": "string",
+                "urgency": "string",
+                "intent": "string",
+                "topic": "string",
+                "keywords": ["string"],
+                "medical_data": {{
+                    "dates": {{"type": "string", "value": "string"}} or null,
+                    "symptoms": [{{"name": "string", "severity": "string"}}],
+                    "measurements": {{"type": "string", "value": "string"}} or null,
+                    "medications": ["string"]
+                }},
+                "pregnancy_specific": {{
+                    "trimester_indicators": "string" or null,
+                    "risk_factors": ["string"],
+                    "fetal_activity": "string" or null,
+                    "emotional_state": "string" or null
+                }}
             }}
-        }}
 
-        If no relevant data is found, return empty arrays or null values for the respective fields.
-        """
-        
+            If no relevant data is found, return empty arrays or null values for the respective fields.
+            """
         # Call the LLM
         llm_response = Settings.llm.complete(prompt)
         print(f"Raw LLM response: {llm_response.text[:200]}...")
@@ -9852,8 +9929,9 @@ async def analyze_message(request: dict):
                     ]
                     data["medical_data"]["medications"] = valid_medications
                 
-                # Validate dates (handle list or dict)
-                if "dates" in data["medical_data"]:
+                # Validate dates and trimester
+                if "medical_data" in data and "dates" in data["medical_data"]:
+                    # Handle list or dict for dates
                     if isinstance(data["medical_data"]["dates"], list):
                         for date_entry in data["medical_data"]["dates"]:
                             if isinstance(date_entry, dict) and date_entry.get("type") == "last_menstrual_period":
@@ -9862,12 +9940,43 @@ async def analyze_message(request: dict):
                                     "value": date_entry.get("value")
                                 }
                                 break
+                        else:
+                            data["medical_data"]["dates"] = null  # No valid LMP date
                     elif isinstance(data["medical_data"]["dates"], dict):
-                        if "menstrual" in ai_response.lower() and data["medical_data"]["dates"].get("type") == "appointment_date":
-                            data["medical_data"]["dates"]["type"] = "last_menstrual_period"
+                        if data["medical_data"]["dates"].get("type") != "last_menstrual_period":
+                            # Only allow LMP if AI asked for it
+                            if "menstrual" not in ai_response.lower():
+                                data["medical_data"]["dates"] = null
+                
+                # Validate trimester_indicators
+                if "pregnancy_specific" in data and "trimester_indicators" in data["pregnancy_specific"]:
+                    if not (
+                        data.get("medical_data", {}).get("dates", {}).get("type") == "last_menstrual_period"
+                        and "menstrual" in ai_response.lower()
+                    ):
+                        data["pregnancy_specific"]["trimester_indicators"] = null
+                    else:
+                        # Recalculate trimester to ensure correctness
+                        lmp_date_str = data["medical_data"]["dates"].get("value")
+                        try:
+                            lmp_date = datetime.strptime(lmp_date_str, '%m/%d/%Y').date()
+                            current_date_obj = datetime.strptime(current_date, '%m/%d/%Y').date()
+                            days_since_lmp = (current_date_obj - lmp_date).days
+                            weeks_pregnant = days_since_lmp / 7
+                            if days_since_lmp < 0 or days_since_lmp > 365:
+                                data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
+                            elif 0 <= weeks_pregnant <= 13:
+                                data["pregnancy_specific"]["trimester_indicators"] = "First trimester"
+                            elif 14 <= weeks_pregnant <= 26:
+                                data["pregnancy_specific"]["trimester_indicators"] = "Second trimester"
+                            elif 27 <= weeks_pregnant <= 40:
+                                data["pregnancy_specific"]["trimester_indicators"] = "Third trimester"
+                            else:
+                                data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
+                        except ValueError:
+                            data["pregnancy_specific"]["trimester_indicators"] = "Invalid LMP date"
                 
                 return data
-            
             analytics_data = validate_analytics_data(analytics_data, message, response)
             
             # Store in database
