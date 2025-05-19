@@ -10076,7 +10076,7 @@ async def analyze_session(request: dict):
            - Medical conditions/diagnoses mentioned (including pregnancy status)
            - Symptoms reported
            - Medications mentioned (with dosages if available)
-           - Allergies mentioned
+           - Allergies mentioned (For example Messages include any mention of 'allergies' or symptoms like 'rashes,' 'itching,' or 'hives' that suggest an allergic reaction, even if no specific allergen is stated)
            - Vital signs or health measurements
            - Important pregnancy-related information:
              * Last menstrual period date
@@ -10143,11 +10143,17 @@ async def analyze_session(request: dict):
                 "pregnancy": 0-100
             }}
         }}
-        
+        Instructions:
         For each field, only include information explicitly stated in the conversation. For missing fields, leave them null or empty.
         For each major category (name, phone, etc.), include a confidence score from 0-100 indicating how certain you are of the extraction.
         Use the standard format provided for dates (YYYY-MM-DD).
         Phone numbers should be in a standardized format (e.g., "+1234567890" or "123-456-7890").
+        For allergies:
+            - Include any explicit mentions of 'allergies,' 'allergic,' or related terms (e.g., 'I have allergies,' 'I am allergic to X').
+            - Identify symptoms or reactions suggestive of allergies based on medical knowledge (e.g., skin reactions like rashes, respiratory issues like wheezing, or swelling, especially if linked to triggers like foods, environmental factors, or medications).
+            - If the patient mentions 'allergies' without specifying an allergen, set 'allergen' to 'Unknown' and describe the reaction as 'Patient reported allergies' or the associated symptom (e.g., 'rash' if mentioned).
+            
+
         """
         
         # Get LLM response
