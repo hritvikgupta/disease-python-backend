@@ -10239,6 +10239,11 @@ async def analyze_session(request: dict):
              * Positive pregnancy test status
              * Due date if mentioned
              * Gestational age if mentioned
+        3. Session Summary:
+           - Write a concise clinical summary (2-3 sentences) of the patient's reported symptoms, concerns, and any medical information shared
+           - Focus on medical significance using appropriate medical terminology
+           - Include primary symptoms, key medical information, and any suggested follow-up actions
+
 
         Return the extracted information in JSON format:
         {{
@@ -10288,6 +10293,7 @@ async def analyze_session(request: dict):
                     {{"description": "string", "date": "YYYY-MM-DD"}}
                 ]
             }},
+            "session_summary": "string",
             "confidence_scores": {{
                 "name": 0-100,
                 "phone": 0-100,
@@ -10309,7 +10315,11 @@ async def analyze_session(request: dict):
             - Include any explicit mentions of 'allergies,' 'allergic,' or related terms (e.g., 'I have allergies,' 'I am allergic to X').
             - Identify symptoms or reactions suggestive of allergies based on medical knowledge (e.g., skin reactions like rashes, respiratory issues like wheezing, or swelling, especially if linked to triggers like foods, environmental factors, or medications).
             - If the patient mentions 'allergies' without specifying an allergen, set 'allergen' to 'Unknown' and describe the reaction as 'Patient reported allergies' or the associated symptom (e.g., 'rash' if mentioned).
-            
+        For the session_summary:
+            - Create a concise (2-3 sentence) summary of the medical conversation
+            - Focus on clinical significance and use proper medical terminology
+            - Highlight symptoms, concerns, diagnoses, and recommended actions
+
 
         """
         
@@ -10358,7 +10368,8 @@ async def analyze_session(request: dict):
         patient_details = extracted_data.get("patient_details", {})
         medical_info = extracted_data.get("medical_info", {})
         confidence_scores = extracted_data.get("confidence_scores", {})
-        
+        session_summary = extracted_data.get("session_summary", "No summary generated.") # Add this line
+
         print(f"[API] Confidence scores:\n{json.dumps(confidence_scores, indent=2)}")
         
         # Initialize a dictionary to track all updates
@@ -10796,7 +10807,8 @@ async def analyze_session(request: dict):
             "session_id": session_id,
             "extracted_data": extracted_data,
             "updates_made": updates_made,
-            "message": "Session analyzed successfully"
+            "session_summary": session_summary, 
+            "message": "Session analyzed successfully"  
         }
         
     except Exception as e:
