@@ -10163,6 +10163,9 @@ async def analyze_session(request: dict):
     Returns:
         dict: Extracted information and update status
     """
+    eastern = pytz.timezone('America/New_York')
+    time = datetime.now(eastern)
+    current_time = time.date()
     try:
         session_id = request.get("sessionId")
         patient_id = request.get("patientId")
@@ -10532,7 +10535,7 @@ async def analyze_session(request: dict):
                         existing_pregnancy = existing_pregnancies[0]
                         print(f"[API] Updating existing pregnancy record: {existing_pregnancy.id}")
                         if lmp_date and not existing_pregnancy.onset_date:
-                            existing_pregnancy.onset_date = lmp_date
+                            existing_pregnancy.onset_date = current_time
                             pregnancy_updating = True
                         
                         # Update notes if empty
@@ -10556,7 +10559,7 @@ async def analyze_session(request: dict):
                             patient_id=patient_id,
                             condition="Pregnancy",
                             status="Active",
-                            onset_date=lmp_date,
+                            onset_date=current_time,
                             notes=notes,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()
@@ -10573,7 +10576,7 @@ async def analyze_session(request: dict):
                             patient_id=patient_id,
                             condition="Last Menstrual Period",
                             status="Completed",
-                            onset_date=lmp_date,
+                            onset_date=current_time,
                             notes=f"Last menstrual period started on {lmp_date}",
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()
@@ -10591,6 +10594,7 @@ async def analyze_session(request: dict):
                             # Update existing gestational age record
                             ga_record = existing_gestational_age[0]
                             ga_record.status = "Active"
+                            ga_record.onset_date = current_time
                             ga_record.notes = f"Calculated based on LMP date: {lmp_date}. Current gestational age: {formatted_ga}"
                             ga_record.updated_at = datetime.utcnow()
                             db.add(ga_record)  # Add this line to ensure the update is staged
@@ -10603,7 +10607,7 @@ async def analyze_session(request: dict):
                                 patient_id=patient_id,
                                 condition=f"Gestational Age",
                                 status="Active",
-                                onset_date=lmp_date,
+                                onset_date=current_time,
                                 notes=f"Calculated based on LMP date: {lmp_date}. Current gestational age: {formatted_ga}",
                                 created_at=datetime.utcnow(),
                                 updated_at=datetime.utcnow()
@@ -10635,7 +10639,7 @@ async def analyze_session(request: dict):
                                     patient_id=patient_id,
                                     condition=condition_name,
                                     status=condition_status,
-                                    onset_date=onset_date,
+                                    onset_date=current_time,
                                     notes=notes,
                                     created_at=datetime.utcnow(),
                                     updated_at=datetime.utcnow()
@@ -10660,7 +10664,7 @@ async def analyze_session(request: dict):
                                     patient_id=patient_id,
                                     condition="Last Menstrual Period",
                                     status="Completed",
-                                    onset_date=date,
+                                    onset_date=current_time,
                                     notes=f"Last menstrual period started on {date}",
                                     created_at=datetime.utcnow(),
                                     updated_at=datetime.utcnow()
@@ -10690,7 +10694,7 @@ async def analyze_session(request: dict):
                                             patient_id=patient_id,
                                             condition=f"Gestational Age",
                                             status="Active",
-                                            onset_date=date,
+                                            onset_date=current_time,
                                             notes=f"Calculated based on LMP date: {date}. Current gestational age: {formatted_ga}",
                                             created_at=datetime.utcnow(),
                                             updated_at=datetime.utcnow()
@@ -10703,7 +10707,7 @@ async def analyze_session(request: dict):
                                 
                                 # Also update existing pregnancy record if we have one
                                 if existing_pregnancies and not existing_pregnancies[0].onset_date:
-                                    existing_pregnancies[0].onset_date = date
+                                    existing_pregnancies[0].onset_date = current_time
                                     if not existing_pregnancies[0].notes:
                                         existing_pregnancies[0].notes = f"Pregnancy with LMP date: {date}"
                                     elif "LMP date" not in existing_pregnancies[0].notes:
