@@ -10170,6 +10170,7 @@ async def analyze_session(request: dict):
         session_id = request.get("sessionId")
         patient_id = request.get("patientId")
         previous_session_summary = request.get("previousSessionSummary")  # New parameter
+        previous_session_date = request.get("previousSessionDate")
         if not session_id:
             return {
                 "status": "error",
@@ -10217,13 +10218,14 @@ async def analyze_session(request: dict):
         previous_summary_section = ""
         if previous_session_summary:
             previous_summary_section = f"""
-            Previous Session Summary:
-            {previous_session_summary}
+            Previous Session Summary (for session_summary only):
+            On {previous_session_date}, the patient reported: {previous_session_summary}
             
-            When generating the session summary, include a reference to the previous session by starting with:
-            "Patient last reported: [key details from previous summary, including diagnoses if available]. 
-            Currently, the patient [describe current session findings]."
-            Ensure the summary integrates past and present information cohesively, using proper medical terminology.
+            For the session_summary:
+            - Start with: "On {previous_session_date}, the patient reported [key details from previous summary, including diagnoses and significant findings]. In the current session on {current_time.strftime('%Y-%m-%d')}, the patient reported [current session findings]."
+            - Include all current session medical information (pregnancy status, LMP date, symptoms, allergies, medications).
+            - Use proper medical terminology and ensure clinical significance.
+            - Do NOT use the previous session summary to populate patient_details, medical_info, or any other fields unless explicitly stated in the current conversation.
             """
 
         # Create a comprehensive prompt to extract patient information
