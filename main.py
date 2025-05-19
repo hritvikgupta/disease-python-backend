@@ -10239,11 +10239,18 @@ async def analyze_session(request: dict):
              * Positive pregnancy test status
              * Due date if mentioned
              * Gestational age if mentioned
-        3. Session Summary:
-           - Write a concise clinical summary (2-3 sentences) of the patient's reported symptoms, concerns, and any medical information shared
-           - Focus on medical significance using appropriate medical terminology
-           - Include primary symptoms, key medical information, and any suggested follow-up actions
 
+        3. For the session_summary:
+            - Create a concise but comprehensive summary of the medical conversation
+            - ALWAYS include ALL identified medical information from the extraction including:
+                * Pregnancy status if identified
+                * Last menstrual period date if available
+                * Any symptoms reported (severity and duration if mentioned)
+                * Any specific allergies mentioned
+                * Any medications discussed
+                - Focus on clinical significance and use proper medical terminology
+                - Highlight urgent concerns or recommendations
+                - Format the summary as a structured clinical note that includes all key medical data extracted
 
         Return the extracted information in JSON format:
         {{
@@ -10319,6 +10326,15 @@ async def analyze_session(request: dict):
             - Create a concise (2-3 sentence) summary of the medical conversation
             - Focus on clinical significance and use proper medical terminology
             - Highlight symptoms, concerns, diagnoses, and recommended actions
+                - ALWAYS include ALL identified medical information from the extraction including:
+                * Pregnancy status if identified
+                * Last menstrual period date if available
+                * Any symptoms reported (severity and duration if mentioned)
+                * Any specific allergies mentioned
+                * Any medications discussed
+                - Focus on clinical significance and use proper medical terminology
+                - Highlight urgent concerns or recommendations
+                - Format the summary as a structured clinical note that includes all key medical data extracted
 
 
         """
