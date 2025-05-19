@@ -9831,6 +9831,7 @@ async def analyze_message(request: dict):
             Current message:
             User message: "{message}"
             AI response: "{response}"
+            LMP : Last Menstural Period 
 
             Analyze the current user message using the conversation context to understand the intent and categorize data correctly. Return results in JSON format:
 
@@ -9912,7 +9913,7 @@ async def analyze_message(request: dict):
             cleaned_response = cleaned_response[:-3]
         cleaned_response = cleaned_response.strip()
         
-        print(f"Cleaned response: {cleaned_response[:200]}...")
+        print(f"Cleaned response: {cleaned_response}...")
         
         # Parse JSON
         try:
@@ -10064,7 +10065,8 @@ async def analyze_message(request: dict):
             "status": "error",
             "message": f"Failed to analyze message: {str(e)}"
         }
-        
+
+
 @app.get("/api/export-session-analytics/{session_id}")
 async def export_session_analytics(session_id: str):
     """
