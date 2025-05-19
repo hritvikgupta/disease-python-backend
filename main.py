@@ -77,6 +77,9 @@ from liquid import Template
 from llama_index.llms.gemini import Gemini
 from llama_index.llms.openai import OpenAI
 import logging
+from google import genai
+# from google.genai import types
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -126,7 +129,7 @@ credentials_path = "vermalab-gemini-psom-e3ea-b93f97927cc3.json"  # Replace with
 storage_client = storage.Client.from_service_account_json(credentials_path)
 BUCKET_NAME = "circa-ai"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-
+# genai.configure(api_key=GOOGLE_API_KEY)
 os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # API Keys - keep existing configuration
@@ -141,6 +144,15 @@ llm = Gemini(
     model="models/gemini-1.5-flash",
     api_key=GOOGLE_API_KEY,  
 )
+MODEL_ID = "gemini-2.5-pro-preview-05-06"  # Latest version as of May 2025
+# vecto_chat = genai.GenerativeModel(MODEL_ID)
+gemini_model = Gemini(
+    model="models/gemini-2.5-pro-preview-05-06",  # Add the "models/" prefix
+    api_key=GOOGLE_API_KEY,
+    # Optional: Configure "thinking" capabilities 
+    thinking_config={"thinking_budget": 8000}  # Adjust as needed
+)
+
 openai_llm = OpenAI(model="gpt-3.5-turbo", api_key=OPENAI_API_KEY, logprobs=False, default_headers={})
 LLM_MODELS = {
     "Gemini-Pro": llm,
@@ -148,8 +160,9 @@ LLM_MODELS = {
 }
 
 Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
-Settings.llm = llm
+# Settings.llm = llm
 
+Settings.llm = gemini_model
 # Chroma Client - keep existing configuration
 chroma_client = chromadb.PersistentClient(path="./chroma_data")
 
@@ -9505,12 +9518,15 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
    - Accept dates with or without leading zeros (e.g., '5/5/2025' or '05/05/2025').
    - If valid, store the date in MM/DD/YYYY format in 'state_updates' as 'last_menstrual_period' and proceed to the next node as specified in the function.
    - If invalid (e.g., incorrect format, non-existent date, or future date), respond with: "The date provided is invalid. Please enter the date in MM/DD/YYYY format (e.g., 01/15/2025 or 03/03/2025)." and set 'next_node_id' to the current node ID.
-14. If asked to calculate the gestational age calculate it using following:
+
+14. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
    - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
    - Convert the gestational age to weeks (integer division of days by 7).
    - Determine the trimester: First (≤12 weeks), Second (13–27 weeks), or Third (≥28 weeks).
    - Append to the node's instructed response: "Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester."
    - Store 'gestational_age_weeks' and 'trimester' in 'state_updates'.
+
+15. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
