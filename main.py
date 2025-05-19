@@ -10166,7 +10166,7 @@ async def analyze_session(request: dict):
     try:
         session_id = request.get("sessionId")
         patient_id = request.get("patientId")
-        
+        previous_session_summary = request.get("previousSessionSummary")  # New parameter
         if not session_id:
             return {
                 "status": "error",
@@ -10210,7 +10210,19 @@ async def analyze_session(request: dict):
         
         conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation])
         print(f"[API] Conversation sent to LLM:\n{conversation_text}")
-        
+
+        previous_summary_section = ""
+        if previous_session_summary:
+            previous_summary_section = f"""
+            Previous Session Summary:
+            {previous_session_summary}
+            
+            When generating the session summary, include a reference to the previous session by starting with:
+            "Patient last reported: [key details from previous summary, including diagnoses if available]. 
+            Currently, the patient [describe current session findings]."
+            Ensure the summary integrates past and present information cohesively, using proper medical terminology.
+            """
+
         # Create a comprehensive prompt to extract patient information
         prompt = f"""
         You are tasked with extracting structured patient information from the following conversation between a patient and a healthcare AI assistant. 
@@ -10218,6 +10230,9 @@ async def analyze_session(request: dict):
         Conversation History:
         {conversation_text}
         
+
+        {previous_summary_section}
+
         Based on this conversation, extract the following information:
         
         1. Patient Details:
