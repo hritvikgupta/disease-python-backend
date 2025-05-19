@@ -10138,6 +10138,7 @@ async def analyze_session(request: dict):
                 "dob": 0-100,
                 "gender": 0-100,
                 "conditions": 0-100,
+                "symptoms": 0-100,  
                 "medications": 0-100,
                 "pregnancy": 0-100
             }}
@@ -10539,7 +10540,8 @@ async def analyze_session(request: dict):
                                 print(f"[API] Added medication: {med_name}")
                 
                 # Process symptoms
-                if medical_info.get("symptoms") and confidence_scores.get("conditions", 0) >= 70:
+                # Process symptoms
+                if medical_info.get("symptoms") and confidence_scores.get("symptoms", confidence_scores.get("conditions", 0)) >= 50:
                     for symptom_data in medical_info["symptoms"]:
                         symptom_name = symptom_data.get("symptom")
                         symptom_severity = symptom_data.get("severity", "unknown")
@@ -10556,7 +10558,7 @@ async def analyze_session(request: dict):
                                 new_symptom = MedicalHistory(
                                     id=str(uuid.uuid4()),
                                     patient_id=patient_id,
-                                    condition=symptom_name,
+                                    condition = symptom_name,
                                     status="Active",
                                     onset_date=datetime.utcnow().date(),
                                     notes=f"Severity: {symptom_severity}. Reported during chat session.",
