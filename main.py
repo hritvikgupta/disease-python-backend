@@ -7300,7 +7300,7 @@ async def delete_medical_history(
         # Log any other exceptions
         print(f"[API] Error deleting medical history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete medical history: {str(e)}")
-    
+        
 # Add Lab Order Endpoint
 @app.post("/api/lab-orders", response_model=dict)
 async def create_lab_order(
