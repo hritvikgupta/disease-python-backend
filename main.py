@@ -7262,6 +7262,45 @@ async def update_medical_history(
         print(f"[API] Error updating medical history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update medical history: {str(e)}")
     
+@app.delete("/api/medical-histories/{record_id}", response_model=dict)
+async def delete_medical_history(
+    record_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete an existing medical history record.
+    """
+    print(f"[API] Deleting medical history record {record_id}")
+    
+    try:
+        # Get the existing record
+        existing_record = db.query(MedicalHistory).filter(MedicalHistory.id == record_id).first()
+        if not existing_record:
+            raise HTTPException(status_code=404, detail="Medical history record not found")
+        
+        # Optional: Check permissions (uncomment if needed)
+        # if not current_user.is_doctor:
+        #     raise HTTPException(status_code=403, detail="Only doctors can delete medical history records")
+        
+        # Delete the record
+        db.delete(existing_record)
+        db.commit()
+        
+        print(f"[API] Deleted medical history record {record_id}")
+        
+        return {
+            "id": record_id,
+            "message": "Medical history record deleted successfully"
+        }
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise e
+    except Exception as e:
+        # Log any other exceptions
+        print(f"[API] Error deleting medical history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete medical history: {str(e)}")
+    
 # Add Lab Order Endpoint
 @app.post("/api/lab-orders", response_model=dict)
 async def create_lab_order(
