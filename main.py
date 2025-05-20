@@ -9935,6 +9935,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             else:
                 current_node_id = None
                 current_node_doc = "No starting node found."
+       
+       
         print('[CURRENT NODE DOC]', current_node_doc)
         # Load document index
         document_context = ""
@@ -10008,6 +10010,70 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             print("No document retriever available, proceeding without document context")
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
+
+        flow_instruction_context = f"""
+Current Flow Instructions:
+
+• **Menu-Items**  
+  “What are you looking for today?  
+   1. Pregnancy test  
+   2. Early pregnancy-loss support  
+   3. Abortion  
+   4. Symptoms-related help  
+   5. Miscarriage support”
+
+• **Pregnancy-Test**  
+  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+
+• **LMP-Query**  
+  “Do you know the day of your last menstrual period?”
+
+• **LMP-Date**  
+  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+
+• **Symptom-Triage**  
+  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+
+–– **Bleeding branch** ––  
+• **Bleeding-Triage**  
+  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+
+• **Bleeding-Heavy-Check**  
+  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+
+• **Bleeding-Urgent**  
+  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+
+• **Bleeding-Pain-Check**  
+  “Are you experiencing any pain or cramping? Reply Y or N.”
+
+• **Bleeding-Advice**  
+  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+
+–– **Nausea branch** ––  
+• **Nausea-Triage**  
+  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+
+• **Nausea-Advice**  
+  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+
+• **Nausea-Urgent**  
+  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+
+–– **Miscarriage support** ––  
+• **Miscarriage-Support**  
+  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+
+• **Miscarriage-Emotions**  
+  “How are you feeling emotionally? I can connect you to social resources if needed.”
+
+• **Miscarriage-Infection**  
+  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+
+• **Call-Transfer**  
+  “I’m transferring you now to a specialist for further assistance.”  
+
+"""
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
@@ -10059,6 +10125,9 @@ Patient Profile (includes phone and organization_id):
 Current Flow Instructions (use as a guide, not strict rules):
 {current_node_doc}
 
+Structured Flow Instructions (Use this to guide conversation flow based on user responses):
+{flow_instruction_context}
+
 Document Content:
 {document_context_section}
 
@@ -10079,9 +10148,16 @@ Instructions:
    - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
    - If no fields are missing, proceed to conversation flow.
    - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+   IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
+     Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
+    
+
 
 2. **Conversation Flow**:
-   - If the patient profile is complete, use `Current Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
+   - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
+   - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
+   - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
+   - If the user asks about medications or treatments, check the Document Content first.
    - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
    - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
    - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
