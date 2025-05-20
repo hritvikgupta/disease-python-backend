@@ -9891,50 +9891,50 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         # Get current node
         current_node_id = session_data.get('currentNodeId')
         current_node_doc = ""
-        if current_node_id:
-            try:
-                # Create basic retriever with no filters
-                retriever = flow_index.as_retriever(similarity_top_k=10)
+        # if current_node_id:
+        #     try:
+        #         # Create basic retriever with no filters
+        #         retriever = flow_index.as_retriever(similarity_top_k=10)
                 
-                # Query directly for the node ID as text
-                query_str = f"NODE ID: {current_node_id}"
-                print(f"Querying for: '{query_str}'")
+        #         # Query directly for the node ID as text
+        #         query_str = f"NODE ID: {current_node_id}"
+        #         print(f"Querying for: '{query_str}'")
                 
-                # Use the most basic retrieval pattern
-                node_docs = retriever.retrieve(query_str)
+        #         # Use the most basic retrieval pattern
+        #         node_docs = retriever.retrieve(query_str)
                 
-                # Check if we got any results
-                if node_docs:
-                    # Find exact match for node_id in results
-                    exact_matches = [
-                        doc for doc in node_docs 
-                        if doc.metadata and doc.metadata.get("node_id") == current_node_id
-                    ]
+        #         # Check if we got any results
+        #         if node_docs:
+        #             # Find exact match for node_id in results
+        #             exact_matches = [
+        #                 doc for doc in node_docs 
+        #                 if doc.metadata and doc.metadata.get("node_id") == current_node_id
+        #             ]
                     
-                    if exact_matches:
-                        current_node_doc = exact_matches[0].get_content()
-                        print(f"Found exact match for node {current_node_id}")
-                    else:
-                        # Just use the top result
-                        current_node_doc = node_docs[0].get_content()
-                        print(f"No exact match, using top result")
+        #             if exact_matches:
+        #                 current_node_doc = exact_matches[0].get_content()
+        #                 print(f"Found exact match for node {current_node_id}")
+        #             else:
+        #                 # Just use the top result
+        #                 current_node_doc = node_docs[0].get_content()
+        #                 print(f"No exact match, using top result")
                     
-                    print(f"Retrieved document for node {current_node_id}: {current_node_doc[:100]}...")
-                else:
-                    print(f"No document found for node {current_node_id}")
-                    current_node_doc = "No specific node instructions available."
-            except Exception as e:
-                print(f"Error retrieving node document: {str(e)}")
-                current_node_doc = "Error retrieving node instructions."
-        elif not previous_messages:
-            starting_node_id, starting_node_doc = get_starting_node(flow_index)
-            if starting_node_id:
-                current_node_id = starting_node_id
-                current_node_doc = starting_node_doc
-                print(f"[STARTING NODE] {current_node_id, current_node_doc}")
-            else:
-                current_node_id = None
-                current_node_doc = "No starting node found."
+        #             print(f"Retrieved document for node {current_node_id}: {current_node_doc[:100]}...")
+        #         else:
+        #             print(f"No document found for node {current_node_id}")
+        #             current_node_doc = "No specific node instructions available."
+        #     except Exception as e:
+        #         print(f"Error retrieving node document: {str(e)}")
+        #         current_node_doc = "Error retrieving node instructions."
+        # elif not previous_messages:
+        #     starting_node_id, starting_node_doc = get_starting_node(flow_index)
+        #     if starting_node_id:
+        #         current_node_id = starting_node_id
+        #         current_node_doc = starting_node_doc
+        #         print(f"[STARTING NODE] {current_node_id, current_node_doc}")
+        #     else:
+        #         current_node_id = None
+        #         current_node_doc = "No starting node found."
        
        
         print('[CURRENT NODE DOC]', current_node_doc)
@@ -10121,9 +10121,6 @@ Flow ID: {flow_id}
 
 Patient Profile (includes phone and organization_id):
 {patient_fields}
-
-Current Flow Instructions (use as a guide, not strict rules):
-{current_node_doc}
 
 Structured Flow Instructions (Use this to guide conversation flow based on user responses):
 {flow_instruction_context}
