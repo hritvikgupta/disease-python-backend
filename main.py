@@ -9935,7 +9935,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             else:
                 current_node_id = None
                 current_node_doc = "No starting node found."
-
+        print('[CURRENT NODE DOC]', current_node_doc)
         # Load document index
         document_context = ""
         document_retriever = None
@@ -10007,6 +10007,29 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         else:
             print("No document retriever available, proceeding without document context")
 
+        print('[DOCUMENT CONTEXT]', document_context[:200])
+        document_context_section = f"""
+Relevant Document Content:
+{document_context}
+
+You are a helpful assistant tasked with providing accurate, specific, and context-aware responses. Follow these steps:
+1. Identify the user's intent from the message and conversation history.
+2. **IMPORTANT**: Scan the Relevant Document Content for any URLs, phone numbers, email addresses, medical information, or other specific resources.
+3. **CRITICAL REQUIREMENT**: If ANY resources like URLs, phone numbers, contact information, medication information, or treatment options are found, include them verbatim in your response.
+4. Generate a natural, conversational response addressing the user's query, incorporating document content as needed.
+5. Maintain continuity with the conversation history.
+6. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION, but prioritize document content for specific details.
+7. Do not repeat the node's INSTRUCTION verbatim; craft a friendly, relevant response.
+8. If no relevant document content is found, provide a helpful response based on the flow logic or general knowledge.
+9. Double-check that all resource links, phone numbers, medication names, and contact methods from the document context are included.
+""" if document_context else """
+You are a helpful assistant tasked with providing accurate and context-aware responses. Follow these steps:
+1. Identify the user's intent from the message and conversation history.
+2. Generate a natural, conversational response addressing the user's query.
+3. Maintain continuity with the conversation history.
+4. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION.
+5. Do not repeat the node's INSTRUCTION verbatim; craft a friendly, relevant response.
+"""
         # LLM prompt
         prompt = f"""
 You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
@@ -10014,7 +10037,8 @@ You are a friendly, conversational assistant helping a patient with healthcare i
 1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
 2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
 3. If the user's message doesn't match the current flow instructions, use document content or general knowledge to provide a helpful, relevant response.
-4. Maintain a warm, empathetic tone, like you're talking to a friend.
+4. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
+5. Maintain a warm, empathetic tone, like you're talking to a friend.
 
 Current Date (MM/DD/YYYY): {current_date}
 
@@ -10035,8 +10059,8 @@ Patient Profile (includes phone and organization_id):
 Current Flow Instructions (use as a guide, not strict rules):
 {current_node_doc}
 
-Document Content (use for off-topic or general queries):
-{document_context}
+Document Content:
+{document_context_section}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
