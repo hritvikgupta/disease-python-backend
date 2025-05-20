@@ -9788,6 +9788,8 @@ Return your response as a JSON object with the following structure:
 async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
     try:
         print("\n==== STARTING PATIENT ONBOARDING/CHAT ====")
+        from llama_index.retrievers.bm25 import BM25Retriever
+
         # Request validation
         message = request.get("message", "").strip()
         sessionId = request.get("sessionId", "")
@@ -9796,7 +9798,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         flow_id = request.get("flow_id", "")
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
-
+        
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
         if not sessionId:
@@ -10108,7 +10110,7 @@ Examples:
 """
 
         # Call LLM
-        response_text = grok3.complete(prompt).text  # Replace with Settings.llm.complete
+        response_text = Settings.llm.complete(prompt).text  # Replace with Settings.llm.complete
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         response_data = json.loads(response_text)
