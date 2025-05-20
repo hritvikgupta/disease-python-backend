@@ -10267,6 +10267,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 # """
         
         flow_instruction_context = flow_instructions
+        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
@@ -10355,6 +10356,7 @@ Instructions:
      - Validate dates as MM/DD/YYYY, not after {current_date}.
      - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+     - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
 3. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
@@ -10454,7 +10456,7 @@ Examples:
                     # Fallback if patientId is invalid; use session_data for phone/organization_id
                     mrn = generate_mrn()
                     patient = Patient(
-                        id=str(uuid4()),
+                        id=str(uuid.uuid4()),
                         mrn=mrn,
                         first_name=parameters.get("first_name", ""),
                         last_name=parameters.get("last_name", ""),
