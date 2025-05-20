@@ -11507,7 +11507,23 @@ async def analyze_session(request: dict):
                 - Focus on clinical significance and use proper medical terminology
                 - Highlight urgent concerns or recommendations
                 - Format the summary as a structured clinical note that includes all key medical data extracted
-
+            IMP For the session_summary:
+                - Generate a concise, bullet-point summary of all medical information from the current session and all previous sessions, consolidating repetitive information.
+                - Use the following structure:
+                - **Patient**: [Name, if available]
+                - **Pregnancy Status**: [Confirmed pregnant/not pregnant/unknown, with date of confirmation if applicable]
+                - **Last Menstrual Period (LMP)**: [Most recent LMP date; note any conflicting dates for review]
+                - **Gestational Age**: [Calculated based on the most recent LMP date, in weeks and days; note if ultrasound confirmation is pending]
+                - **Symptoms**: [List all unique symptoms reported across sessions, with severity and duration if available; combine duplicates]
+                - **Medications**: [List all medications discussed, with dosages/frequency if available; note if advised to consult provider]
+                - **Allergies**: [List all allergies reported; specify 'None reported' if none mentioned]
+                - **Recommendations**: [List key recommendations or urgent actions, e.g., contact provider, visit ER]
+                - Deduplicate repetitive information (e.g., combine multiple pregnancy test confirmations into one entry).
+                - If previous_session_summary is provided, extract key medical details and integrate them into the bullet points without repeating the full narrative.
+                - If conflicting data (e.g., multiple LMP dates) exists, use the most recent date and note the conflict in parentheses.
+                - Use proper medical terminology and prioritize clinical significance.
+                - Keep the summary concise (aim for 5-10 bullet points total).
+               
         Return the extracted information in JSON format:
         {{
             "patient_details": {{
