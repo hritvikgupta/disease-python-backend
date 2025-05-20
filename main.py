@@ -4727,6 +4727,8 @@ async def get_public_patient(patient_id: str, db: Session = Depends(get_db)):
         "phone": patient.phone,
         "organization_id": patient.organization_id
     }
+
+
 #scans
 @app.post("/api/scans", response_model=dict)
 async def upload_patient_scan(
@@ -9804,13 +9806,22 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         if not flow_id:
             raise HTTPException(status_code=400, detail="Flow ID is required")
 
-        # Get patient profile via public route
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://localhost:8000/api/public/patients/{patientId}")
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Patient not found")
-            patient = response.json()
-        patient_fields = json.dumps(patient, indent=2)
+        # Get patient profile directly from Patient table
+        patient = db.query(Patient).filter(Patient.id == patientId).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        patient_dict = {
+            "id": patient.id,
+            "mrn": patient.mrn,
+            "first_name": patient.first_name,
+            "last_name": patient.last_name,
+            "date_of_birth": patient.date_of_birth,
+            "phone": patient.phone,
+            "organization_id": patient.organization_id,
+            "created_at": patient.created_at.isoformat() if patient.created_at else None,
+            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+        }
+        patient_fields = json.dumps(patient_dict, indent=2)
 
         # Format conversation history
         conversation_history = ""
@@ -9990,7 +10001,7 @@ Instructions:
 
 4. **Database Operations**:
    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
-   - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from the DB or session data.
+   - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
 
 5. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
@@ -10041,39 +10052,89 @@ Examples:
         if database_operation:
             operation = database_operation.get("operation")
             parameters = database_operation.get("parameters", {})
-            async with httpx.AsyncClient() as client:
-                try:
-                    if operation == "UPDATE_PATIENT":
-                        patient_data = {parameters["field_name"]: parameters["field_value"]}
-                        response = await client.put(
-                            f"http://localhost:8000/api/public/patients/{patientId}",
-                            json=patient_data
-                        )
-                        if response.status_code != 200:
-                            raise HTTPException(status_code=response.status_code, detail="Failed to update patient")
-                        operation_result = response.json()
-                        content += f"\nProfile updated successfully!"
-                    elif operation == "CREATE_PATIENT":
-                        # Fallback if patientId is invalid; use session_data for phone/organization_id
-                        patient_data = {
-                            "phone": session_data.get("phone", "unknown"),
-                            "first_name": parameters.get("first_name", ""),
-                            "last_name": parameters.get("last_name", ""),
-                            "date_of_birth": parameters.get("date_of_birth"),
-                            "organization_id": session_data.get("organization_id", "default_org")
+            try:
+                if operation == "UPDATE_PATIENT":
+                    patient = db.query(Patient).filter(Patient.id == patientId).first()
+                    if not patient:
+                        raise HTTPException(status_code=404, detail="Patient not found")
+                    setattr(patient, parameters["field_name"], parameters["field_value"])
+                    patient.updated_at = datetime.utcnow()
+                    db.commit()
+                    db.refresh(patient)
+                    operation_result = {
+                        "id": patient.id,
+                        "mrn": patient.mrn,
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "date_of_birth": patient.date_of_birth,
+                        "phone": patient.phone,
+                        "organization_id": patient.organization_id
+                    }
+                    # Update JSON file
+                    patient_path = f"patients/{patient.id}.json"
+                    os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                    with open(patient_path, "w") as f:
+                        patient_dict = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id,
+                            "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
                         }
-                        response = await client.post(
-                            f"http://localhost:8000/api/public/patients",
-                            json=patient_data
-                        )
-                        if response.status_code != 200:
-                            raise HTTPException(status_code=response.status_code, detail="Failed to create patient")
-                        operation_result = response.json()
-                        content += f"\nProfile created successfully!"
-                except Exception as e:
-                    print(f"Database operation failed: {str(e)}")
-                    content += f"\nSorry, I couldn't update your profile. Let's try again."
-                    response_data["next_node_id"] = current_node_id
+                        json.dump(patient_dict, f, indent=2)
+                    content += f"\nProfile updated successfully!"
+                elif operation == "CREATE_PATIENT":
+                    # Fallback if patientId is invalid; use session_data for phone/organization_id
+                    mrn = generate_mrn()
+                    patient = Patient(
+                        id=str(uuid4()),
+                        mrn=mrn,
+                        first_name=parameters.get("first_name", ""),
+                        last_name=parameters.get("last_name", ""),
+                        date_of_birth=parameters.get("date_of_birth"),
+                        phone=session_data.get("phone", "unknown"),
+                        organization_id=session_data.get("organization_id", "default_org"),
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(patient)
+                    db.commit()
+                    db.refresh(patient)
+                    operation_result = {
+                        "id": patient.id,
+                        "mrn": patient.mrn,
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "date_of_birth": patient.date_of_birth,
+                        "phone": patient.phone,
+                        "organization_id": patient.organization_id
+                    }
+                    # Save JSON file
+                    patient_path = f"patients/{patient.id}.json"
+                    os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                    with open(patient_path, "w") as f:
+                        patient_dict = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id,
+                            "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                        }
+                        json.dump(patient_dict, f, indent=2)
+                    content += f"\nProfile created successfully!"
+            except Exception as e:
+                db.rollback()
+                print(f"Database operation failed: {str(e)}")
+                content += f"\nSorry, I couldn’t update your profile. Let’s try again."
+                response_data["next_node_id"] = current_node_id
 
         print(f"Response: {content}")
         print(f"Next node ID: {next_node_id}")
@@ -10094,6 +10155,7 @@ Examples:
             "error": f"Failed to process message: {str(e)}",
             "content": "I'm having trouble processing your request. Please try again."
         }
+
 
 @app.get("/api/flow-index/{flow_id}")
 async def check_flow_index_status(flow_id: str):
