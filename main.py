@@ -9519,7 +9519,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
      - It represents a real calendar date (e.g., not '02/30/2025').
      - It is not after the current date ({current_date}).
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
-     
+
 14. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
    - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
    - Convert the gestational age to weeks (integer division of days by 7).
@@ -9674,6 +9674,294 @@ Return your response as a JSON object with the following structure:
         }
 
 
+@app.post("/api/patient_onboarding")
+async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
+    try:
+        print("\n==== STARTING PATIENT ONBOARDING/CHAT ====")
+        # Request validation
+        message = request.get("message", "").strip()
+        sessionId = request.get("sessionId", "")
+        patientId = request.get("patientId", "")
+        assistantId = request.get("assistantId", "")
+        flow_id = request.get("flow_id", "")
+        session_data = request.get("session_data", {})
+        previous_messages = request.get("previous_messages", [])
+
+        if not message:
+            raise HTTPException(status_code=400, detail="Message is required")
+        if not sessionId:
+            raise HTTPException(status_code=400, detail="Session ID is required")
+        if not patientId:
+            raise HTTPException(status_code=400, detail="Patient ID is required")
+        if not assistantId:
+            raise HTTPException(status_code=400, detail="Assistant ID is required")
+        if not flow_id:
+            raise HTTPException(status_code=400, detail="Flow ID is required")
+
+        # Get patient profile
+        patient = await get_patient(patient_id=patientId, db=db, current_user={'is_doctor': True})  # Adjust auth
+        patient_fields = json.dumps(patient, indent=2)
+
+        # Format conversation history
+        conversation_history = ""
+        for msg in previous_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            conversation_history += f"{role}: {content}\n"
+
+        # Current date
+        eastern = pytz.timezone('America/New_York')
+        current_date = datetime.now(eastern).date().strftime('%m/%d/%Y')
+
+        # Load flow index
+        if flow_id not in app.state.flow_indices:
+            bucket = storage_client.bucket(BUCKET_NAME)
+            meta_file = f"temp_flow_{flow_id}_meta.pkl"
+            blob = bucket.blob(f"flow_metadata/{flow_id}_meta.pkl")
+            try:
+                blob.download_to_filename(meta_file)
+                with open(meta_file, "rb") as f:
+                    metadata = pickle.load(f)
+                os.remove(meta_file)
+            except Exception as e:
+                print(f"Failed to load flow index metadata: {str(e)}")
+                return {
+                    "error": "Flow knowledge index not found",
+                    "content": "I'm having trouble processing your request."
+                }
+
+            temp_dir = f"temp_flow_{flow_id}"
+            os.makedirs(temp_dir, exist_ok=True)
+            for blob in bucket.list_blobs(prefix=f"flow_indices/{flow_id}/"):
+                local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
+                blob.download_to_filename(local_path)
+
+            collection_name = metadata["collection_name"]
+            try:
+                chroma_collection = chroma_client.get_collection(collection_name)
+            except chromadb.errors.InvalidCollectionException:
+                chroma_collection = chroma_client.create_collection(collection_name)
+            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+            storage_context = StorageContext.from_defaults(persist_dir=temp_dir, vector_store=vector_store)
+            flow_index = VectorStoreIndex.load_from_storage(storage_context)
+            app.state.flow_indices[flow_id] = flow_index
+            shutil.rmtree(temp_dir)
+        else:
+            flow_index = app.state.flow_indices[flow_id]
+
+        # Get current node
+        current_node_id = session_data.get('currentNodeId')
+        current_node_doc = ""
+        if current_node_id:
+            retriever = flow_index.as_retriever(similarity_top_k=10)
+            query_str = f"NODE ID: {current_node_id}"
+            node_docs = retriever.retrieve(query_str)
+            exact_matches = [doc for doc in node_docs if doc.metadata and doc.metadata.get("node_id") == current_node_id]
+            current_node_doc = exact_matches[0].get_content() if exact_matches else "No specific node instructions available."
+        elif not previous_messages:
+            current_node_id, current_node_doc = get_starting_node(flow_index)
+            if not current_node_id:
+                current_node_id = None
+                current_node_doc = "No starting node found."
+
+        # Load document index
+        document_context = ""
+        document_retriever = None
+        if assistantId and assistantId not in app.state.document_indexes:
+            bucket = storage_client.bucket(BUCKET_NAME)
+            meta_file = f"temp_doc_{assistantId}_meta.pkl"
+            blob = bucket.blob(f"document_metadata/{assistantId}_meta.pkl")
+            try:
+                blob.download_to_filename(meta_file)
+                with open(meta_file, "rb") as f:
+                    metadata = pickle.load(f)
+                os.remove(meta_file)
+                temp_dir = f"temp_doc_{assistantId}"
+                os.makedirs(temp_dir, exist_ok=True)
+                for blob in bucket.list_blobs(prefix=f"document_indices/{assistantId}/"):
+                    local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
+                    blob.download_to_filename(local_path)
+                collection_name = metadata["collection_name"]
+                try:
+                    chroma_collection = chroma_client.get_collection(collection_name)
+                except chromadb.errors.InvalidCollectionException:
+                    chroma_collection = chroma_client.create_collection(collection_name)
+                vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+                storage_context = StorageContext.from_defaults(persist_dir=temp_dir, vector_store=vector_store)
+                document_index = VectorStoreIndex.load_from_storage(storage_context)
+                document_retriever = document_index.as_retriever(similarity_top_k=20)
+                app.state.document_indexes[assistantId] = {
+                    "index": document_index,
+                    "retriever": document_retriever,
+                    "created_at": metadata["created_at"],
+                    "document_count": metadata["document_count"],
+                    "node_count": metadata["node_count"]
+                }
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                print(f"Document index not found: {str(e)}")
+        else:
+            document_retriever = app.state.document_indexes.get(assistantId, {}).get("retriever")
+
+        if document_retriever:
+            retrieved_nodes = document_retriever.retrieve(message)
+            document_text = ""
+            if retrieved_nodes:
+                node_objs = [n.node for n in retrieved_nodes]
+                bm25_retriever = BM25Retriever.from_defaults(nodes=node_objs, similarity_top_k=min(5, len(node_objs)))
+                reranked_nodes = bm25_retriever.retrieve(message)
+                document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+            document_context = f"Relevant Document Content:\n{document_text}" if document_text else ""
+
+        # LLM prompt
+        prompt = f"""
+You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+
+1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
+2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
+3. If the user's message doesn't match the current flow instructions, use document content or general knowledge to provide a helpful, relevant response.
+4. Maintain a warm, empathetic tone, like you're talking to a friend.
+
+Current Date (MM/DD/YYYY): {current_date}
+
+User Message: "{message}"
+
+Conversation History:
+{conversation_history}
+
+Patient ID: {patientId}
+
+Assistant ID: {assistantId}
+
+Flow ID: {flow_id}
+
+Patient Profile (includes phone and organization_id):
+{patient_fields}
+
+Current Flow Instructions (use as a guide, not strict rules):
+{current_node_doc}
+
+Document Content (use for off-topic or general queries):
+{document_context}
+
+Session Data:
+{json.dumps(session_data, indent=2)}
+
+Instructions:
+1. **Check Patient Profile**:
+   - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
+   - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
+   - Validate user input based on the field type:
+     - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+     - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
+   - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
+     - patient_id: {patientId}
+     - field_name: the field (e.g., "first_name")
+     - field_value: the validated value
+   - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
+   - If no fields are missing, proceed to conversation flow.
+   - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+
+2. **Conversation Flow**:
+   - If the patient profile is complete, use `Current Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
+   - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
+   - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
+   - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
+   - For date-related instructions (e.g., gestational age):
+     - Validate dates as MM/DD/YYYY, not after {current_date}.
+     - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+     - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+
+3. **Response Style**:
+   - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
+   - Avoid robotic phrases like "Processing node" or "Moving to next step."
+   - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
+   - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
+
+4. **Database Operations**:
+   - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
+   - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from the DB.
+
+5. **Flow Progression**:
+   - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
+   - Store any relevant session updates (e.g., gestational age) in `state_updates`.
+
+6. **Response Structure**:
+   Return a JSON object:
+   ```json
+   {{
+     "content": "Your friendly response to the user",
+     "next_node_id": "ID of the next node or current node",
+     "state_updates": {{"key": "value"}},
+     "database_operation": {{
+       "operation": "UPDATE_PATIENT | CREATE_PATIENT",
+       "parameters": {{
+         "patient_id": "string",
+         "field_name": "string",
+         "field_value": "string"
+       }}
+     }} // Optional, only when updating/creating
+   }}
+   ```
+
+Examples:
+- Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
+  - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
+- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
+  - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
+- Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": "03/29/1996"}}, Flow: "Ask about symptoms", Message: "I have a headache"
+  - Response: {{"content": "Sorry to hear about your headache! How long have you been feeling this way?", "next_node_id": "node_symptom_duration", "state_updates": {{}}}}
+- Profile complete, Flow: "Ask about symptoms", Message: "Book an appointment"
+  - Response: {{"content": "Sure thing, let's get you an appointment! When are you free?", "next_node_id": "node_appointment", "state_updates": {{}}}}
+"""
+
+        # Call LLM
+        response_text = grok3.complete(prompt).text  # Replace with Settings.llm.complete
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        response_data = json.loads(response_text)
+
+        content = response_data.get("content", "I'm having trouble processing your request.")
+        next_node_id = response_data.get("next_node_id")
+        state_updates = response_data.get("state_updates", {})
+        database_operation = response_data.get("database_operation")
+
+        # Execute database operation
+        operation_result = None
+        if database_operation:
+            operation = database_operation.get("operation")
+            parameters = database_operation.get("parameters", {})
+            try:
+                if operation == "UPDATE_PATIENT":
+                    patient_data = {parameters["field_name"]: parameters["field_value"]}
+                    operation_result = update_patient(db, patient_id=patientId, patient_data=patient_data)
+                elif operation == "CREATE_PATIENT":
+                    operation_result = create_patient(db, parameters, organization_id=patient["organization_id"])
+                content += f"\nProfile updated successfully!"
+            except Exception as e:
+                print(f"Database operation failed: {str(e)}")
+                content += f"\nSorry, I couldn't update your profile. Let's try again."
+                response_data["next_node_id"] = current_node_id
+
+        print(f"Response: {content}")
+        print(f"Next node ID: {next_node_id}")
+        print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
+
+        response = {
+            "content": content,
+            "next_node_id": next_node_id,
+            "state_updates": state_updates
+        }
+        if operation_result:
+            response["operation_result"] = operation_result
+        return response
+
+    except Exception as e:
+        print(f"ERROR in patient_onboarding: {str(e)}")
+        return {
+            "error": f"Failed to process message: {str(e)}",
+            "content": "I'm having trouble processing your request. Please try again."
+        }
 
 @app.get("/api/flow-index/{flow_id}")
 async def check_flow_index_status(flow_id: str):
