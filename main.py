@@ -9989,6 +9989,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         flow_instructions = request.get("flow_instructions")
+        patient_history = request.get("patient_history", "")
+
 
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
@@ -10322,6 +10324,9 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
+Patient History Summary (Patient Previous Session Conversation):
+{patient_history}
+
 Session Data:
 {json.dumps(session_data, indent=2)}
 
@@ -10342,9 +10347,15 @@ Instructions:
    IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
+2. **Review Patient History**:
+   - If Patient History Summary is provided, use it to inform your response and maintain continuity of care.
+   - Reference previous medical information, symptoms, or concerns when relevant.
+   - If the patient mentions a condition or symptom that appears in their history, acknowledge this continuity.
+   - Use information from previous visits to provide more personalized and contextual responses.
+   - If the patient history indicates pregnancy, continue appropriate prenatal guidance and gestational age tracking.
 
 
-2. **Conversation Flow**:
+3. **Conversation Flow**:
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
@@ -10358,21 +10369,21 @@ Instructions:
      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
      - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
-3. **Response Style**:
+4. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
    - Avoid robotic phrases like "Processing node" or "Moving to next step."
    - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
    - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
 
-4. **Database Operations**:
+5. **Database Operations**:
    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
    - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
 
-5. **Flow Progression**:
+6. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 
-6. **Response Structure**:
+7. **Response Structure**:
    Return a JSON object:
    ```json
    {{
