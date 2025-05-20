@@ -2305,6 +2305,8 @@ class PatientCreate(BaseModel):
     primary_care_provider: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+    organization_id:Optional[str] = None
+
 
 class EncounterCreate(BaseModel):
     patient_id: str
