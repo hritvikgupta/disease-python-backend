@@ -9818,7 +9818,15 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             "first_name": patient.first_name,
             "last_name": patient.last_name,
             "date_of_birth": patient.date_of_birth,
+            "gender": patient.gender,
             "phone": patient.phone,
+            "email": patient.email,
+            "address": patient.address,
+            "insurance_provider": patient.insurance_provider,
+            "insurance_id": patient.insurance_id,
+            "primary_care_provider": patient.primary_care_provider,
+            "emergency_contact_name": patient.emergency_contact_name,
+            "emergency_contact_phone": patient.emergency_contact_phone,
             "organization_id": patient.organization_id,
             "created_at": patient.created_at.isoformat() if patient.created_at else None,
             "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
@@ -9862,11 +9870,17 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             collection_name = metadata["collection_name"]
             try:
                 chroma_collection = chroma_client.get_collection(collection_name)
+                print(f"Found existing Chroma collection {collection_name}")
             except chromadb.errors.InvalidCollectionException:
+                print(f"Creating new Chroma collection {collection_name}")
                 chroma_collection = chroma_client.create_collection(collection_name)
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-            storage_context = StorageContext.from_defaults(persist_dir=temp_dir, vector_store=vector_store)
-            flow_index = VectorStoreIndex.load_from_storage(storage_context)
+
+            storage_context = StorageContext.from_defaults(
+                persist_dir=temp_dir, vector_store=vector_store
+            )
+            # Use load_index_from_storage instead of VectorStoreIndex.load_from_storage
+            flow_index = load_index_from_storage(storage_context)
             app.state.flow_indices[flow_id] = flow_index
             shutil.rmtree(temp_dir)
         else:
@@ -9876,14 +9890,47 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         current_node_id = session_data.get('currentNodeId')
         current_node_doc = ""
         if current_node_id:
-            retriever = flow_index.as_retriever(similarity_top_k=10)
-            query_str = f"NODE ID: {current_node_id}"
-            node_docs = retriever.retrieve(query_str)
-            exact_matches = [doc for doc in node_docs if doc.metadata and doc.metadata.get("node_id") == current_node_id]
-            current_node_doc = exact_matches[0].get_content() if exact_matches else "No specific node instructions available."
+            try:
+                # Create basic retriever with no filters
+                retriever = flow_index.as_retriever(similarity_top_k=10)
+                
+                # Query directly for the node ID as text
+                query_str = f"NODE ID: {current_node_id}"
+                print(f"Querying for: '{query_str}'")
+                
+                # Use the most basic retrieval pattern
+                node_docs = retriever.retrieve(query_str)
+                
+                # Check if we got any results
+                if node_docs:
+                    # Find exact match for node_id in results
+                    exact_matches = [
+                        doc for doc in node_docs 
+                        if doc.metadata and doc.metadata.get("node_id") == current_node_id
+                    ]
+                    
+                    if exact_matches:
+                        current_node_doc = exact_matches[0].get_content()
+                        print(f"Found exact match for node {current_node_id}")
+                    else:
+                        # Just use the top result
+                        current_node_doc = node_docs[0].get_content()
+                        print(f"No exact match, using top result")
+                    
+                    print(f"Retrieved document for node {current_node_id}: {current_node_doc[:100]}...")
+                else:
+                    print(f"No document found for node {current_node_id}")
+                    current_node_doc = "No specific node instructions available."
+            except Exception as e:
+                print(f"Error retrieving node document: {str(e)}")
+                current_node_doc = "Error retrieving node instructions."
         elif not previous_messages:
-            current_node_id, current_node_doc = get_starting_node(flow_index)
-            if not current_node_id:
+            starting_node_id, starting_node_doc = get_starting_node(flow_index)
+            if starting_node_id:
+                current_node_id = starting_node_id
+                current_node_doc = starting_node_doc
+                print(f"[STARTING NODE] {current_node_id, current_node_doc}")
+            else:
                 current_node_id = None
                 current_node_doc = "No starting node found."
 
@@ -9905,13 +9952,20 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
                     blob.download_to_filename(local_path)
                 collection_name = metadata["collection_name"]
+                print("DEBUG: Entering Chroma collection block for documents")
                 try:
                     chroma_collection = chroma_client.get_collection(collection_name)
+                    print(f"Found existing Chroma collection {collection_name} for document index")
                 except chromadb.errors.InvalidCollectionException:
+                    print(f"Creating new Chroma collection {collection_name} for document index")
                     chroma_collection = chroma_client.create_collection(collection_name)
                 vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-                storage_context = StorageContext.from_defaults(persist_dir=temp_dir, vector_store=vector_store)
-                document_index = VectorStoreIndex.load_from_storage(storage_context)
+
+                storage_context = StorageContext.from_defaults(
+                    persist_dir=temp_dir, vector_store=vector_store
+                )
+                # Use load_index_from_storage instead of VectorStoreIndex.load_from_storage
+                document_index = load_index_from_storage(storage_context)
                 document_retriever = document_index.as_retriever(similarity_top_k=20)
                 app.state.document_indexes[assistantId] = {
                     "index": document_index,
@@ -9927,14 +9981,29 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             document_retriever = app.state.document_indexes.get(assistantId, {}).get("retriever")
 
         if document_retriever:
+            print(f"Retrieving documents for query: '{message}'")
             retrieved_nodes = document_retriever.retrieve(message)
             document_text = ""
             if retrieved_nodes:
-                node_objs = [n.node for n in retrieved_nodes]
-                bm25_retriever = BM25Retriever.from_defaults(nodes=node_objs, similarity_top_k=min(5, len(node_objs)))
-                reranked_nodes = bm25_retriever.retrieve(message)
-                document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+                try:
+                    node_objs = [n.node for n in retrieved_nodes]
+                    if len(node_objs) > 1:
+                        print(f"Applying BM25 reranking to {len(node_objs)} nodes")
+                        bm25_retriever = BM25Retriever.from_defaults(
+                            nodes=node_objs, 
+                            similarity_top_k=min(5, len(node_objs))
+                        )
+                        reranked_nodes = bm25_retriever.retrieve(message)
+                        document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+                    else:
+                        document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+                except Exception as e:
+                    print(f"BM25 reranking failed: {str(e)}, using vector results")
+                    document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
             document_context = f"Relevant Document Content:\n{document_text}" if document_text else ""
+            print(f"Document retrieval complete, found content with {len(document_context)} characters")
+        else:
+            print("No document retriever available, proceeding without document context")
 
         # LLM prompt
         prompt = f"""
