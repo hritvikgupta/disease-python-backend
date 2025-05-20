@@ -9783,7 +9783,197 @@ Return your response as a JSON object with the following structure:
             "content": "I'm having trouble processing your request. Please try again later."
         }
 
+class FlowDocumentationRequest(BaseModel):
+    flow_data: Dict[str, Any]
+    assistant_id: str
+    name: Optional[str] = None
 
+@app.post("/api/generate/flow-documentation")
+async def generate_flow_documentation(request: FlowDocumentationRequest):
+    """
+    Generate structured flow documentation from flow builder data.
+    
+    This endpoint processes the flow nodes and edges to create a structured,
+    readable documentation format that can be used by AI assistants.
+    """
+    try:
+        flow_data = request.flow_data
+        assistant_id = request.assistant_id
+        assistant_name = request.name or "Assistant"
+        
+        if not flow_data or not isinstance(flow_data, dict):
+            raise HTTPException(status_code=400, detail="Invalid flow data format")
+        
+        nodes = flow_data.get("nodes", [])
+        edges = flow_data.get("edges", [])
+        
+        if not nodes:
+            return {"flow_instructions": "No flow nodes found."}
+            
+        # Build a node map for quick lookups
+        node_map = {node["id"]: node for node in nodes}
+        
+        # Build connection map to track node relationships
+        connections = {}
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            source_handle = edge.get("sourceHandle", "")
+            
+            if source not in connections:
+                connections[source] = []
+            
+            # Store connection with handle info
+            connections[source].append({
+                "target": target,
+                "handle": source_handle
+            })
+        
+        # Identify starting nodes (those with nodeType="starting")
+        starting_nodes = [node for node in nodes if node.get("data", {}).get("nodeType") == "starting"]
+        
+        # If no explicit starting nodes, look for nodes that have no incoming edges
+        if not starting_nodes:
+            target_nodes = set(edge["target"] for edge in edges)
+            starting_nodes = [node for node in nodes if node["id"] not in target_nodes]
+        
+        # Generate documentation prompt for LLM
+        llm_input = f"""
+Please generate structured flow documentation based on the following conversation flow data.
+The documentation should be formatted in a clear, hierarchical structure with node titles and their corresponding messages.
+
+Flow Name: {assistant_name}
+
+Flow Structure:
+"""
+        
+        # Process nodes by type to organize them logically
+        for node in nodes:
+            node_id = node["id"]
+            node_data = node.get("data", {})
+            node_type = node_data.get("type", "unknown")
+            node_title = node_data.get("heading", "") or f"Node {node_id}"
+            node_message = node_data.get("message", "")
+            node_class = node.get("type", "unknown")
+            
+            # Format node info for the LLM input
+            llm_input += f"\n- Node ID: {node_id}"
+            llm_input += f"\n  Type: {node_class}"
+            llm_input += f"\n  Title: {node_title}"
+            llm_input += f"\n  Message: \"{node_message}\""
+            
+            # Add function/option information for dialogue and response nodes
+            if node_class in ["dialogueNode", "scriptNode"] and "functions" in node_data:
+                llm_input += "\n  Options:"
+                for func in node_data.get("functions", []):
+                    llm_input += f"\n    - {func.get('content', 'Option')}"
+            
+            # Add trigger information for response nodes
+            if node_class == "responseNode" and "triggers" in node_data:
+                llm_input += "\n  Triggers:"
+                for trigger in node_data.get("triggers", []):
+                    llm_input += f"\n    - {trigger.get('content', 'Trigger')}"
+            
+            # Add field information for field setter nodes
+            if node_class == "fieldSetterNode":
+                field_name = node_data.get("fieldName", "")
+                llm_input += f"\n  Field: {field_name}"
+            
+            # Add survey information for survey nodes
+            if node_class == "surveyNode" and "surveyData" in node_data:
+                survey_data = node_data.get("surveyData", {})
+                survey_name = survey_data.get("name", "Unknown Survey")
+                llm_input += f"\n  Survey: {survey_name}"
+            
+            # Add connections information
+            if node_id in connections:
+                llm_input += "\n  Connections:"
+                for conn in connections[node_id]:
+                    target_id = conn["target"]
+                    target_node = node_map.get(target_id, {})
+                    target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
+                    llm_input += f"\n    - To: {target_title} (ID: {target_id})"
+            
+            llm_input += "\n"
+        
+        # Add edge information to help understand the flow
+        llm_input += "\nFlow Connections:"
+        for edge in edges:
+            source_id = edge.get("source")
+            target_id = edge.get("target")
+            source_node = node_map.get(source_id, {})
+            target_node = node_map.get(target_id, {})
+            source_title = source_node.get("data", {}).get("heading", "") or f"Node {source_id}"
+            target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
+            
+            llm_input += f"\n- {source_title} → {target_title}"
+        
+        llm_input += """
+
+Based on the above flow structure, please generate clear, structured documentation in the following format:
+
+• **Node-Title**  
+  "Message text that would be shown to the user"
+
+• **Another-Node-Title**  
+  "Another message text"
+
+–– **Branch name (if applicable)** ––  
+• **Branch-Node**  
+  "Message for this branch node"
+
+The documentation should be clearly organized, showing the logical flow of the conversation,
+with any branches or decision points clearly marked. Use the node titles as section headers,
+and include the exact message text that would be shown to users.
+
+Make sure to:
+1. Group related nodes together
+2. Use bullet points and indentation to show hierarchy
+3. Mark branches or decision paths clearly
+4. Preserve the exact message text in quotes
+5. Create a logical reading order that follows the conversation flow
+
+The output should be formatted similar to this example:
+
+Current Flow Instructions:
+
+• **Menu-Items**  
+  "What are you looking for today?  
+   1. Options listed here  
+   2. More options here"
+
+• **First-Step**  
+  "Question or message to user"
+
+–– **Branch A** ––  
+• **Branch-A-Node-1**  
+  "Message for this branch"
+
+–– **Branch B** ––  
+• **Branch-B-Node-1**  
+  "Message for other branch"
+"""
+        
+        # Call the LLM to generate the structured documentation
+        response = Settings.llm.complete(llm_input)
+        flow_instructions = response.text.strip()
+        
+        # Extract just the formatted instructions part if needed
+        if "Current Flow Instructions:" in flow_instructions:
+            flow_instructions = flow_instructions.split("Current Flow Instructions:")[1].strip()
+        
+        return {
+            "assistant_id": assistant_id,
+            "flow_instructions": flow_instructions
+        }
+        
+    except Exception as e:
+        print(f"Error generating flow documentation: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate flow documentation: {str(e)}"
+        )
+    
 @app.post("/api/patient_onboarding")
 async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
     try:
@@ -9798,7 +9988,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         flow_id = request.get("flow_id", "")
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
-        
+        flow_instructions = request.get("flow_instructions")
+
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
         if not sessionId:
@@ -10011,69 +10202,71 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
-        flow_instruction_context = f"""
-Current Flow Instructions:
+#         flow_instruction_context = f"""
+# Current Flow Instructions:
 
-• **Menu-Items**  
-  “What are you looking for today?  
-   1. Pregnancy test  
-   2. Early pregnancy-loss support  
-   3. Abortion  
-   4. Symptoms-related help  
-   5. Miscarriage support”
+# • **Menu-Items**  
+#   “What are you looking for today?  
+#    1. Pregnancy test  
+#    2. Early pregnancy-loss support  
+#    3. Abortion  
+#    4. Symptoms-related help  
+#    5. Miscarriage support”
 
-• **Pregnancy-Test**  
-  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+# • **Pregnancy-Test**  
+#   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
 
-• **LMP-Query**  
-  “Do you know the day of your last menstrual period?”
+# • **LMP-Query**  
+#   “Do you know the day of your last menstrual period?”
 
-• **LMP-Date**  
-  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+# • **LMP-Date**  
+#   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
 
-• **Symptom-Triage**  
-  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+# • **Symptom-Triage**  
+#   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
 
-–– **Bleeding branch** ––  
-• **Bleeding-Triage**  
-  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+# –– **Bleeding branch** ––  
+# • **Bleeding-Triage**  
+#   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
 
-• **Bleeding-Heavy-Check**  
-  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+# • **Bleeding-Heavy-Check**  
+#   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
 
-• **Bleeding-Urgent**  
-  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+# • **Bleeding-Urgent**  
+#   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
 
-• **Bleeding-Pain-Check**  
-  “Are you experiencing any pain or cramping? Reply Y or N.”
+# • **Bleeding-Pain-Check**  
+#   “Are you experiencing any pain or cramping? Reply Y or N.”
 
-• **Bleeding-Advice**  
-  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+# • **Bleeding-Advice**  
+#   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
 
-–– **Nausea branch** ––  
-• **Nausea-Triage**  
-  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+# –– **Nausea branch** ––  
+# • **Nausea-Triage**  
+#   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
 
-• **Nausea-Advice**  
-  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+# • **Nausea-Advice**  
+#   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
 
-• **Nausea-Urgent**  
-  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+# • **Nausea-Urgent**  
+#   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
 
-–– **Miscarriage support** ––  
-• **Miscarriage-Support**  
-  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+# –– **Miscarriage support** ––  
+# • **Miscarriage-Support**  
+#   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
 
-• **Miscarriage-Emotions**  
-  “How are you feeling emotionally? I can connect you to social resources if needed.”
+# • **Miscarriage-Emotions**  
+#   “How are you feeling emotionally? I can connect you to social resources if needed.”
 
-• **Miscarriage-Infection**  
-  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+# • **Miscarriage-Infection**  
+#   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
 
-• **Call-Transfer**  
-  “I’m transferring you now to a specialist for further assistance.”  
+# • **Call-Transfer**  
+#   “I’m transferring you now to a specialist for further assistance.”  
 
-"""
+# """
+        
+        flow_instruction_context = flow_instructions
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
