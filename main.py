@@ -9990,7 +9990,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         previous_messages = request.get("previous_messages", [])
         flow_instructions = request.get("flow_instructions")
         patient_history = request.get("patient_history", "")
-
+        print(f"[PATIENT HISTORY], {patient_history}")
 
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
