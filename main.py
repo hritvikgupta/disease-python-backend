@@ -10100,89 +10100,105 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
             import os
             import sys
             from llama_index.core import VectorStoreIndex, Document
-            from llama_index.core import Settings, StorageContext
+            # Settings is often used for global configuration, keep if used elsewhere
+            # from llama_index.core import Settings
             from llama_index.core.node_parser import TokenTextSplitter
-            
+            # You don't need to explicitly import StorageContext if you are not using from_defaults
+            # But keeping it doesn't hurt.
+            # from llama_index.core import StorageContext
+
             try:
                 # Process direct text instructions
                 text_instructions = flow_data["textInstructions"]
-                
+
                 # Create a document from the flow instructions
                 documents = [Document(text=text_instructions)]
-                
+
                 # Split the text into manageable chunks
                 text_splitter = TokenTextSplitter(chunk_size=512, chunk_overlap=50)
                 nodes = text_splitter.get_nodes_from_documents(documents)
-                
+
                 # Get the absolute path for storage
-                # This ensures we're using the correct path regardless of where the script is run from
-                base_dir = os.path.abspath(os.path.dirname(__file__))  # Gets the directory of the current file
+                base_dir = os.path.abspath(os.path.dirname(__file__))
                 persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistant_id}")
-                
-                print(f"Creating directory at: {persist_dir}")
-                
+
+                print(f"Target directory for persistence: {persist_dir}") # Changed print message
+
                 # Create directory with proper permissions
                 os.makedirs(persist_dir, exist_ok=True)
-                
-                # Check directory permissions
+
+                # Keep the writability check - it's good practice, though the LlamaIndex persist()
+                # call will also fail if there are permissions issues.
                 try:
-                    # Test if we can write to this directory by creating a test file
                     test_file_path = os.path.join(persist_dir, "test_write.txt")
                     with open(test_file_path, 'w') as f:
                         f.write("Test write access")
-                    
-                    # Clean up test file
                     if os.path.exists(test_file_path):
                         os.remove(test_file_path)
-                        print(f"Directory {persist_dir} is writable")
+                        print(f"Directory {persist_dir} is confirmed writable")
                     else:
-                        print(f"Failed to write to {persist_dir}")
+                        # This path is unlikely unless directory creation itself failed silently
+                        print(f"Warning: Test file creation succeeded but file not found. Directory {persist_dir} writability uncertain.")
                 except Exception as perm_error:
-                    print(f"Permission error: {str(perm_error)}")
-                    # Try a different directory with guaranteed write access
-                    persist_dir = os.path.join("/tmp", f"flow_instruction_{assistant_id}")
-                    os.makedirs(persist_dir, exist_ok=True)
-                    print(f"Falling back to directory: {persist_dir}")
-                
-                # Create storage context with the persist directory
-                storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-                
-                # Build index from the nodes with storage context
-                index = VectorStoreIndex(nodes, storage_context=storage_context)
-                
-                # Persist the index to disk
+                    print(f"Error: Directory {persist_dir} write test failed: {str(perm_error)}. Persistence may fail.")
+                    # You might want to handle this error more explicitly, perhaps raise it
+                    # or return an error response here if persistence is critical.
+                    # For now, let's allow it to proceed so the persist() call gets a chance.
+
+
+                # --- FIX START ---
+
+                # 1. REMOVE this line: StorageContext.from_defaults is for LOADING existing indices, not creating new ones.
+                # storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+
+                # 2. Create the index directly from nodes. It will use an in-memory storage context initially.
+                print("Creating VectorStoreIndex from nodes...") # Added debug print
+                # Pass nodes directly. No need for storage_context argument here when creating a new index to be persisted later.
+                index = VectorStoreIndex(nodes)
+                print("VectorStoreIndex created.") # Added debug print
+
+                # 3. Persist the index to the specified directory *after* creation.
+                # This method is responsible for creating the necessary files (docstore.json etc.)
                 try:
-                    index.storage_context.persist()
+                    print(f"Attempting to persist index to {persist_dir}...") # Added debug print
+                    # Pass the persist_dir to the persist method
+                    index.storage_context.persist(persist_dir=persist_dir)
                     print(f"Successfully persisted index to {persist_dir}")
-                    
+
+                    # --- FIX END ---
+
                     # List the contents of the directory to verify files were created
                     print("Files created in the directory:")
-                    for file in os.listdir(persist_dir):
-                        print(f" - {file}")
-                    
+                    if os.path.exists(persist_dir): # Added check just in case
+                        for file in os.listdir(persist_dir):
+                            print(f" - {file}")
+                    else:
+                        print(f" - Directory {persist_dir} does not exist after persist attempt.")
+
                 except Exception as persist_error:
+                    # This catch block handles errors during the actual writing to disk
                     print(f"Error persisting index: {str(persist_error)}")
-                    # If it fails to persist, we should still return something useful
                     return {
                         "assistant_id": assistant_id,
-                        "flow_instructions": "Error indexing: " + str(persist_error),
+                        "flow_instructions": "Error indexing during persistence: " + str(persist_error),
+                        "stacktrace": traceback.format_exc(), # Make sure traceback is imported
                         "fallback": text_instructions[:500] + "..." if len(text_instructions) > 500 else text_instructions
                     }
-                
+
                 return {
                     "assistant_id": assistant_id,
                     "flow_instructions": "indexed",
-                    "persist_dir": persist_dir  # Return this for debugging
+                    "persist_dir": persist_dir # Return this for debugging
                 }
             except Exception as e:
-                print(f"Error in flow instructions indexing: {str(e)}")
+                # This catch block handles errors during node creation, directory creation, etc.
+                print(f"Error in flow instructions indexing (general catch): {str(e)}")
                 print(f"Python version: {sys.version}")
                 print(f"Current working directory: {os.getcwd()}")
-                # Return a useful error message and not just a coded error
                 return {
                     "assistant_id": assistant_id,
                     "flow_instructions": f"Error: {str(e)}",
-                    "stacktrace": traceback.format_exc()
+                    "stacktrace": traceback.format_exc() # Make sure traceback is imported
                 }
         
         else:
