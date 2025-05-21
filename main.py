@@ -10408,6 +10408,27 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         from llama_index.retrievers.bm25 import BM25Retriever
         from llama_index.core.query_engine import RetrieverQueryEngine
         # ----------------------------------------------------
+        query_to_use = message
+        if previous_messages:
+            print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
+            context_messages = previous_messages[-3:] # Get last 3 messages
+
+            context_str = "Conversation history:\n"
+            for msg_obj in context_messages:
+                 role = msg_obj.get('role', 'unknown').capitalize()
+                 content = msg_obj.get('content', 'N/A')
+                 context_str += f"{role}: {content}\n"
+
+            # Combine context with the current message to form the query
+            # Structure the query to help the retriever understand it's a follow-up
+            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction?"
+
+            print(f"Augmented Query for Retrieval:\n{query_to_use}")
+        else:
+            print("No previous messages found. Using original message for retrieval.")
+            # query_to_use remains the original message
+
+
 
         if flow_instructions == "indexed" and assistantId:
             try:
@@ -10461,8 +10482,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
 
                     # --- Keep the rest of the query logic ---
-                    print(f"Querying index with message: '{message}'")
-                    response = query_engine.query(message)
+                    print(f"Querying index with message: '{query_to_use}'")
+                    response = query_engine.query(query_to_use)
 
                     retrieved_text = response.response
                     source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
@@ -10477,10 +10498,10 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                         score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
                         for i, node_with_score in enumerate(source_nodes):
                             score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
-                            print(f"Node {i+1}{score_str}:")
-                            print(node_with_score.node.text)
-                            print("-" * 20)
                             retrieved_texts.append(node_with_score.node.text)
+                            # print(f"Node {i+1}{score_str}:")
+                            # print(node_with_score.node.text)
+                            # print("-" * 20)
                     else:
                         print("No source nodes were retrieved by the retriever.")
                     print("----------------------------\n")
@@ -10673,9 +10694,29 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         else:
             document_retriever = app.state.document_indexes.get(assistantId, {}).get("retriever")
 
+        query_for_doc = message
+        if previous_messages:
+            context_messages = previous_messages[-3:] # Get last 3 messages
+
+            context_str = "Conversation history:\n"
+            for msg_obj in context_messages:
+                 role = msg_obj.get('role', 'unknown').capitalize()
+                 content = msg_obj.get('content', 'N/A')
+                 context_str += f"{role}: {content}\n"
+
+            # Combine context with the current message to form the query
+            # Structure the query to help the retriever understand it's a follow-up
+            query_for_doc = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant document you can reterive?"
+
+            print(f"Document Augmented Query for Retrieval:\n{query_for_doc}")
+        else:
+            print("No previous messages found. Using original message for retrieval.")
+            # query_to_use remains the original message
+
+
         if document_retriever:
             print(f"Retrieving documents for query: '{message}'")
-            retrieved_nodes = document_retriever.retrieve(message)
+            retrieved_nodes = document_retriever.retrieve(query_for_doc)
             document_text = ""
             if retrieved_nodes:
                 try:
@@ -10686,7 +10727,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                             nodes=node_objs, 
                             similarity_top_k=min(5, len(node_objs))
                         )
-                        reranked_nodes = bm25_retriever.retrieve(message)
+                        reranked_nodes = bm25_retriever.retrieve(query_for_doc)
                         document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
                     else:
                         document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
