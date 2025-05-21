@@ -10404,7 +10404,10 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         if not flow_id:
             raise HTTPException(status_code=400, detail="Flow ID is required")
 
+        # --- Import BM25Retriever and RetrieverQueryEngine ---
         from llama_index.retrievers.bm25 import BM25Retriever
+        from llama_index.core.query_engine import RetrieverQueryEngine
+        # ----------------------------------------------------
 
         if flow_instructions == "indexed" and assistantId:
             try:
@@ -10425,25 +10428,12 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     print("Index loaded successfully.")
 
                     # --- Create the BM25 Retriever ---
-                    # You need access to the nodes that were used to build the index initially.
-                    # If you don't store nodes separately, you might need to load them or
-                    # create the BM25Retriever based on the index's document store if possible,
-                    # but initializing with the original nodes is the most common way.
-                    # ASSUMPTION: You have access to the 'nodes' list created during index building.
-                    # If you DON'T have 'nodes' here, you'd need to adapt (e.g., load documents/nodes).
-                    # For now, let's assume 'nodes' is available in this scope or can be retrieved.
-                    # If 'nodes' is not directly available, you might need to reload documents or
-                    # use index.docstore to get the documents/nodes, depending on your setup.
-
-                    # A common pattern is to create the retriever directly from the index or its components
-                    # BM25Retriever can often be built from the index's docstore if documents were stored there.
-                    # Let's try building it from the index's underlying documents/nodes.
-                    # Note: This requires that the documents/nodes were correctly stored in the docstore during indexing.
+                    # Retrieve all nodes from the index's document store to build the BM25 index over them.
                     all_nodes = list(index.docstore.docs.values())
 
+                    bm25_retriever = None # Initialize to None
                     if not all_nodes:
                         print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
-                        bm25_retriever = None # Indicate BM25 won't be used
                     else:
                         # Use from_defaults with the retrieved nodes
                         print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
@@ -10451,16 +10441,23 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                         bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
                         print("BM25Retriever built.")
 
-                    # --- Create a query engine using the BM25 retriever ---
+                    # --- Create a query engine ---
+                    # Use RetrieverQueryEngine directly when using a custom retriever
+                    query_engine = None # Initialize query_engine
+
                     if bm25_retriever:
-                        # FIX: Remove similarity_top_k here. It's already configured on the bm25_retriever instance.
-                        query_engine = index.as_query_engine(retriever=bm25_retriever) # Corrected line
-                        print("Query engine created using BM25Retriever.")
+                        # Create the query engine using the custom BM25 retriever
+                        # RetrieverQueryEngine will use the default LLM from Settings for synthesis
+                        print("Creating query engine using BM25Retriever...")
+                        query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
                     else:
-                        # Fallback: If BM25 failed to build, use the default vector retriever
-                        # In this fallback case, similarity_top_k IS needed here to configure the default retriever
-                        query_engine = index.as_query_engine(similarity_top_k=5)
-                        print("Query engine created using default VectorRetriever (BM25 failed).")
+                        # Fallback: If BM25 failed to build, use the index's default vector retriever
+                        print("Falling back to creating query engine using default VectorRetriever...")
+                        # Use index.as_query_engine() which wraps the default vector retriever
+                        query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
+
+                    if query_engine is None:
+                        raise ValueError("Failed to create any query engine (BM25 or default).")
 
 
                     # --- Keep the rest of the query logic ---
@@ -10468,15 +10465,18 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     response = query_engine.query(message)
 
                     retrieved_text = response.response
-                    source_nodes = response.source_nodes
+                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
 
                     print(f"Successfully queried index for assistant: {assistantId}")
                     print(f"LLM Synthesized Response: {retrieved_text}")
 
-                    print("\n--- Retrieved Source Nodes (from BM25 or Default) ---") # Update print message
+                    print("\n--- Retrieved Source Nodes ---")
                     if source_nodes:
+                        # Check if nodes have scores before trying to format
+                        score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
                         for i, node_with_score in enumerate(source_nodes):
-                            print(f"Node {i+1} (Score: {node_with_score.score:.4f}):")
+                            score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
+                            print(f"Node {i+1}{score_str}:")
                             print(node_with_score.node.text)
                             print("-" * 20)
                     else:
@@ -10491,9 +10491,10 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             except Exception as e:
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
+                # Ensure traceback is imported if you use it
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-        
+
         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
