@@ -10482,8 +10482,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
 
                     # --- Keep the rest of the query logic ---
-                    print(f"Querying index with message: '{query_to_use}'")
-                    response = query_engine.query(query_to_use)
+                    print(f"Querying index with message: '{message}'")
+                    response = query_engine.query(message)
 
                     retrieved_text = response.response
                     source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
