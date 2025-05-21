@@ -10439,26 +10439,27 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # BM25Retriever can often be built from the index's docstore if documents were stored there.
                     # Let's try building it from the index's underlying documents/nodes.
                     # Note: This requires that the documents/nodes were correctly stored in the docstore during indexing.
-                    all_nodes = list(index.docstore.docs.values()) # Get all nodes/documents from the index's document store
+                    all_nodes = list(index.docstore.docs.values())
 
                     if not all_nodes:
                         print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
-                        # Fallback or error handling might be needed
                         bm25_retriever = None # Indicate BM25 won't be used
                     else:
                         # Use from_defaults with the retrieved nodes
                         print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
-                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=25) # Set k for BM25 too
+                        # Set similarity_top_k here when creating the retriever instance
+                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
                         print("BM25Retriever built.")
 
                     # --- Create a query engine using the BM25 retriever ---
-                    # Pass the retriever instance to the query engine
                     if bm25_retriever:
-                        query_engine = index.as_query_engine(retriever=bm25_retriever, similarity_top_k=25) # similarity_top_k here might be ignored if retriever is set, check docs/test
+                        # FIX: Remove similarity_top_k here. It's already configured on the bm25_retriever instance.
+                        query_engine = index.as_query_engine(retriever=bm25_retriever) # Corrected line
                         print("Query engine created using BM25Retriever.")
                     else:
-                        # Fallback to default vector retriever if BM25 failed to build
-                        query_engine = index.as_query_engine(similarity_top_k=5) # Use vector retriever with k=5
+                        # Fallback: If BM25 failed to build, use the default vector retriever
+                        # In this fallback case, similarity_top_k IS needed here to configure the default retriever
+                        query_engine = index.as_query_engine(similarity_top_k=5)
                         print("Query engine created using default VectorRetriever (BM25 failed).")
 
 
@@ -10467,15 +10468,15 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     response = query_engine.query(message)
 
                     retrieved_text = response.response
-                    source_nodes = response.source_nodes # This will now be the nodes retrieved by BM25
+                    source_nodes = response.source_nodes
 
                     print(f"Successfully queried index for assistant: {assistantId}")
                     print(f"LLM Synthesized Response: {retrieved_text}")
 
-                    print("\n--- Retrieved Source Nodes (from BM25) ---")
+                    print("\n--- Retrieved Source Nodes (from BM25 or Default) ---") # Update print message
                     if source_nodes:
                         for i, node_with_score in enumerate(source_nodes):
-                            print(f"Node {i+1} (Score: {node_with_score.score:.4f}):") # Score might represent BM25 score
+                            print(f"Node {i+1} (Score: {node_with_score.score:.4f}):")
                             print(node_with_score.node.text)
                             print("-" * 20)
                     else:
@@ -10492,7 +10493,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-
         
         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
