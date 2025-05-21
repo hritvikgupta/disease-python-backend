@@ -10433,7 +10433,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             except Exception as e:
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-        
+        print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
