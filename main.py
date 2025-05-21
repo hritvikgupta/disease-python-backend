@@ -10404,35 +10404,96 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         if not flow_id:
             raise HTTPException(status_code=400, detail="Flow ID is required")
 
+        from llama_index.retrievers.bm25 import BM25Retriever
+
         if flow_instructions == "indexed" and assistantId:
             try:
                 # Define the persist directory path for this assistant's flow instructions
-                persist_dir = os.path.join("flow_instructions_storage", f"flow_instruction_{assistantId}")
-                
+                base_dir = os.path.abspath(os.path.dirname(__file__))
+                persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+
+                print(f"Attempting to load index from: {persist_dir}")
+
                 # Check if the directory exists
                 if os.path.exists(persist_dir):
                     # Load the storage context from the persist directory
                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-                    
+
                     # Load the index from storage
+                    print("Loading index from storage...")
                     index = load_index_from_storage(storage_context)
-                    
-                    # Create a query engine
-                    query_engine = index.as_query_engine()
-                    
-                    # Query the index using the user's message
-                    # This will retrieve relevant flow instructions based on what the user said
+                    print("Index loaded successfully.")
+
+                    # --- Create the BM25 Retriever ---
+                    # You need access to the nodes that were used to build the index initially.
+                    # If you don't store nodes separately, you might need to load them or
+                    # create the BM25Retriever based on the index's document store if possible,
+                    # but initializing with the original nodes is the most common way.
+                    # ASSUMPTION: You have access to the 'nodes' list created during index building.
+                    # If you DON'T have 'nodes' here, you'd need to adapt (e.g., load documents/nodes).
+                    # For now, let's assume 'nodes' is available in this scope or can be retrieved.
+                    # If 'nodes' is not directly available, you might need to reload documents or
+                    # use index.docstore to get the documents/nodes, depending on your setup.
+
+                    # A common pattern is to create the retriever directly from the index or its components
+                    # BM25Retriever can often be built from the index's docstore if documents were stored there.
+                    # Let's try building it from the index's underlying documents/nodes.
+                    # Note: This requires that the documents/nodes were correctly stored in the docstore during indexing.
+                    all_nodes = list(index.docstore.docs.values()) # Get all nodes/documents from the index's document store
+
+                    if not all_nodes:
+                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
+                        # Fallback or error handling might be needed
+                        bm25_retriever = None # Indicate BM25 won't be used
+                    else:
+                        # Use from_defaults with the retrieved nodes
+                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
+                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=25) # Set k for BM25 too
+                        print("BM25Retriever built.")
+
+                    # --- Create a query engine using the BM25 retriever ---
+                    # Pass the retriever instance to the query engine
+                    if bm25_retriever:
+                        query_engine = index.as_query_engine(retriever=bm25_retriever, similarity_top_k=25) # similarity_top_k here might be ignored if retriever is set, check docs/test
+                        print("Query engine created using BM25Retriever.")
+                    else:
+                        # Fallback to default vector retriever if BM25 failed to build
+                        query_engine = index.as_query_engine(similarity_top_k=5) # Use vector retriever with k=5
+                        print("Query engine created using default VectorRetriever (BM25 failed).")
+
+
+                    # --- Keep the rest of the query logic ---
+                    print(f"Querying index with message: '{message}'")
                     response = query_engine.query(message)
-                    
-                    # Update flow_instructions with the retrieved content
-                    flow_instructions = response.response
-                    print(f"Successfully retrieved indexed flow instructions for assistant: {assistantId}")
+
+                    retrieved_text = response.response
+                    source_nodes = response.source_nodes # This will now be the nodes retrieved by BM25
+
+                    print(f"Successfully queried index for assistant: {assistantId}")
+                    print(f"LLM Synthesized Response: {retrieved_text}")
+
+                    print("\n--- Retrieved Source Nodes (from BM25) ---")
+                    if source_nodes:
+                        for i, node_with_score in enumerate(source_nodes):
+                            print(f"Node {i+1} (Score: {node_with_score.score:.4f}):") # Score might represent BM25 score
+                            print(node_with_score.node.text)
+                            print("-" * 20)
+                    else:
+                        print("No source nodes were retrieved by the retriever.")
+                    print("----------------------------\n")
+
+                    flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
+
                 else:
-                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId}")
+                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
                     flow_instructions = "No indexed flow instructions found."
+
             except Exception as e:
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
+                # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
+
+        
         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
