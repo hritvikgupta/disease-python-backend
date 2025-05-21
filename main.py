@@ -10716,7 +10716,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         if document_retriever:
             print(f"Retrieving documents for query: '{message}'")
-            retrieved_nodes = document_retriever.retrieve(query_for_doc)
+            retrieved_nodes = document_retriever.retrieve(message)
             document_text = ""
             if retrieved_nodes:
                 try:
@@ -10727,7 +10727,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                             nodes=node_objs, 
                             similarity_top_k=min(5, len(node_objs))
                         )
-                        reranked_nodes = bm25_retriever.retrieve(query_for_doc)
+                        reranked_nodes = bm25_retriever.retrieve(message)
                         document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
                     else:
                         document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
