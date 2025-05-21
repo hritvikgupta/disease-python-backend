@@ -10101,34 +10101,17 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
             from llama_index.core import VectorStoreIndex, Document
             from llama_index.core import Settings, StorageContext
             from llama_index.core.node_parser import TokenTextSplitter
-            from llama_index.core.postprocessor import LLMLinguaPostprocessor
             
             # Process direct text instructions
             text_instructions = flow_data["textInstructions"]
             
+            # Skip LLM processing - directly index the raw instructions
             # Create a document from the flow instructions
             documents = [Document(text=text_instructions)]
             
-            # Split the text into manageable chunks (you can adjust chunk size based on your needs)
+            # Split the text into manageable chunks
             text_splitter = TokenTextSplitter(chunk_size=512, chunk_overlap=50)
             nodes = text_splitter.get_nodes_from_documents(documents)
-            
-            # Optional: Apply prompt compression if you have LLMLingua configured
-            try:
-                llmlingua_processor = LLMLinguaPostprocessor(
-                    llm=Settings.llm,  # Assuming you have llm set in Settings
-                    target_tokens=256,
-                    rank_method="question_aware",
-                    rank_top_k=5,
-                )
-                compressed_nodes = llmlingua_processor.postprocess_nodes(nodes)
-                # Use compressed nodes if successful
-                nodes_to_index = compressed_nodes
-                print(f"Successfully compressed {len(nodes)} nodes to {len(compressed_nodes)} nodes")
-            except Exception as e:
-                # Fall back to regular nodes if compression fails
-                nodes_to_index = nodes
-                print(f"Prompt compression skipped: {str(e)}")
             
             # Create persist directory
             persist_dir = os.path.join("flow_instructions_storage", f"flow_instruction_{assistant_id}")
@@ -10138,11 +10121,7 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
             storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
             
             # Build index from the nodes with storage context
-            # You can use different index types depending on your needs
-            index = VectorStoreIndex(nodes_to_index, storage_context=storage_context)
-            
-            # Configure advanced indexing options (optional)
-            # index.configure(chunk_size_limit=512)
+            index = VectorStoreIndex(nodes, storage_context=storage_context)
             
             # Persist the index to disk
             index.storage_context.persist()
@@ -10154,6 +10133,7 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
                 "assistant_id": assistant_id,
                 "flow_instructions": "indexed"
             }
+        
         
         else:
             # Process the traditional nodes and edges format
@@ -10360,12 +10340,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         if flow_instructions == "indexed" and assistantId:
             try:
-                import os
-                from llama_index.core import StorageContext, load_index_from_storage
-                from llama_index.core.response_synthesizers import TreeSummarize
-                from llama_index.core.retrievers import VectorIndexRetriever
-                from llama_index.core.query_engine import RetrieverQueryEngine
-                
                 # Define the persist directory path for this assistant's flow instructions
                 persist_dir = os.path.join("flow_instructions_storage", f"flow_instruction_{assistantId}")
                 
@@ -10377,53 +10351,23 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # Load the index from storage
                     index = load_index_from_storage(storage_context)
                     
-                    # Configure a more advanced retriever
-                    retriever = VectorIndexRetriever(
-                        index=index, 
-                        similarity_top_k=3,  # Retrieve top 3 most relevant chunks
-                        # You can add filters here if needed
-                    )
+                    # Create a query engine
+                    query_engine = index.as_query_engine()
                     
-                    # Configure TreeSummarize response synthesizer for better answers
-                    response_synthesizer = TreeSummarize(
-                        llm=Settings.llm,  # Assuming you have llm set in Settings
-                        verbose=True,
-                        use_async=False  # Set to True for better performance if your environment supports it
-                    )
-                    
-                    # Create an advanced query engine
-                    query_engine = RetrieverQueryEngine(
-                        retriever=retriever,
-                        response_synthesizer=response_synthesizer,
-                        # You can add node postprocessors here if needed
-                    )
-                    
-                    # Prepare a more context-aware query
-                    # This combines the user's message with session context
-                    query_text = message
-                    if previous_messages and len(previous_messages) > 0:
-                        # Add context from the last 2-3 messages for better continuity
-                        context = " ".join([msg.get("content", "") for msg in previous_messages[-3:]])
-                        query_text = f"Context: {context}\nCurrent message: {message}\nProvide the most relevant flow instructions for this conversation state."
-                    
-                    # Query the index using the enhanced query
-                    response = query_engine.query(query_text)
+                    # Query the index using the user's message
+                    # This will retrieve relevant flow instructions based on what the user said
+                    response = query_engine.query(message)
                     
                     # Update flow_instructions with the retrieved content
                     flow_instructions = response.response
-                    
-                    # Debug info
                     print(f"Successfully retrieved indexed flow instructions for assistant: {assistantId}")
-                    print(f"Query: {query_text[:100]}...")
-                    print(f"Retrieved content length: {len(flow_instructions)}")
-                    
                 else:
                     print(f"Warning: Flow instructions directory not found for assistant: {assistantId}")
-                    flow_instructions = "No indexed flow instructions found, use the general document context to answer the user message"
+                    flow_instructions = "No indexed flow instructions found."
             except Exception as e:
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-                
+        
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
