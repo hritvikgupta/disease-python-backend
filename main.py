@@ -10411,7 +10411,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         query_to_use = message
         if previous_messages:
             print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
-            context_messages = previous_messages[-3:] # Get last 3 messages
+            context_messages = previous_messages[-4:] # Get last 3 messages
 
             context_str = "Conversation history:\n"
             for msg_obj in context_messages:
@@ -10421,7 +10421,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             # Combine context with the current message to form the query
             # Structure the query to help the retriever understand it's a follow-up
-            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction?"
+            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
 
             print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
@@ -10696,7 +10696,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         query_for_doc = message
         if previous_messages:
-            context_messages = previous_messages[-3:] # Get last 3 messages
+            context_messages = previous_messages[-4:] # Get last 3 messages
 
             context_str = "Conversation history:\n"
             for msg_obj in context_messages:
@@ -10706,7 +10706,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             # Combine context with the current message to form the query
             # Structure the query to help the retriever understand it's a follow-up
-            query_for_doc = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant document you can reterive?"
+            query_for_doc = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant context you can reterive?"
 
             print(f"Document Augmented Query for Retrieval:\n{query_for_doc}")
         else:
@@ -10929,7 +10929,6 @@ Instructions:
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 
 7. **IMP**:
-   - Always Start With the  **Menu-Items** if there is no Conversation History. 
    - Never User Patient Mobile Number For $clinic_phone$
 
 8. **Response Structure**:
