@@ -141,7 +141,7 @@ os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # Setting LLMs - keep existing configuration
 llm = Gemini(
-    model="models/gemini-1.5-flash",
+    model="models/gemini-2.5-pro-preview-05-06",
     api_key=GOOGLE_API_KEY,  
 )
 MODEL_ID = "models/gemini-2.5-pro-preview-05-06"  # Latest version as of May 2025
@@ -9974,6 +9974,18 @@ class FlowDocumentationRequest(BaseModel):
 #             detail=f"Failed to generate flow documentation: {str(e)}"
 #         )
     
+import asyncio
+import time
+import traceback
+from typing import Dict, Any, Optional
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+class FlowDocumentationRequest(BaseModel):
+    flow_data: Dict[str, Any]
+    assistant_id: str
+    name: Optional[str] = None
+
 @app.post("/api/generate/flow-documentation")
 async def generate_flow_documentation(request: FlowDocumentationRequest):
     """
@@ -9985,8 +9997,14 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
     The function now handles two formats:
     1. Traditional nodes/edges format
     2. Direct textInstructions format (pre-formatted instructions)
+    
+    It includes robust error handling and debugging information.
     """
     try:
+        # Add detailed logging
+        print(f"Starting flow documentation generation for assistant: {request.assistant_id}")
+        start_time = time.time()
+        
         flow_data = request.flow_data
         assistant_id = request.assistant_id
         assistant_name = request.name or "Assistant"
@@ -9999,8 +10017,13 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
             # Process direct text instructions
             text_instructions = flow_data["textInstructions"]
             
-            # Create a prompt for the LLM to format the text instructions properly
-            llm_input = f"""
+            # Log the size of text instructions
+            text_instructions_length = len(text_instructions)
+            print(f"Processing text instructions of length: {text_instructions_length} characters")
+            
+            try:
+                # Create a prompt for the LLM to format the text instructions properly
+                llm_input = f"""
 You are tasked with formatting conversation flow instructions into a standardized format, regardless of the input format. The input could be completely unformatted paragraphs, a partially formatted document, or might already have some structure.
 
 Flow Name: {assistant_name}
@@ -10061,78 +10084,116 @@ ADDITIONAL TIPS FOR HANDLING COMPLETELY UNSTRUCTURED TEXT:
   - Organize the flow in a logical sequence
   - Format user-facing messages in quotes
   - Create appropriate branch structure for different conversation paths
-
-EXAMPLE TRANSFORMATION (for completely unstructured text):
-
-Input: "The assistant should first greet users and ask what service they need. If they select medical advice, ask for symptoms. If they select appointment booking, ask for preferred date. For symptoms, provide relevant information or escalate to human agent."
-
-Output:
-• **Initial-Greeting**  
-  "Hello! Welcome to our service. How can I help you today?"
-
-• **Service-Selection**  
-  "What service are you looking for? 1. Medical advice 2. Appointment booking"
-
-–– **Medical Advice Branch** ––  
-• **Symptom-Collection**  
-  "What symptoms are you experiencing?"
-
-• **Provide-Information**  
-  "Based on your symptoms, here's some information that might help..."
-
-–– **Appointment Branch** ––  
-• **Date-Selection**  
-  "What date would you prefer for your appointment?"
-
-Make sure the final output follows the required format with appropriate titles, quoted messages, bullet points, and branch markers.
 """
+                
+                # Log before LLM call
+                print(f"Sending text instructions to LLM. Prompt length: {len(llm_input)} characters")
+                print(f"Time elapsed before LLM call: {time.time() - start_time:.2f} seconds")
+                
+                # Call the LLM to process and standardize the text instructions with a timeout
+                try:
+                    # Add a timeout parameter to the LLM call if your client supports it
+                    # Try using the async version if available
+                    if hasattr(Settings.llm, 'acomplete'):
+                        # Use asyncio with timeout
+                        llm_start_time = time.time()
+                        response = await asyncio.wait_for(
+                            Settings.llm.acomplete(llm_input), 
+                            timeout=120  # 2 minute timeout
+                        )
+                        print(f"LLM request completed in {time.time() - llm_start_time:.2f} seconds")
+                    else:
+                        # Fallback to sync version
+                        llm_start_time = time.time()
+                        response = Settings.llm.complete(llm_input)
+                        print(f"LLM request completed in {time.time() - llm_start_time:.2f} seconds")
+                    
+                    flow_instructions = response.text.strip()
+                    print(f"Successfully processed text instructions. Result length: {len(flow_instructions)} characters")
+                
+                except asyncio.TimeoutError:
+                    print("LLM request timed out after 120 seconds")
+                    # Provide a fallback response
+                    flow_instructions = f"• **{assistant_name} Flow**\n  \"This conversation flow could not be automatically formatted due to processing timeout. Please review the original instructions.\""
+                
+                except Exception as llm_error:
+                    print(f"LLM request failed: {str(llm_error)}")
+                    # Try with a simplified prompt as fallback
+                    try:
+                        print("Attempting fallback with simplified prompt")
+                        simplified_prompt = f"Convert the following conversation flow text into a structured format with node titles and messages.\n\nFlow: {assistant_name}\n\nText: {text_instructions[:2000]}... (truncated)"
+                        
+                        if hasattr(Settings.llm, 'acomplete'):
+                            fallback_response = await asyncio.wait_for(
+                                Settings.llm.acomplete(simplified_prompt), 
+                                timeout=60
+                            )
+                        else:
+                            fallback_response = Settings.llm.complete(simplified_prompt)
+                        
+                        flow_instructions = fallback_response.text.strip()
+                        print("Fallback processing succeeded")
+                    except Exception as fallback_error:
+                        print(f"Fallback processing also failed: {str(fallback_error)}")
+                        flow_instructions = f"• **{assistant_name} Flow**\n  \"This conversation flow could not be automatically formatted. Please review the original instructions.\""
+                
+                # Return the processed instructions
+                total_time = time.time() - start_time
+                print(f"Total processing time: {total_time:.2f} seconds")
+                
+                return {
+                    "assistant_id": assistant_id,
+                    "flow_instructions": flow_instructions
+                }
             
-            # Call the LLM to process and standardize the text instructions
-            response = Settings.llm.complete(llm_input)
-            flow_instructions = response.text.strip()
-            
-            # Return the processed instructions
-            return {
-                "assistant_id": assistant_id,
-                "flow_instructions": flow_instructions
-            }
+            except Exception as text_processing_error:
+                print(f"Error processing text instructions: {str(text_processing_error)}")
+                traceback.print_exc()  # Print the full stack trace
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to process text instructions: {str(text_processing_error)}"
+                )
         else:
             # Process the traditional nodes and edges format
-            nodes = flow_data.get("nodes", [])
-            edges = flow_data.get("edges", [])
-            
-            if not nodes:
-                return {"flow_instructions": "No flow nodes found."}
+            try:
+                print("Processing traditional nodes and edges format")
+                nodes = flow_data.get("nodes", [])
+                edges = flow_data.get("edges", [])
                 
-            # Build a node map for quick lookups
-            node_map = {node["id"]: node for node in nodes}
-            
-            # Build connection map to track node relationships
-            connections = {}
-            for edge in edges:
-                source = edge.get("source")
-                target = edge.get("target")
-                source_handle = edge.get("sourceHandle", "")
+                if not nodes:
+                    return {"flow_instructions": "No flow nodes found."}
                 
-                if source not in connections:
-                    connections[source] = []
+                print(f"Found {len(nodes)} nodes and {len(edges)} edges")
                 
-                # Store connection with handle info
-                connections[source].append({
-                    "target": target,
-                    "handle": source_handle
-                })
-            
-            # Identify starting nodes (those with nodeType="starting")
-            starting_nodes = [node for node in nodes if node.get("data", {}).get("nodeType") == "starting"]
-            
-            # If no explicit starting nodes, look for nodes that have no incoming edges
-            if not starting_nodes:
-                target_nodes = set(edge["target"] for edge in edges)
-                starting_nodes = [node for node in nodes if node["id"] not in target_nodes]
-            
-            # Generate documentation prompt for LLM
-            llm_input = f"""
+                # Build a node map for quick lookups
+                node_map = {node["id"]: node for node in nodes}
+                
+                # Build connection map to track node relationships
+                connections = {}
+                for edge in edges:
+                    source = edge.get("source")
+                    target = edge.get("target")
+                    source_handle = edge.get("sourceHandle", "")
+                    
+                    if source not in connections:
+                        connections[source] = []
+                    
+                    # Store connection with handle info
+                    connections[source].append({
+                        "target": target,
+                        "handle": source_handle
+                    })
+                
+                # Identify starting nodes (those with nodeType="starting")
+                starting_nodes = [node for node in nodes if node.get("data", {}).get("nodeType") == "starting"]
+                
+                # If no explicit starting nodes, look for nodes that have no incoming edges
+                if not starting_nodes:
+                    target_nodes = set(edge["target"] for edge in edges)
+                    starting_nodes = [node for node in nodes if node["id"] not in target_nodes]
+                
+                # Generate documentation prompt for LLM
+                llm_input = f"""
 Please generate structured flow documentation based on the following conversation flow data.
 The documentation should be formatted in a clear, hierarchical structure with node titles and their corresponding messages.
 
@@ -10140,69 +10201,69 @@ Flow Name: {assistant_name}
 
 Flow Structure:
 """
-            
-            # Process nodes by type to organize them logically
-            for node in nodes:
-                node_id = node["id"]
-                node_data = node.get("data", {})
-                node_type = node_data.get("type", "unknown")
-                node_title = node_data.get("heading", "") or f"Node {node_id}"
-                node_message = node_data.get("message", "")
-                node_class = node.get("type", "unknown")
                 
-                # Format node info for the LLM input
-                llm_input += f"\n- Node ID: {node_id}"
-                llm_input += f"\n  Type: {node_class}"
-                llm_input += f"\n  Title: {node_title}"
-                llm_input += f"\n  Message: \"{node_message}\""
+                # Process nodes by type to organize them logically
+                for node in nodes:
+                    node_id = node["id"]
+                    node_data = node.get("data", {})
+                    node_type = node_data.get("type", "unknown")
+                    node_title = node_data.get("heading", "") or f"Node {node_id}"
+                    node_message = node_data.get("message", "")
+                    node_class = node.get("type", "unknown")
+                    
+                    # Format node info for the LLM input
+                    llm_input += f"\n- Node ID: {node_id}"
+                    llm_input += f"\n  Type: {node_class}"
+                    llm_input += f"\n  Title: {node_title}"
+                    llm_input += f"\n  Message: \"{node_message}\""
+                    
+                    # Add function/option information for dialogue and response nodes
+                    if node_class in ["dialogueNode", "scriptNode"] and "functions" in node_data:
+                        llm_input += "\n  Options:"
+                        for func in node_data.get("functions", []):
+                            llm_input += f"\n    - {func.get('content', 'Option')}"
+                    
+                    # Add trigger information for response nodes
+                    if node_class == "responseNode" and "triggers" in node_data:
+                        llm_input += "\n  Triggers:"
+                        for trigger in node_data.get("triggers", []):
+                            llm_input += f"\n    - {trigger.get('content', 'Trigger')}"
+                    
+                    # Add field information for field setter nodes
+                    if node_class == "fieldSetterNode":
+                        field_name = node_data.get("fieldName", "")
+                        llm_input += f"\n  Field: {field_name}"
+                    
+                    # Add survey information for survey nodes
+                    if node_class == "surveyNode" and "surveyData" in node_data:
+                        survey_data = node_data.get("surveyData", {})
+                        survey_name = survey_data.get("name", "Unknown Survey")
+                        llm_input += f"\n  Survey: {survey_name}"
+                    
+                    # Add connections information
+                    if node_id in connections:
+                        llm_input += "\n  Connections:"
+                        for conn in connections[node_id]:
+                            target_id = conn["target"]
+                            target_node = node_map.get(target_id, {})
+                            target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
+                            llm_input += f"\n    - To: {target_title} (ID: {target_id})"
+                    
+                    llm_input += "\n"
                 
-                # Add function/option information for dialogue and response nodes
-                if node_class in ["dialogueNode", "scriptNode"] and "functions" in node_data:
-                    llm_input += "\n  Options:"
-                    for func in node_data.get("functions", []):
-                        llm_input += f"\n    - {func.get('content', 'Option')}"
+                # Add edge information to help understand the flow
+                llm_input += "\nFlow Connections:"
+                for edge in edges:
+                    source_id = edge.get("source")
+                    target_id = edge.get("target")
+                    source_node = node_map.get(source_id, {})
+                    target_node = node_map.get(target_id, {})
+                    source_title = source_node.get("data", {}).get("heading", "") or f"Node {source_id}"
+                    target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
+                    
+                    llm_input += f"\n- {source_title} → {target_title}"
                 
-                # Add trigger information for response nodes
-                if node_class == "responseNode" and "triggers" in node_data:
-                    llm_input += "\n  Triggers:"
-                    for trigger in node_data.get("triggers", []):
-                        llm_input += f"\n    - {trigger.get('content', 'Trigger')}"
-                
-                # Add field information for field setter nodes
-                if node_class == "fieldSetterNode":
-                    field_name = node_data.get("fieldName", "")
-                    llm_input += f"\n  Field: {field_name}"
-                
-                # Add survey information for survey nodes
-                if node_class == "surveyNode" and "surveyData" in node_data:
-                    survey_data = node_data.get("surveyData", {})
-                    survey_name = survey_data.get("name", "Unknown Survey")
-                    llm_input += f"\n  Survey: {survey_name}"
-                
-                # Add connections information
-                if node_id in connections:
-                    llm_input += "\n  Connections:"
-                    for conn in connections[node_id]:
-                        target_id = conn["target"]
-                        target_node = node_map.get(target_id, {})
-                        target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
-                        llm_input += f"\n    - To: {target_title} (ID: {target_id})"
-                
-                llm_input += "\n"
-            
-            # Add edge information to help understand the flow
-            llm_input += "\nFlow Connections:"
-            for edge in edges:
-                source_id = edge.get("source")
-                target_id = edge.get("target")
-                source_node = node_map.get(source_id, {})
-                target_node = node_map.get(target_id, {})
-                source_title = source_node.get("data", {}).get("heading", "") or f"Node {source_id}"
-                target_title = target_node.get("data", {}).get("heading", "") or f"Node {target_id}"
-                
-                llm_input += f"\n- {source_title} → {target_title}"
-            
-            llm_input += """
+                llm_input += """
 
 Based on the above flow structure, please generate clear, structured documentation in the following format:
 
@@ -10247,25 +10308,76 @@ Current Flow Instructions:
 • **Branch-B-Node-1**  
   "Message for other branch"
 """
+                
+                # Log before LLM call for node processing
+                print(f"Sending node structure to LLM. Prompt length: {len(llm_input)} characters")
+                print(f"Time elapsed before LLM call for nodes: {time.time() - start_time:.2f} seconds")
+                
+                # Call the LLM to generate the structured documentation with timeout handling
+                try:
+                    # Use async with timeout if available
+                    if hasattr(Settings.llm, 'acomplete'):
+                        llm_start_time = time.time()
+                        response = await asyncio.wait_for(
+                            Settings.llm.acomplete(llm_input), 
+                            timeout=120  # 2 minute timeout
+                        )
+                        print(f"LLM node processing completed in {time.time() - llm_start_time:.2f} seconds")
+                    else:
+                        llm_start_time = time.time()
+                        response = Settings.llm.complete(llm_input)
+                        print(f"LLM node processing completed in {time.time() - llm_start_time:.2f} seconds")
+                    
+                    flow_instructions = response.text.strip()
+                    
+                    # Extract just the formatted instructions part if needed
+                    if "Current Flow Instructions:" in flow_instructions:
+                        flow_instructions = flow_instructions.split("Current Flow Instructions:")[1].strip()
+                    
+                    print(f"Successfully processed node structure. Result length: {len(flow_instructions)} characters")
+                    
+                except asyncio.TimeoutError:
+                    print("LLM request for node processing timed out after 120 seconds")
+                    # Provide a fallback response for nodes structure
+                    flow_instructions = f"• **{assistant_name} Flow**\n  \"This conversation flow could not be automatically formatted due to processing timeout. Please review the original node structure.\""
+                
+                except Exception as llm_node_error:
+                    print(f"LLM request for node processing failed: {str(llm_node_error)}")
+                    flow_instructions = f"• **{assistant_name} Flow**\n  \"This conversation flow could not be automatically formatted. Please check the node structure and try again.\""
+                
+                total_time = time.time() - start_time
+                print(f"Total node processing time: {total_time:.2f} seconds")
+                
+                return {
+                    "assistant_id": assistant_id,
+                    "flow_instructions": flow_instructions
+                }
             
-            # Call the LLM to generate the structured documentation
-            response = Settings.llm.complete(llm_input)
-            flow_instructions = response.text.strip()
-            
-            # Extract just the formatted instructions part if needed
-            if "Current Flow Instructions:" in flow_instructions:
-                flow_instructions = flow_instructions.split("Current Flow Instructions:")[1].strip()
-            
-            return {
-                "assistant_id": assistant_id,
-                "flow_instructions": flow_instructions
-            }
+            except Exception as nodes_processing_error:
+                print(f"Error processing nodes and edges: {str(nodes_processing_error)}")
+                traceback.print_exc()  # Print the full stack trace
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to process nodes and edges: {str(nodes_processing_error)}"
+                )
         
     except Exception as e:
+        # Detailed error logging
         print(f"Error generating flow documentation: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        traceback.print_exc()  # Print the full stack trace
+        
+        # Check for specific error types
+        if "context length" in str(e).lower() or "token limit" in str(e).lower():
+            return {
+                "assistant_id": assistant_id,
+                "flow_instructions": "• **Flow Documentation Error**\n  \"The conversation flow is too large to process. Please break it into smaller components.\""
+            }
+        
+        # Return a more detailed error
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to generate flow documentation: {str(e)}"
+            detail=f"Failed to generate flow documentation: {type(e).__name__} - {str(e)}"
         )
     
 @app.post("/api/patient_onboarding")
