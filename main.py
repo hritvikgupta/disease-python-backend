@@ -10427,63 +10427,79 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     index = load_index_from_storage(storage_context)
                     print("Index loaded successfully.")
 
-                    # --- Create the BM25 Retriever ---
-                    # Retrieve all nodes from the index's document store to build the BM25 index over them.
-                    all_nodes = list(index.docstore.docs.values())
+                    # --- Create the Retriever (BM25 or default Vector) ---
+                    # Decide which retriever to use here before creating the query engine
+                    retriever_to_use = None # Initialize
 
-                    bm25_retriever = None # Initialize to None
-                    if not all_nodes:
-                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
+                    # Example: Try to build BM25 first, fallback to Vector
+                    all_nodes = list(index.docstore.docs.values()) # Get nodes for BM25
+                    if all_nodes:
+                        try:
+                            print(f"Attempting to build BM25Retriever from {len(all_nodes)} nodes...")
+                            # Set similarity_top_k here for the BM25 retriever
+                            bm25_retriever_instance = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
+                            retriever_to_use = bm25_retriever_instance
+                            print("BM25Retriever built and selected.")
+                        except Exception as bm25_build_error:
+                            print(f"Warning: Failed to build BM25Retriever: {str(bm25_build_error)}. Falling back to default vector.")
+                            # Continue to fallback below
                     else:
-                        # Use from_defaults with the retrieved nodes
-                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
-                        # Set similarity_top_k here when creating the retriever instance
-                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
-                        print("BM25Retriever built.")
-
-                    # --- Create a query engine ---
-                    # Use RetrieverQueryEngine directly when using a custom retriever
-                    query_engine = None # Initialize query_engine
-
-                    if bm25_retriever:
-                        # Create the query engine using the custom BM25 retriever
-                        # RetrieverQueryEngine will use the default LLM from Settings for synthesis
-                        print("Creating query engine using BM25Retriever...")
-                        query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
-                    else:
-                        # Fallback: If BM25 failed to build, use the index's default vector retriever
-                        print("Falling back to creating query engine using default VectorRetriever...")
-                        # Use index.as_query_engine() which wraps the default vector retriever
-                        query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
-
-                    if query_engine is None:
-                        raise ValueError("Failed to create any query engine (BM25 or default).")
+                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever. Falling back to default vector.")
 
 
-                    # --- Keep the rest of the query logic ---
+                    # If BM25 wasn't built or failed, use the default vector retriever
+                    if retriever_to_use is None:
+                        print("Using default VectorRetriever.")
+                        # Configure similarity_top_k for the default retriever
+                        retriever_to_use = index.as_retriever(similarity_top_k=5) # Get the default retriever instance
+
+
+                    # --- Create a query engine that uses the selected retriever BUT DOES NOT SYNTHESIZE ---
+                    # We need a query engine that just returns the source nodes.
+                    # The 'response_mode="no_text"' is the key here.
+                    print("Creating query engine with response_mode='no_text'...")
+                    # Pass the selected retriever instance
+                    query_engine = RetrieverQueryEngine(retriever=retriever_to_use, response_mode="no_text")
+
+
+                    # --- Query the engine ---
                     print(f"Querying index with message: '{message}'")
                     response = query_engine.query(message)
 
-                    retrieved_text = response.response
-                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
+                    # --- Extract Source Nodes ---
+                    # response.response will be empty or minimal in 'no_text' mode.
+                    # We only care about the source nodes.
+                    source_nodes = response.source_nodes
 
-                    print(f"Successfully queried index for assistant: {assistantId}")
-                    print(f"LLM Synthesized Response: {retrieved_text}")
+                    print(f"Query executed for assistant: {assistantId}. Extracted source nodes.")
 
+                    # --- Construct the flow_instructions from source nodes ---
                     print("\n--- Retrieved Source Nodes ---")
                     if source_nodes:
+                        retrieved_texts = []
                         # Check if nodes have scores before trying to format
                         score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
+
                         for i, node_with_score in enumerate(source_nodes):
                             score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
                             print(f"Node {i+1}{score_str}:")
                             print(node_with_score.node.text)
                             print("-" * 20)
+                            # Append the text of the node to our list
+                            retrieved_texts.append(node_with_score.node.text)
+
+                        # Join the retrieved node texts to form the final flow_instructions string
+                        # You can use a separator like "\n---\n" or whatever makes sense for your downstream use
+                        flow_instructions = "\n---\n".join(retrieved_texts)
+                        print("\nSuccessfully concatenated retrieved source node texts.")
+
                     else:
                         print("No source nodes were retrieved by the retriever.")
+                        flow_instructions = "No relevant instructions found."
+
                     print("----------------------------\n")
 
-                    flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
+                    # At this point, flow_instructions holds the concatenated text of the retrieved nodes
 
                 else:
                     print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
@@ -10491,8 +10507,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             except Exception as e:
                 print(f"Error retrieving indexed flow instructions: {str(e)}")
-                # Ensure traceback is imported if you use it
-                # print(f"Stacktrace: {traceback.format_exc()}")
+                # print(f"Stacktrace: {traceback.format_exc()}") # Ensure traceback is imported
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
 
         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
