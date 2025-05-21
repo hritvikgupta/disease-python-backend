@@ -10806,7 +10806,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 # """
         
         flow_instruction_context = flow_instructions
-        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+        # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
