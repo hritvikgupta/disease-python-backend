@@ -10185,7 +10185,12 @@ async def generate_flow_documentation(request: FlowDocumentationRequest):
                         "stacktrace": traceback.format_exc(), # Make sure traceback is imported
                         "fallback": text_instructions[:500] + "..." if len(text_instructions) > 500 else text_instructions
                     }
-
+                print(f"Indexed text instructions sucessfully", 
+                    "assistant_id", assistant_id,
+                    "flow_instructions", text_instructions,  # Return actual text instructions
+                    "persist_dir", persist_dir,  # Return this for debugging
+                    "instruction_type","indexed"  # Add flag to indicate it's indexed
+                      )
                 return {
                     "assistant_id": assistant_id,
                     "flow_instructions": text_instructions,  # Return actual text instructions
