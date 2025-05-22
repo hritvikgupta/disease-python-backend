@@ -141,10 +141,10 @@ os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # Setting LLMs - keep existing configuration
 llm = Gemini(
-    model="models/gemini-2.0-flash",
+    model="models/gemini-2.0-flash-lite",
     api_key=GOOGLE_API_KEY,  
 )
-MODEL_ID = "models/gemini-2.0-flash"  # Latest version as of May 2025
+MODEL_ID = "models/gemini-2.0-flash-lite"  # Latest version as of May 2025
 # vecto_chat = genai.GenerativeModel(MODEL_ID)
 gemini_model = Gemini(
     model=MODEL_ID,  # Add the "models/" prefix
@@ -11247,71 +11247,71 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         
 #         """
        
-        flow_instruction_context = f"""
-Current Flow Instructions:
+#         flow_instruction_context = f"""
+# Current Flow Instructions:
 
-• **Menu-Items**  
-  “What are you looking for today?  
-   1. Pregnancy test  
-   2. Early pregnancy-loss support  
-   3. Abortion  
-   4. Symptoms-related help  
-   5. Miscarriage support”
+# • **Menu-Items**  
+#   “What are you looking for today?  
+#    1. Pregnancy test  
+#    2. Early pregnancy-loss support  
+#    3. Abortion  
+#    4. Symptoms-related help  
+#    5. Miscarriage support”
 
-• **Pregnancy-Test**  
-  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+# • **Pregnancy-Test**  
+#   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
 
-• **LMP-Query**  
-  “Do you know the day of your last menstrual period?”
+# • **LMP-Query**  
+#   “Do you know the day of your last menstrual period?”
 
-• **LMP-Date**  
-  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+# • **LMP-Date**  
+#   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
 
-• **Symptom-Triage**  
-  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+# • **Symptom-Triage**  
+#   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
 
-–– **Bleeding branch** ––  
-• **Bleeding-Triage**  
-  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+# –– **Bleeding branch** ––  
+# • **Bleeding-Triage**  
+#   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
 
-• **Bleeding-Heavy-Check**  
-  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+# • **Bleeding-Heavy-Check**  
+#   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
 
-• **Bleeding-Urgent**  
-  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+# • **Bleeding-Urgent**  
+#   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
 
-• **Bleeding-Pain-Check**  
-  “Are you experiencing any pain or cramping? Reply Y or N.”
+# • **Bleeding-Pain-Check**  
+#   “Are you experiencing any pain or cramping? Reply Y or N.”
 
-• **Bleeding-Advice**  
-  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+# • **Bleeding-Advice**  
+#   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
 
-–– **Nausea branch** ––  
-• **Nausea-Triage**  
-  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+# –– **Nausea branch** ––  
+# • **Nausea-Triage**  
+#   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
 
-• **Nausea-Advice**  
-  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+# • **Nausea-Advice**  
+#   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
 
-• **Nausea-Urgent**  
-  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+# • **Nausea-Urgent**  
+#   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
 
-–– **Miscarriage support** ––  
-• **Miscarriage-Support**  
-  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+# –– **Miscarriage support** ––  
+# • **Miscarriage-Support**  
+#   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
 
-• **Miscarriage-Emotions**  
-  “How are you feeling emotionally? I can connect you to social resources if needed.”
+# • **Miscarriage-Emotions**  
+#   “How are you feeling emotionally? I can connect you to social resources if needed.”
 
-• **Miscarriage-Infection**  
-  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+# • **Miscarriage-Infection**  
+#   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
 
-• **Call-Transfer**  
-  “I’m transferring you now to a specialist for further assistance.”  
+# • **Call-Transfer**  
+#   “I’m transferring you now to a specialist for further assistance.”  
 
-"""
+# """
         
-        # flow_instruction_context = flow_instructions
+        flow_instruction_context = flow_instructions
         # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
@@ -11367,6 +11367,8 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
+Patient History Summary (Patient Previous Session Conversation):
+{patient_history}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
@@ -11431,9 +11433,6 @@ Instructions:
 6. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
-
-7. **IMP**:
-   - Never User Patient Mobile Number For $clinic_phone$
 
 8. **Response Structure**:
    Return a JSON object:
