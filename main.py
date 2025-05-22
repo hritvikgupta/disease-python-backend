@@ -11614,48 +11614,54 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         from llama_index.core.query_engine import RetrieverQueryEngine
         from llama_index.core import VectorStoreIndex, StorageContext
         from llama_index.core.retrievers import VectorIndexRetriever
-        from llama_index.retrievers.hybrid import HybridRetriever
         # ----------------------------------------------------
         query_to_use = message
         if previous_messages:
             print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
-            context_messages = previous_messages[-4:]
-            context_str = "Conversation history:\n" + "\n".join(f"{msg.get('role', 'unknown').capitalize()}: {msg.get('content', 'N/A')}" for msg in context_messages)
-            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
+            context_messages = previous_messages[-4:] # Get last 3 messages
+
+            context_str = "Conversation history:\n"
+            for msg_obj in context_messages:
+                 role = msg_obj.get('role', 'unknown').capitalize()
+                 content = msg_obj.get('content', 'N/A')
+                 context_str += f"{role}: {content}\n"
+
+            # Combine context with the current message to form the query
+            # Structure the query to help the retriever understand it's a follow-up
+            # query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
+            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step? Respond only with the exact flow instruction text from the retrieved nodes unless no relevant node is found, then provide a general response."
             print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
             print("No previous messages found. Using original message for retrieval.")
+            # query_to_use remains the original message
+
+
 
         if flow_instructions == "indexed" and assistantId:
-            try:
-                persist_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "flow_instructions_storage", f"flow_instruction_{assistantId}")
+            try:    
+                base_dir = os.path.abspath(os.path.dirname(__file__))
+                persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
                 print(f"Attempting to load index from: {persist_dir}")
 
                 if os.path.exists(persist_dir):
+                    # Load the storage context from the persist directory
                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
                     print("Loading index from storage...")
                     index = load_index_from_storage(storage_context)
                     print("Index loaded successfully.")
 
-                    # Retrieve all nodes
-                    all_nodes = list(index.docstore.docs.values())
-
-                    # Build BM25 and Vector retrievers
-                    bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=3)
-                    vector_retriever = VectorIndexRetriever(index=index, similarity_top_k=3)
-
-                    # Create HybridRetriever
-                    hybrid_retriever = HybridRetriever(
-                        [bm25_retriever, vector_retriever],
-                        retrieval_mode="reciprocal_rerank",
-                        similarity_top_k=5
+                    # Create VectorStoreRetriever
+                    print("Building VectorStoreRetriever...")
+                    vector_retriever = VectorIndexRetriever(
+                        index=index,
+                        similarity_top_k=5,  # Retrieve top 5 most similar nodes
+                        embed_model="local:BAAI/bge-small-en"  # Use a lightweight embedding model
                     )
-                    print("HybridRetriever built.")
+                    print("VectorStoreRetriever built.")
 
                     # Create query engine
-                    print("Creating query engine using HybridRetriever...")
-                    query_engine = RetrieverQueryEngine(retriever=hybrid_retriever)
-
+                    print("Creating query engine using VectorStoreRetriever...")
+                    query_engine = RetrieverQueryEngine(retriever=vector_retriever)
                     # --- Keep the rest of the query logic ---
                     print(f"Querying index with message: '{query_to_use}'")
                     response = query_engine.query(query_to_use)
