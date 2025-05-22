@@ -11656,6 +11656,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         # ----------------------------------------------------
         query_to_use = message
+        context_str =""
         if previous_messages:
             print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
             context_messages = previous_messages[-4:] # Get last 3 messages
@@ -11853,6 +11854,19 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     flow_instructions = "Indexed flow instructions not available or empty."
                 else:
                     # --- Create the QueryFusionRetriever for Hybrid Retrieval ---
+                    custom_query_gen_prompt = f"""
+                    Given the following conversation history and the latest user query, generate {10} distinct search queries.
+                    These queries should aim to find the most relevant flow instructions or document content to address the user's current question or need.
+                    **Do NOT** generate queries about the chatbot's internal state, conversation flow management, or how the chatbot should respond.
+
+                    Conversation History:
+                    {context_str}
+
+                    Latest User Query: {message}
+
+                    Generated Queries:
+                    """
+                    print(f"[CUSTOM PROMPT] {custom_query_gen_prompt}")
                     print(f"Building QueryFusionRetriever with {len(retrievers_list)} retrievers...")
                     # This retriever runs the query (or generated queries) through
                     # the list of retrievers and fuses the results using the mode="reciprocal_rerank".
@@ -11865,6 +11879,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                         mode="reciprocal_rerank", # Use RRF to combine results
                         use_async=False, # Recommended for speed
                         verbose=True, # Good for debugging
+                        query_gen_prompt=custom_query_gen_prompt # Add the custom prompt here
                         # query_gen_prompt="..." # Optional: override prompt for generating queries
                     )
                     print("QueryFusionRetriever built.")
