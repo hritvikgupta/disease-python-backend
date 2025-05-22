@@ -12285,7 +12285,11 @@ Instructions:
             - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
             - Set `next_node_id` to the `TARGET_NODE` ID.
             - **Special LMP Date Handling**: 
-            If the current active node was asking for LMP date confirmation AND user provided a valid date (MM/DD/YYYY): Calculate gestational age/trimester from the provided date to `Current Date {current_date}`. Modify the `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester!". Add gestational age/trimester to `state_updates`.
+            - If the current active node was asking for LMP (Last Menstural Period) date confirmation AND user provided a valid date (MM/DD/YYYY): 
+                - Validate dates as MM/DD/YYYY, not after {current_date}.
+                - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+                - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+                - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
         - ** If the User Message IS NOT a direct response (New Topic):**
             - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
