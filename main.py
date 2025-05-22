@@ -12244,7 +12244,7 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 {flow_instruction_context}
 
 Document Content:
-{document_context_section}
+{document_context}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
@@ -12282,7 +12282,8 @@ Instructions:
             - Identify the `TARGET_NODE` ID from this branch.
             - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
             - Set `next_node_id` to the `TARGET_NODE` ID.
-            - **Special LMP Date Handling**: If the current active node was asking for LMP date confirmation AND user provided a valid date (MM/DD/YYYY): Calculate gestational age/trimester from the provided date to `Current Date`. Modify the `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester! [Continue with target node instruction text if applicable, otherwise use a suitable closing statement.]". Add gestational age/trimester to `state_updates`.
+            - **Special LMP Date Handling**: 
+            If the current active node was asking for LMP date confirmation AND user provided a valid date (MM/DD/YYYY): Calculate gestational age/trimester from the provided date to `Current Date {current_date}`. Modify the `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester!". Add gestational age/trimester to `state_updates`.
 
         - **If the User Message IS NOT a direct response (New Topic):**
             - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
