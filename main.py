@@ -11735,10 +11735,10 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             "last_name": patient.last_name,
             "date_of_birth": patient.date_of_birth,
             "gender": patient.gender,
-            "phone": patient.phone,
             "email": patient.email,
     
         }
+            #  "phone": patient.phone,
             # "address": patient.address,
             # "insurance_provider": patient.insurance_provider,
             # "insurance_id": patient.insurance_id,
