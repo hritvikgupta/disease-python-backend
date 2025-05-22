@@ -79,6 +79,7 @@ from llama_index.llms.openai import OpenAI
 import logging
 # from google import genai
 # from google.genai import types
+nest_asyncio.apply()
 
 from dotenv import load_dotenv
 load_dotenv()
