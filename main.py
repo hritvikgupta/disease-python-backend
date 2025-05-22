@@ -12236,22 +12236,22 @@ Instructions:
 
 2.  **Determine Conversation State & Next Action (If Profile Complete):**
     *   If the `Patient Profile` is complete (no required fields missing):
-        *   **Case A: Start of Conversation:** If `Conversation History` is empty, always use the instruction from the "**Menu-Items**" node in `Structured Flow Instructions` as the response. Set `next_node_id` to the ID of the "**Menu-Items**" node.
-        *   **Case B: User is Responding to the Last Question:** If `Conversation History` is NOT empty, identify the exact question or prompt text from the Assistant's *last message*.
-            *   Check if the `User Message` provides a direct answer or selection to that specific last question (e.g., 'Y', 'N', 'yes', 'no', a letter like 'A' or 'E', a specific word like 'Bleeding', a date like 'MM/DD/YYYY').
-            *   If the `User Message` IS a direct response matching the type expected by the last question:
-                *   Locate the instruction text of the Assistant's last message within the `Structured Flow Instructions` (`flow_instruction_context`).
-                *   Find the specific branching logic (`–– If X (Meaning) –– (next_node_id: Y)`) within that instruction text that matches the `User Message`'s direct response.
-                *   Identify the `next_node_id` specified in this matching branching logic.
-                *   Retrieve the instruction text associated with this identified `next_node_id` from `Structured Flow Instructions`.
-                *   Formulate a natural, friendly response based *specifically* on the instruction text of this identified next node. This is the content for the `content` field in the output JSON.
-                *   Set the `next_node_id` in the output JSON to this identified `next_node_id`.
-                *   *Special Handling for LMP Date:* If the identified next node was reached because the user provided a valid date (MM/DD/YYYY, not after {current_date}) in response to being asked for their LMP:
-                    *   Calculate the estimated gestational age in weeks from the provided LMP date to the `Current Date`.
-                    *   Determine the trimester based on the calculated weeks (≤12 weeks: First, 13-27 weeks: Second, ≥28 weeks: Third).
-                    *   Include the gestational age (in weeks) and trimester in the `content` of your response (e.g., "Okay, thanks! Based on your LMP of MM/DD/YYYY, you're about X weeks along, in your Y trimester!").
-                    *   Add `{{ "gestational_age_weeks": X, "trimester": "Y" }}` to the `state_updates` object.
-            *   If the `User Message` is NOT a direct response to the last question (i.e., the user is introducing a new topic):
+        *   **Case A: Start of Conversation:** If `Conversation History` is empty, always use the instruction from the "**Menu-Items**" node in `Structured Flow Instructions` as the response. Set `next_node_id` to the ID of the "**Menu-Items**" node found in `Structured Flow Instructions`.
+        *   **Case B: User is Responding or Starting a New Topic:** If `Conversation History` is NOT empty, first identify the exact question or prompt text from the Assistant's *immediately preceding message*.
+            *   **Subcase B1: User Provided a Direct Response to the Previous Question.** Check if the `User Message` provides a direct, clear answer or selection (like 'Y', 'N', 'yes', 'no', a letter 'A'-'K', a symptom word, or a date) that directly addresses the *last question asked by the Assistant*.
+                *   If YES, the `User Message` IS a direct response:
+                    *   Find the node in `Structured Flow Instructions` (`flow_instruction_context`) whose instruction text most closely matches the Assistant's *last message*. This is the current active flow node.
+                    *   Within the instruction text of this active flow node, look for the specific branching logic lines (`–– If X (Meaning) –– (next_node_id: Y)`) that correspond to the `User Message`'s content or meaning.
+                    *   **CRITICAL:** Identify the `next_node_id` (Y) specified in the *matching branching logic line*. This is the *only* correct next node based on the flow definition.
+                    *   Retrieve the instruction text associated with this identified `next_node_id` from `Structured Flow Instructions`.
+                    *   Formulate a natural, friendly response based *specifically* on the instruction text of this identified next node. This is the main part of the `content` field.
+                    *   Set the `next_node_id` in the output JSON to this identified `next_node_id`.
+                    *   *Special Handling for LMP Date:* If the *current* active flow node (the one whose instruction matched the *last assistant message*) was the one asking for the LMP date ("Do you know this date?" or "Please reply in this format: MM/DD/YYYY"), AND the `User Message` contains a valid date in MM/DD/YYYY format (and is not after {current_date}):
+                        *   Calculate the estimated gestational age in weeks from the provided date to the `Current Date {current_date}`.
+                        *   Determine the trimester based on the calculated weeks (≤12 weeks: First, 13-27 weeks: Second, ≥28 weeks: Third).
+                        *   **IMMEDIATELY include the calculated gestational age (in weeks) and trimester in the `content` of your response, integrated naturally with the text from the identified next node's instruction.** (e.g., "Okay, thanks! Based on your LMP of MM/DD/YYYY, you're about X weeks along, in your Y trimester! Followed by text from the *next* node instruction...").
+                        *   Add `{{ "gestational_age_weeks": X, "trimester": "Y" }}` to the `state_updates` object.
+            *   **Subcase B2: User Introduced a New Topic.** If the `User Message` does NOT provide a direct response to the last question (i.e., the user changed the subject or asked something new):
                 *   Analyze the `User Message` to understand the new intent or topic (e.g., "symptoms", "appointment", specific medical term).
                 *   Scan the `Structured Flow Instructions` (`flow_instruction_context`) for a starting node or branch that directly relates to this new intent (e.g., find the node for "Symptoms-related help" or "Symptom-Triage" if the user mentions symptoms).
                 *   Scan the `Document Content` (`document_context_section`) for highly relevant information about the new topic, particularly looking for specific details, resources, phone numbers, URLs, medical information, or treatment options.
@@ -12259,7 +12259,7 @@ Instructions:
                     *   If a strong flow match is found for the new topic: Use the instruction text of that matching flow node to begin that conversation branch. Set `next_node_id` to that matching node's ID.
                     *   If no strong flow match, but `Document Content` is highly relevant: Use the information from the document to answer the user's question. **Ensure ANY specific resources (URLs, phone numbers, contact info, medication names, treatment options) found in the document content are included VERBATIM in your `content` response.** Set `next_node_id` to null or the current node ID from `session_data`.
                     *   If neither provides a strong relevant response: Provide a general, friendly response acknowledging the message and offering further assistance or gently trying to steer back to the main flow options (e.g., "I can help with that! Could you tell me more about what you need?" or "Okay, I understand. Would you like to go back to the main options?"). Set `next_node_id` to null or the current node ID from `session_data`.
-                    
+
 3. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
    - Avoid robotic phrases like "Processing node" or "Moving to next step."
