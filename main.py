@@ -10373,13 +10373,1220 @@ Current Flow Instructions:
             detail=f"Failed to generate flow documentation: {str(e)}"
         )
     
+# @app.post("/api/patient_onboarding")
+# async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
+#     try:
+#         print("\n==== STARTING PATIENT ONBOARDING/CHAT ====")
+#         from llama_index.retrievers.bm25 import BM25Retriever
+#         from llama_index.core import StorageContext, load_index_from_storage
+#         import os
+
+#         # Request validation
+#         message = request.get("message", "").strip()
+#         sessionId = request.get("sessionId", "")
+#         patientId = request.get("patientId", "")
+#         assistantId = request.get("assistantId", "")
+#         flow_id = request.get("flow_id", "")
+#         session_data = request.get("session_data", {})
+#         previous_messages = request.get("previous_messages", [])
+#         flow_instructions = request.get("flow_instructions")
+#         patient_history = request.get("patient_history", "")
+#         print(f"[PATIENT HISTORY], {patient_history}")
+
+#         if not message:
+#             raise HTTPException(status_code=400, detail="Message is required")
+#         if not sessionId:
+#             raise HTTPException(status_code=400, detail="Session ID is required")
+#         if not patientId:
+#             raise HTTPException(status_code=400, detail="Patient ID is required")
+#         if not assistantId:
+#             raise HTTPException(status_code=400, detail="Assistant ID is required")
+#         if not flow_id:
+#             raise HTTPException(status_code=400, detail="Flow ID is required")
+
+#         # --- Import BM25Retriever and RetrieverQueryEngine ---
+#         from llama_index.retrievers.bm25 import BM25Retriever
+#         from llama_index.core.query_engine import RetrieverQueryEngine
+#         # ----------------------------------------------------
+#         query_to_use = message
+#         if previous_messages:
+#             print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
+#             context_messages = previous_messages[-4:] # Get last 3 messages
+
+#             context_str = "Conversation history:\n"
+#             for msg_obj in context_messages:
+#                  role = msg_obj.get('role', 'unknown').capitalize()
+#                  content = msg_obj.get('content', 'N/A')
+#                  context_str += f"{role}: {content}\n"
+
+#             # Combine context with the current message to form the query
+#             # Structure the query to help the retriever understand it's a follow-up
+#             query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
+
+#             print(f"Augmented Query for Retrieval:\n{query_to_use}")
+#         else:
+#             print("No previous messages found. Using original message for retrieval.")
+#             # query_to_use remains the original message
+
+
+
+#         if flow_instructions == "indexed" and assistantId:
+#             try:
+#                 # Define the persist directory path for this assistant's flow instructions
+#                 base_dir = os.path.abspath(os.path.dirname(__file__))
+#                 persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+
+#                 print(f"Attempting to load index from: {persist_dir}")
+
+#                 # Check if the directory exists
+#                 if os.path.exists(persist_dir):
+#                     # Load the storage context from the persist directory
+#                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+
+#                     # Load the index from storage
+#                     print("Loading index from storage...")
+#                     index = load_index_from_storage(storage_context)
+#                     print("Index loaded successfully.")
+
+#                     # --- Create the BM25 Retriever ---
+#                     # Retrieve all nodes from the index's document store to build the BM25 index over them.
+#                     all_nodes = list(index.docstore.docs.values())
+
+#                     bm25_retriever = None # Initialize to None
+#                     if not all_nodes:
+#                         print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
+#                     else:
+#                         # Use from_defaults with the retrieved nodes
+#                         print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
+#                         # Set similarity_top_k here when creating the retriever instance
+#                         bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
+#                         print("BM25Retriever built.")
+
+#                     # --- Create a query engine ---
+#                     # Use RetrieverQueryEngine directly when using a custom retriever
+#                     query_engine = None # Initialize query_engine
+
+#                     if bm25_retriever:
+#                         # Create the query engine using the custom BM25 retriever
+#                         # RetrieverQueryEngine will use the default LLM from Settings for synthesis
+#                         print("Creating query engine using BM25Retriever...")
+#                         query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
+#                     else:
+#                         # Fallback: If BM25 failed to build, use the index's default vector retriever
+#                         print("Falling back to creating query engine using default VectorRetriever...")
+#                         # Use index.as_query_engine() which wraps the default vector retriever
+#                         query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
+
+#                     if query_engine is None:
+#                         raise ValueError("Failed to create any query engine (BM25 or default).")
+
+
+#                     # --- Keep the rest of the query logic ---
+#                     print(f"Querying index with message: '{message}'")
+#                     response = query_engine.query(message)
+
+#                     retrieved_text = response.response
+#                     source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
+
+#                     print(f"Successfully queried index for assistant: {assistantId}")
+#                     print(f"LLM Synthesized Response: {retrieved_text}")
+
+#                     print("\n--- Retrieved Source Nodes ---")
+#                     if source_nodes:
+#                         retrieved_texts = []
+#                         # Check if nodes have scores before trying to format
+#                         score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
+#                         for i, node_with_score in enumerate(source_nodes):
+#                             score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
+#                             retrieved_texts.append(node_with_score.node.text)
+#                             # print(f"Node {i+1}{score_str}:")
+#                             # print(node_with_score.node.text)
+#                             # print("-" * 20)
+#                     else:
+#                         print("No source nodes were retrieved by the retriever.")
+#                     print("----------------------------\n")
+
+#                     # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
+#                     flow_instructions = "\n---\n".join(retrieved_texts)
+
+#                 else:
+#                     print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
+#                     flow_instructions = "No indexed flow instructions found."
+
+#             except Exception as e:
+#                 print(f"Error retrieving indexed flow instructions: {str(e)}")
+#                 # Ensure traceback is imported if you use it
+#                 # print(f"Stacktrace: {traceback.format_exc()}")
+#                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
+
+#         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
+#         # Get patient profile directly from Patient table
+#         patient = db.query(Patient).filter(Patient.id == patientId).first()
+#         if not patient:
+#             raise HTTPException(status_code=404, detail="Patient not found")
+#         patient_dict = {
+#             "id": patient.id,
+#             "mrn": patient.mrn,
+#             "first_name": patient.first_name,
+#             "last_name": patient.last_name,
+#             "date_of_birth": patient.date_of_birth,
+#             "gender": patient.gender,
+#             "phone": patient.phone,
+#             "email": patient.email,
+#             "address": patient.address,
+#             "insurance_provider": patient.insurance_provider,
+#             "insurance_id": patient.insurance_id,
+#             "primary_care_provider": patient.primary_care_provider,
+#             "emergency_contact_name": patient.emergency_contact_name,
+#             "emergency_contact_phone": patient.emergency_contact_phone,
+#             "organization_id": patient.organization_id,
+#             "created_at": patient.created_at.isoformat() if patient.created_at else None,
+#             "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+#         }
+#         patient_fields = json.dumps(patient_dict, indent=2)
+
+#         # Format conversation history
+#         conversation_history = ""
+#         for msg in previous_messages:
+#             role = msg.get("role", "unknown")
+#             content = msg.get("content", "")
+#             conversation_history += f"{role}: {content}\n"
+
+#         # Current date
+#         eastern = pytz.timezone('America/New_York')
+#         current_date = datetime.now(eastern).date().strftime('%m/%d/%Y')
+
+#         # Load flow index
+#         if flow_id not in app.state.flow_indices:
+#             bucket = storage_client.bucket(BUCKET_NAME)
+#             meta_file = f"temp_flow_{flow_id}_meta.pkl"
+#             blob = bucket.blob(f"flow_metadata/{flow_id}_meta.pkl")
+#             try:
+#                 blob.download_to_filename(meta_file)
+#                 with open(meta_file, "rb") as f:
+#                     metadata = pickle.load(f)
+#                 os.remove(meta_file)
+#             except Exception as e:
+#                 print(f"Failed to load flow index metadata: {str(e)}")
+#                 return {
+#                     "error": "Flow knowledge index not found",
+#                     "content": "I'm having trouble processing your request."
+#                 }
+
+#             temp_dir = f"temp_flow_{flow_id}"
+#             os.makedirs(temp_dir, exist_ok=True)
+#             for blob in bucket.list_blobs(prefix=f"flow_indices/{flow_id}/"):
+#                 local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
+#                 blob.download_to_filename(local_path)
+
+#             collection_name = metadata["collection_name"]
+#             try:
+#                 chroma_collection = chroma_client.get_collection(collection_name)
+#                 print(f"Found existing Chroma collection {collection_name}")
+#             except chromadb.errors.InvalidCollectionException:
+#                 print(f"Creating new Chroma collection {collection_name}")
+#                 chroma_collection = chroma_client.create_collection(collection_name)
+#             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+
+#             storage_context = StorageContext.from_defaults(
+#                 persist_dir=temp_dir, vector_store=vector_store
+#             )
+#             # Use load_index_from_storage instead of VectorStoreIndex.load_from_storage
+#             flow_index = load_index_from_storage(storage_context)
+#             app.state.flow_indices[flow_id] = flow_index
+#             shutil.rmtree(temp_dir)
+#         else:
+#             flow_index = app.state.flow_indices[flow_id]
+
+#         # Get current node
+#         current_node_id = session_data.get('currentNodeId')
+#         current_node_doc = ""
+#         # if current_node_id:
+#         #     try:
+#         #         # Create basic retriever with no filters
+#         #         retriever = flow_index.as_retriever(similarity_top_k=10)
+                
+#         #         # Query directly for the node ID as text
+#         #         query_str = f"NODE ID: {current_node_id}"
+#         #         print(f"Querying for: '{query_str}'")
+                
+#         #         # Use the most basic retrieval pattern
+#         #         node_docs = retriever.retrieve(query_str)
+                
+#         #         # Check if we got any results
+#         #         if node_docs:
+#         #             # Find exact match for node_id in results
+#         #             exact_matches = [
+#         #                 doc for doc in node_docs 
+#         #                 if doc.metadata and doc.metadata.get("node_id") == current_node_id
+#         #             ]
+                    
+#         #             if exact_matches:
+#         #                 current_node_doc = exact_matches[0].get_content()
+#         #                 print(f"Found exact match for node {current_node_id}")
+#         #             else:
+#         #                 # Just use the top result
+#         #                 current_node_doc = node_docs[0].get_content()
+#         #                 print(f"No exact match, using top result")
+                    
+#         #             print(f"Retrieved document for node {current_node_id}: {current_node_doc[:100]}...")
+#         #         else:
+#         #             print(f"No document found for node {current_node_id}")
+#         #             current_node_doc = "No specific node instructions available."
+#         #     except Exception as e:
+#         #         print(f"Error retrieving node document: {str(e)}")
+#         #         current_node_doc = "Error retrieving node instructions."
+#         # elif not previous_messages:
+#         #     starting_node_id, starting_node_doc = get_starting_node(flow_index)
+#         #     if starting_node_id:
+#         #         current_node_id = starting_node_id
+#         #         current_node_doc = starting_node_doc
+#         #         print(f"[STARTING NODE] {current_node_id, current_node_doc}")
+#         #     else:
+#         #         current_node_id = None
+#         #         current_node_doc = "No starting node found."
+       
+       
+#         print('[CURRENT NODE DOC]', current_node_doc)
+#         # Load document index
+#         document_context = ""
+#         document_retriever = None
+#         if assistantId and assistantId not in app.state.document_indexes:
+#             bucket = storage_client.bucket(BUCKET_NAME)
+#             meta_file = f"temp_doc_{assistantId}_meta.pkl"
+#             blob = bucket.blob(f"document_metadata/{assistantId}_meta.pkl")
+#             try:
+#                 blob.download_to_filename(meta_file)
+#                 with open(meta_file, "rb") as f:
+#                     metadata = pickle.load(f)
+#                 os.remove(meta_file)
+#                 temp_dir = f"temp_doc_{assistantId}"
+#                 os.makedirs(temp_dir, exist_ok=True)
+#                 for blob in bucket.list_blobs(prefix=f"document_indices/{assistantId}/"):
+#                     local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
+#                     blob.download_to_filename(local_path)
+#                 collection_name = metadata["collection_name"]
+#                 print("DEBUG: Entering Chroma collection block for documents")
+#                 try:
+#                     chroma_collection = chroma_client.get_collection(collection_name)
+#                     print(f"Found existing Chroma collection {collection_name} for document index")
+#                 except chromadb.errors.InvalidCollectionException:
+#                     print(f"Creating new Chroma collection {collection_name} for document index")
+#                     chroma_collection = chroma_client.create_collection(collection_name)
+#                 vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+
+#                 storage_context = StorageContext.from_defaults(
+#                     persist_dir=temp_dir, vector_store=vector_store
+#                 )
+#                 # Use load_index_from_storage instead of VectorStoreIndex.load_from_storage
+#                 document_index = load_index_from_storage(storage_context)
+#                 document_retriever = document_index.as_retriever(similarity_top_k=20)
+#                 app.state.document_indexes[assistantId] = {
+#                     "index": document_index,
+#                     "retriever": document_retriever,
+#                     "created_at": metadata["created_at"],
+#                     "document_count": metadata["document_count"],
+#                     "node_count": metadata["node_count"]
+#                 }
+#                 shutil.rmtree(temp_dir)
+#             except Exception as e:
+#                 print(f"Document index not found: {str(e)}")
+#         else:
+#             document_retriever = app.state.document_indexes.get(assistantId, {}).get("retriever")
+
+#         query_for_doc = message
+#         if previous_messages:
+#             context_messages = previous_messages[-4:] # Get last 3 messages
+
+#             context_str = "Conversation history:\n"
+#             for msg_obj in context_messages:
+#                  role = msg_obj.get('role', 'unknown').capitalize()
+#                  content = msg_obj.get('content', 'N/A')
+#                  context_str += f"{role}: {content}\n"
+
+#             # Combine context with the current message to form the query
+#             # Structure the query to help the retriever understand it's a follow-up
+#             query_for_doc = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant context you can reterive?"
+
+#             print(f"Document Augmented Query for Retrieval:\n{query_for_doc}")
+#         else:
+#             print("No previous messages found. Using original message for retrieval.")
+#             # query_to_use remains the original message
+
+
+#         if document_retriever:
+#             print(f"Retrieving documents for query: '{message}'")
+#             retrieved_nodes = document_retriever.retrieve(message)
+#             document_text = ""
+#             if retrieved_nodes:
+#                 try:
+#                     node_objs = [n.node for n in retrieved_nodes]
+#                     if len(node_objs) > 1:
+#                         print(f"Applying BM25 reranking to {len(node_objs)} nodes")
+#                         bm25_retriever = BM25Retriever.from_defaults(
+#                             nodes=node_objs, 
+#                             similarity_top_k=min(5, len(node_objs))
+#                         )
+#                         reranked_nodes = bm25_retriever.retrieve(message)
+#                         document_text = "\n\n".join([n.node.get_content() for n in reranked_nodes])
+#                     else:
+#                         document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#                 except Exception as e:
+#                     print(f"BM25 reranking failed: {str(e)}, using vector results")
+#                     document_text = "\n\n".join([n.node.get_content() for n in retrieved_nodes])
+#             document_context = f"Relevant Document Content:\n{document_text}" if document_text else ""
+#             print(f"Document retrieval complete, found content with {len(document_context)} characters")
+#         else:
+#             print("No document retriever available, proceeding without document context")
+
+#         print('[DOCUMENT CONTEXT]', document_context[:200])
+
+# #         flow_instruction_context=  f"""
+# # # Current Flow Instructions:
+
+# # • **Onboarding**
+# #   Initial patient enrollment with four main branches:
+# #   - Pregnancy Preference Unknown
+# #   - Desired Pregnancy Preference
+# #   - Undesired/Unsure Pregnancy Preference
+# #   - Early Pregnancy Loss
+# #   Final pathways to either Offboarding or Program Archived
+
+# # • **Follow-Up Confirmation of Pregnancy Survey**
+# #   "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. 
+# #   Have you had a moment to take your home pregnancy test?"
+# #   Reply Y or N
+
+# #   [If Y] "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "Were the results positive? Reply Y or N"
+
+# #   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP).
+# #   Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+
+# #   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+
+# #   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
+# #   Stay tuned for your estimated gestational age, we're calculating it now."
+# #   [LMP Updated]
+# #   [Update LMP on dashboard]
+
+# #   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+
+# #   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
+
+# #   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
+# #   Stay tuned for your estimated gestational age, we're calculating it now."
+# #   [EDD Updated]
+# #   [Update EDD on dashboard]
+
+# #   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+
+# #   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+
+# #   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+# #   [LMP Unknown]
+# #   [Low – No Alert to Penn]
+
+# #   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+
+# #   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+# #   [Archive Patient]
+# #   [Patient not pregnant]
+# #   [No Alert to Penn]
+
+# # • **Pregnancy Test Results NLP Survey**
+# #   "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "Were the results positive? Reply Y or N"
+
+# #   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+
+# #   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+
+# #   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+# #   [LMP Updated]
+# #   [Update LMP on dashboard]
+
+# #   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+
+# #   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
+
+# #   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+# #   [EDD Updated]
+# #   [Update EDD on dashboard]
+
+# #   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+
+# #   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+
+# #   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+# #   [LMP Unknown]
+# #   [Low – No Alert to Penn]
+
+# #   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+
+# #   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+# #   [Archive Patient]
+# #   [Patient not pregnant]
+# #   [No Alert to Penn]
+
+# # • **Pregnancy Intention Survey**
+# #   "$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all.
+
+# #   I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
+
+# #   [If A - Excited] "Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+# #   [Excited about being pregnant]
+# #   [Low - no alert to Penn]
+
+# #   [If B - Not sure] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+# #   [Not sure about being pregnant]
+# #   [Low - no alert to Penn]
+
+# #   [If C - Not excited] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+# #   [Not Excited about being pregnant]
+# #   [Low - no alert to Penn]
+
+# #   "Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+
+# #   [If A → A (Continuing pregnancy)] "Do you have a prenatal provider? Reply Y or N"
+# #   [EPS Desired]
+# #   [Change Early Pregnancy Preference to DESIRED]
+
+# #   [If Y] "Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
+
+# #   [If N] "It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
+# #   [7 days later]
+# #   Established Care Survey - OB
+
+# #   [If Any → B (Options)] "We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
+# #   [EPS Unsure]
+# #   [Change Early Pregnancy Preference to UNSURE]
+# #   [4 days later]
+# #   Established Care Survey - PEACE
+
+# #   [If Any → C (Abortion)] "Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
+# #   [EPS Undesired]
+# #   [Change Early Pregnancy Preference to UNDESIRED / UNSURE]
+# #   [4 days later]
+# #   Established Care Survey - PEACE
+
+# # SYMPTOM MANAGEMENT FLOWS:
+
+# # • **Menu-Items**  
+# #   "What are you looking for today?  
+# #    A) I have a question about symptoms
+# #    B) I have a question about medications
+# #    C) I have a question about an appointment
+# #    D) Information about what to expect at a PEACE visit
+# #    E) Something else
+# #    F) Nothing at this time
+# #    Reply with just one letter."
+
+# #   [If A] "We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it’s best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+
+# #   [If B] "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+
+# #   [If C] "Unfortunately, I can’t see when your appointment is, but you can call the clinic to find out more information. If I don’t answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
+
+# #   [If D] "The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions."
+
+# #   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+
+# #   [If E] "OK, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short sentences about one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+
+# #   [If F] "OK, remember you can text this number at any time with questions or concerns."
+
+# # • **Symptom-Triage**  
+# #   "What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
+
+# # • **Vaginal Bleeding - 1st Trimester**
+# #   "Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
+
+# #   [If Y] "Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
+# #   [Patient reports heavy vaginal bleeding with previous ectopic pregnancy]
+# #   [High – Alert to Penn]
+
+# #   "Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
+
+# #   [If Y] "This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
+# #   [Patient reports heavy vaginal bleeding]
+# #   [High – Alert to Penn]
+
+# #   "Are you in any pain or cramping? Reply Y or N"
+
+# #   [If Y] "Have you been to the ER during this pregnancy? Reply Y or N"
+
+# #   [If Y] "Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance."
+# #   [Ongoing symptoms post ER visit]
+# #   [Medium – Alert to Penn]
+# #   [EPS ER Visit becomes TRUE for ER visit this pregnancy]
+
+# #   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department."
+# #   [Patient reports light vaginal bleeding with cramps]
+# #   [Medium – Alert to Penn]
+
+# #   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note."
+# #   [Patient reports light vaginal bleeding (no cramps)]
+# #   [Low – Alert to Penn]
+
+# #   "If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+# #   [Follow-up: 24 hours later]
+# #   Vaginal Bleeding – 1st Trimester Follow-up
+
+# # • **Vaginal Bleeding - Follow-up**
+# #   "Hey $patient_firstname, just checking on you. How's your vaginal bleeding today? A) Stopped B) Stayed the same C) Gotten heavier Reply with just one letter"
+
+# #   [If A - Stopped] "We're glad to hear it. If anything changes - especially if you begin filling 4 or more super pads in two hours, go to your local ER."
+# #   [Patient reports stopped bleeding]
+# #   [Low - No alert to Penn]
+
+# #   [If B - Same] "Thanks for sharing—we're sorry to hear your situation hasn't improved. Since your vaginal bleeding has lasted longer than a day, we recommend you call your OB/GYN or $clinic_phone$ and ask for the Early Pregnancy Access Center. If you do not feel well or you're having a medical emergency - especially if you've filled 4 or more super pads in two hours -- go to your local ER."
+# #   [Patient reports persistent vaginal bleeding]
+# #   [Low - Alert to Penn]
+
+# #   [If C - Heavier] "Sorry to hear that. Thanks for sharing. Since your vaginal bleeding has lasted longer than a day, and has increased, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+# #   [Patient reports increased vaginal bleeding]
+# #   [Medium - Alert to Penn]
+
+# # • **Nausea - 1st Trimester**
+# #   "We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
+
+# #   [If Y] "OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans."
+
+# #   [If N] "OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back."
+# #   [Patient reports nausea with 24 hrs no foods or liquids staying down]
+# #   [Medium – Alert to Penn]
+
+# #   "If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
+# #   [Follow-up scheduled: Nausea 1st Trimester Follow-up]
+
+# # • **Nausea - 1st Trimester Follow-up**
+# #   "Hey $patient_firstname, just checking on you. How's your nausea today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+
+# #   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you."
+# #   [Patient reports nausea better]
+# #   [Low - No alert to Penn]
+
+# #   [If B] "Thanks for sharing—Sorry you aren't feeling better yet, but we're glad to hear you could keep a little down. Would you like us to check on you tomorrow as well? Reply Y or N"
+# #   [Patient reports nausea staying the same]
+# #   [Low - No alert to Penn]
+
+# #   [If Y] "OK. We're here to help. Let us know if anything changes."
+# #   [Follow-up in 24 hours]
+
+# #   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. There are safe ways to treat this, so don't wait. If you're not feeling well or have a medical emergency, visit your local ER."
+
+# #   [If C] "Have you kept food or drinks down since I last checked in? Reply Y or N"
+
+# #   [If N] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please visit your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+# #   [Patient reports worsening nausea with 24 hrs no food/liquid]
+# #   [Medium – Alert to Penn]
+
+# # • **Vomiting - 1st Trimester**
+# #   "Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] TRIGGER 2ND NODE → NAUSEA TRIAGE
+
+# # • **Vomiting - 1st Trimester Follow-up**
+# #   "Checking on you, $patient_firstname. How's your vomiting today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+
+# #   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you have not seen an OB yet. Don't wait—there are safe treatment options for you."
+# #   [Patient reports vomiting better]
+# #   [Low - No alert to Penn]
+
+# #   [If B] "Thanks for sharing—Sorry you aren't feeling better yet. Would you like us to check on you tomorrow as well? Reply Y or N"
+# #   [Patient reports vomiting staying the same]
+# #   [Low - No alert to Penn]
+
+# #   [If Y] "OK. We're here to help. Let us know if anything changes."
+
+# #   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. If you're not feeling well or have a medical emergency, visit your local ER."
+
+# #   [If C] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+# #   [Patient reports worsening vomiting with >24 hrs no foods or liquids staying down]
+# #   [Medium – Alert to Penn]
+
+# # • **Pain - Early Pregnancy**
+# #   "We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
+# #   [Patient reports pain]
+# #   [Low - No Alert to Penn]
+
+# # • **Ectopic Pregnancy Concern**
+# #   "We're sorry to hear this. It sounds like you're concerned about an ectopic pregnancy, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
+# #   [Patient reports possible ectopic pregnancy]
+# #   [Low - No Alert to Penn]
+
+# # • **Menstrual Period Concern**
+# #   "It sounds like you're concerned about your menstrual period, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "EPS Vaginal Bleeding (First Trimester) Let me ask you a few more questions about your medical history to determine the next best steps."
+# #   [Patient reports menstrual period]
+# #   [Low - No Alert to Penn]
+
+# # PREGNANCY DECISION SUPPORT FLOWS:
+
+# # • **Possible Early Pregnancy Loss**
+# #   "It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
+
+# #   [If A] "We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
+# #   [Patient reports confirmed early pregnancy loss]
+# #   [High – Alert to Penn & Scheduling]
+# #   [Turn on Early Pregnancy Loss tip program]
+# #   [Updating enrollment field with today's date]
+
+# #   [If B] Trigger Vaginal Bleeding – 1st Trimester
+# #   [Patient reports possible early pregnancy loss]
+# #   [Low – No Alert to Penn]
+
+# #   [If C] "Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
+# #   Trigger Vaginal Bleeding – 1st Trimester
+# #   [Patient reports possible early pregnancy loss]
+# #   [Low – No Alert to Penn]
+
+# # • **Undesired Pregnancy - Desires Abortion**
+# #   "It sounds like you want to get connected to care for an abortion, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$ and ask to be connected to the PEACE clinic (pregnancy early access center). The clinic intake staff will answer your questions and help schedule an abortion. You can also find more information about laws in your state and how to get an abortion at AbortionFinder.org"
+# #   [Patient requesting Abortion]
+# #   [No alert to Penn]
+# #   [Turn on Undesired tip program]
+# #   [Updating enrollment field with today's date]
+
+# # • **Undesired Pregnancy - Completed Abortion**
+# #   "It sounds like you've already had an abortion, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "Caring for yourself after an abortion is important. Follow the instructions given to you. Most people can return to normal activities 1 to 2 days after the procedure. You may have cramps and light bleeding for up to 2 weeks. Call $clinic_phone$, option 5 and ask to be connected to the PEACE clinic (pregnancy early access center) if you have any questions or concerns."
+
+# #   "Being a part of your care journey has been a real privilege. On behalf of your team at Penn, we hope we've been helpful to you during this time. Since I only guide you through this brief period, I won't be available for texting after today. Remember, you have a lot of resources available from Penn AND your community right at your fingertips."
+# #   [Patient stating Completed Abortion]
+# #   [No alert to Penn]
+# #   [Archive Patient]
+
+# # • **Desired Pregnancy Survey**
+# #   "It sounds like you want to get connected to care for your pregnancy, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "That's something I can definitely do! Call $clinic_phone$ Penn OB/GYN Associates or Dickens Clinic and make an appointment. It's important to receive prenatal care early on (and throughout your pregnancy) to reduce the risk of complications and ensure that both you and your baby are healthy."
+# #   [Patient requesting to keep pregnancy]
+# #   [Low - No alert to Penn]
+# #   [Turn on Desired Pregnancy tip program]
+# #   [Updating enrollment field with today's date]
+
+# # • **Unsure About Pregnancy Survey**
+# #   "Becoming a parent is a big step. Deciding if you want to continue a pregnancy is a personal decision. Talking openly and honestly with your partner or healthcare team is key. We're here for you. You can also try some thought work here: https://www.pregnancyoptions.info/pregnancy-options-workbook Would you like to get connected to care to discuss your options for pregnancy, is that correct? Reply Y or N"
+
+# #   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+# #   [If Y] "Few decisions are greater than this one, but we've got your back. The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$, and ask to be scheduled in the PEACE clinic (pregnancy early access center). They are here to support you no matter what you choose."
+# #   [Patient unsure about pregnancy]
+# #   [Low - No alert to Penn]
+# #   [Turn on EPS Unsure tip program]
+# #   [Updating enrollment field with today's date]
+
+# # POSTPARTUM SUPPORT FLOWS:
+
+# # • **Postpartum Onboarding – Week 1**
+# #   "Hi $patient_firstname$, congratulations on your new baby! Let's get started with a few short messages to support you and your newborn. You can always reply STOP to stop receiving messages."
+# #   [DAY: 0, TIME: 8 AM]
+
+# #   "Feeding your baby is one of the most important parts of newborn care. Feeding your baby at least 8-12 times every 24 hours is normal and important to support their growth. You may need to wake your baby to feed if they're sleepy or jaundiced."
+# #   [DAY: 0, TIME: 12 PM]
+
+# #   "It's important to keep track of your baby's output (wet and dirty diapers) to know they're feeding well. By the time your baby is 5 days old, they should have 5+ wet diapers and 3+ poops per day."
+# #   [DAY: 0, TIME: 4 PM]
+
+# #   "Jaundice is common in newborns and usually goes away on its own. Signs of jaundice include yellowing of the skin or eyes. If you're worried or if your baby isn't feeding well or is hard to wake up, call your pediatrician or visit the ER."
+# #   [DAY: 0, TIME: 8 PM]
+
+# #   "Schedule a pediatrician visit. [Add scheduling link or instructions]"
+# #   [DAY: 1, TIME: 8 AM]
+
+# #   "Hi $patient_firstname$, following up to check on how you're feeling after delivery. The postpartum period is a time of recovery, both physically and emotionally. It's normal to feel tired, sore, or even overwhelmed. You're not alone. Let us know if you need support."
+# #   [DAY: 1, TIME: 12 PM]
+
+# #   "Some symptoms may require urgent care. If you experience chest pain, heavy bleeding, or trouble breathing, call 911 or go to the ER. For other questions or concerns, message us anytime."
+# #   [DAY: 1, TIME: 4 PM]
+
+# # • **Postpartum Onboarding – Week 2**
+# #   "Hi $patient_firstname$, checking in to see how things are going now that your baby is about a week old. We shared some helpful info last week and want to make sure you're doing okay."
+# #   [DAY: 7, TIME: 8 AM]
+
+# #   "Hi there—feeling different emotions after delivery is common. You may feel joy, sadness, or both. About 80% of people experience the 'baby blues,' which typically go away in a couple of weeks. If you're not feeling well emotionally or have thoughts of hurting yourself or others, please reach out for help."
+# #   [DAY: 7, TIME: 12 PM]
+
+# #   "Experts recommend always placing your baby on their back to sleep, in a crib or bassinet without blankets, pillows, or stuffed toys. This reduces the risk of SIDS (Sudden Infant Death Syndrome)."
+# #   [DAY: 7, TIME: 4 PM]
+
+# #   "Reminder to schedule your postpartum check-in."
+# #   [DAY: 9, TIME: 8 AM]
+
+# #   "Diaper rash is common. It can usually be treated with diaper cream and frequent diaper changes. If your baby develops a rash that doesn't go away or seems painful, call your pediatrician."
+# #   [DAY: 9, TIME: 12 PM]
+
+# #   "Hi $patient_firstname$, checking in again—how is feeding going? Breastfeeding can be challenging at times. It's okay to ask for help from a lactation consultant or your provider. Let us know if you have questions."
+# #   [DAY: 9, TIME: 4 PM]
+
+# #   "Hi $patient_firstname$, just a quick note about contraception. You can get pregnant again even if you haven't gotten your period yet. If you're not ready to be pregnant again soon, it's important to consider your birth control options. Talk to your provider to learn what's right for you."
+# #   [DAY: 10, TIME: 12 PM]
+
+# #   "Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources."
+# #   [DAY: 10, TIME: 5 PM]
+
+# # EMERGENCY SITUATION MANAGEMENT:
+
+# # • **Emergency Room Survey**
+# #   "It sounds like you are telling me about an emergency. Are you currently in the ER (or on your way)? Reply Y or N"
+
+# #   [If Y] "We're sorry to hear and thanks for sharing. Glad you're seeking care. Please let us know if there's anything we can do for you."
+# #   [High Alert: Current ER Visit]
+# #   [Patient has reported a current emergency room visit]
+# #   [High alert to Penn]
+# #   [Checkbox becomes TRUE for ER visit this pregnancy]
+
+# #   [If N] "Were you recently discharged from an emergency room visit?"
+
+# #   [If Y] "We're sorry to hear about your visit. To help your care team stay in the loop, would you like us to pass on any info? No worries if not, just reply 'no'."
+# #   "Let us know if you need anything else."
+# #   [High Alert: Recent ER Visit]
+# #   [Patient has reported a recent emergency room visit]
+# #   [High alert to Penn]
+# #   [Checkbox becomes TRUE for ER visit this pregnancy]
+
+# #   [If N] "If you're not feeling well or have a medical emergency, go to your local ER. If I misunderstood your message, try rephrasing & using short sentences. You may also reply MENU for a list of support options."
+
+# # EVALUATION SURVEYS:
+
+# # • **Pre-Program Impact Survey**
+# #   "Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy."
+
+# #   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+# #   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+# #   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+
+# # • **Post-Program Impact Survey**
+# #   "Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
+
+# #   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+# #   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+# #   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+
+# # • **NPS Quantitative Survey**
+# #   "Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
+
+# #   "On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
+
+# #   Next: → NPS Qualitative Survey
+
+# # • **NPS Qualitative Survey**
+# #   "Thanks for your response. What's the reason for your score?"
+
+# #   "Thanks, your feedback helps us improve future programs."
+
+# # MENU RESPONSES:
+
+# # • **A. Symptoms Response**
+# #   "We understand questions and concerns come up. By texting this number, you can connect with your question, and I may have an answer. This isn't an emergency line, so it's best to reach out to your doctor if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious - it's essential to seek medical attention."
+
+# # • **B. Medications Response**
+# #   "Do you have questions about: A) Medication management B) Medications that are safe in pregnancy C) Abortion medications"
+
+# #   "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+
+# # • **C. Appointment Response**
+# #   "Unfortunately, I can't see when your appointment is, but you can call the clinic to find out more information. If I don't answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you more detailed information about your appointment or general information about what to expect at a visit. Just ask me."
+
+# # • **D. PEACE Visit Response**
+# #   "The Pregnancy Early Access Center is a support team, which is here to help you make choices throughout the next steps and make sure you have all the information you need. They're like planning for judgment-free care. You can ask all your questions at your visit. You have options, you can place the baby for adoption or you can continue the pregnancy and choose to parent."
+
+# #   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+
+# # • **E. Something Else Response**
+# #   "Ok, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short questions that are on one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+
+# # • **F. Nothing Response**
+# #   "OK, remember you can text this number at any time with questions or concerns."
+
+# # ADDITIONAL INSTRUCTIONS:
+
+# # • **Always-On Q & A ON FIT**
+# #   "Always-On Q & A ON FIT - Symptom Triage (Nausea, Vomiting & Bleeding + Pregnancy Preference)"
+
+# # • **General Default Response**
+# #   "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+        
+# #         """
+       
+# #         flow_instruction_context = f"""
+# # Current Flow Instructions:
+
+# # • **Menu-Items**  
+# #   “What are you looking for today?  
+# #    1. Pregnancy test  
+# #    2. Early pregnancy-loss support  
+# #    3. Abortion  
+# #    4. Symptoms-related help  
+# #    5. Miscarriage support”
+
+# # • **Pregnancy-Test**  
+# #   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+
+# # • **LMP-Query**  
+# #   “Do you know the day of your last menstrual period?”
+
+# # • **LMP-Date**  
+# #   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+
+# # • **Symptom-Triage**  
+# #   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+
+# # –– **Bleeding branch** ––  
+# # • **Bleeding-Triage**  
+# #   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+
+# # • **Bleeding-Heavy-Check**  
+# #   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+
+# # • **Bleeding-Urgent**  
+# #   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+
+# # • **Bleeding-Pain-Check**  
+# #   “Are you experiencing any pain or cramping? Reply Y or N.”
+
+# # • **Bleeding-Advice**  
+# #   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+
+# # –– **Nausea branch** ––  
+# # • **Nausea-Triage**  
+# #   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+
+# # • **Nausea-Advice**  
+# #   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+
+# # • **Nausea-Urgent**  
+# #   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+
+# # –– **Miscarriage support** ––  
+# # • **Miscarriage-Support**  
+# #   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+
+# # • **Miscarriage-Emotions**  
+# #   “How are you feeling emotionally? I can connect you to social resources if needed.”
+
+# # • **Miscarriage-Infection**  
+# #   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+
+# # • **Call-Transfer**  
+# #   “I’m transferring you now to a specialist for further assistance.”  
+
+# # """
+        
+#         flow_instruction_context = flow_instructions
+#         # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+#         document_context_section = f"""
+# Relevant Document Content:
+# {document_context}
+
+# You are a helpful assistant tasked with providing accurate, specific, and context-aware responses. Follow these steps:
+# 1. Identify the user's intent from the message and conversation history.
+# 2. **IMPORTANT**: Scan the Relevant Document Content for any URLs, phone numbers, email addresses, medical information, or other specific resources.
+# 3. **CRITICAL REQUIREMENT**: If ANY resources like URLs, phone numbers, contact information, medication information, or treatment options are found, include them verbatim in your response.
+# 4. Generate a natural, conversational response addressing the user's query, incorporating document content as needed.
+# 5. Maintain continuity with the conversation history.
+# 6. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION, but prioritize document content for specific details.
+# 7. Do not repeat the node's INSTRUCTION verbatim; craft a friendly, relevant response.
+# 8. If no relevant document content is found, provide a helpful response based on the flow logic or general knowledge.
+# 9. Double-check that all resource links, phone numbers, medication names, and contact methods from the document context are included.
+# """ if document_context else """
+# You are a helpful assistant tasked with providing accurate and context-aware responses. Follow these steps:
+# 1. Identify the user's intent from the message and conversation history.
+# 2. Generate a natural, conversational response addressing the user's query.
+# 3. Maintain continuity with the conversation history.
+# 4. If the query matches a node in the flow logic, process it according to the node's INSTRUCTION.
+# 5. Do not repeat the node's INSTRUCTION verbatim; craft a friendly, relevant response.
+# """
+#         # LLM prompt
+#         prompt = f"""
+# You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+
+# 1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
+# 2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
+# 3. If the user's message doesn't match the current flow instructions, use document content or general knowledge to provide a helpful, relevant response.
+# 4. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
+# 5. Maintain a warm, empathetic tone, like you're talking to a friend.
+
+# Current Date (MM/DD/YYYY): {current_date}
+
+# User Message: "{message}"
+
+# Conversation History:
+# {conversation_history}
+
+# Patient ID: {patientId}
+
+# Assistant ID: {assistantId}
+
+# Flow ID: {flow_id}
+
+# Patient Profile (includes phone and organization_id):
+# {patient_fields}
+
+# Structured Flow Instructions (Use this to guide conversation flow based on user responses):
+# {flow_instruction_context}
+
+# Document Content:
+# {document_context_section}
+
+# Patient History Summary (Patient Previous Session Conversation):
+# {patient_history}
+
+# Session Data:
+# {json.dumps(session_data, indent=2)}
+
+# Instructions:
+# 1. **Check Patient Profile**:
+#    - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
+#    - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
+#    - Validate user input based on the field type:
+#      - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+#      - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
+#    - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
+#      - patient_id: {patientId}
+#      - field_name: the field (e.g., "first_name")
+#      - field_value: the validated value
+#    - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
+#    - If no fields are missing, proceed to conversation flow.
+#    - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+#    IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
+#      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
+    
+# 2. **PRIORITIZE PATIENT HISTORY - CRITICAL**:
+#    - You MUST carefully read the Patient History Summary section before responding.
+#    - This history contains crucial medical information from previous sessions.
+#    - ALWAYS acknowledge and reference previous data like:
+#      * Last menstrual period dates
+#      * Previous pregnancy test results
+#      * Reported symptoms
+#      * Medication discussions
+#      * Gestational age calculations
+#      * Other MEDICAL Related Information OR Symptoms
+#    - If a patient asks about symptoms or conditions, FIRST check if related information appears in their history.
+#    - Example: If they ask about bloating but their history mentions they're pregnant, acknowledge the pregnancy status BEFORE giving general advice.
+#    - Acknowldge the patient before asking for information that is clearly provided in the patient history (For example LMP dates if already known, or any Symptoms).
+#    - Show continuity of care by referring to previous interactions: "As we discussed in your previous visit..." or "Given your pregnancy status that we confirmed earlier..."
+
+
+# 3. **Conversation Flow**:
+#    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
+#    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
+#    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
+#    - If the user asks about medications or treatments, check the Document Content first.
+#    - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
+#    - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
+#    - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
+#    - For date-related instructions (e.g., gestational age):
+#      - Validate dates as MM/DD/YYYY, not after {current_date}.
+#      - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+#      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+#      - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
+
+# 4. **Response Style**:
+#    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
+#    - Avoid robotic phrases like "Processing node" or "Moving to next step."
+#    - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
+#    - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
+
+# 5. **Database Operations**:
+#    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
+#    - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
+
+# 6. **Flow Progression**:
+#    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
+#    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
+
+# 8. **Response Structure**:
+#    Return a JSON object:
+#    ```json
+#    {{
+#      "content": "Your friendly response to the user",
+#      "next_node_id": "ID of the next node or current node",
+#      "state_updates": {{"key": "value"}},
+#      "database_operation": {{
+#        "operation": "UPDATE_PATIENT | CREATE_PATIENT",
+#        "parameters": {{
+#          "patient_id": "string",
+#          "field_name": "string",
+#          "field_value": "string"
+#        }}
+#      }} // Optional, only when updating/creating
+#    }}
+#    ```
+
+# Examples:
+# - Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
+#   - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
+# - Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
+#   - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
+# - Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": "03/29/1996"}}, Flow: "Ask about symptoms", Message: "I have a headache"
+#   - Response: {{"content": "Sorry to hear about your headache! How long have you been feeling this way?", "next_node_id": "node_symptom_duration", "state_updates": {{}}}}
+# - Profile complete, Flow: "Ask about symptoms", Message: "Book an appointment"
+#   - Response: {{"content": "Sure thing, let's get you an appointment! When are you free?", "next_node_id": "node_appointment", "state_updates": {{}}}}
+# """
+
+#         # Call LLM
+#         response_text = Settings.llm.complete(prompt).text  # Replace with Settings.llm.complete
+#         if "```json" in response_text:
+#             response_text = response_text.split("```json")[1].split("```")[0].strip()
+#         response_data = json.loads(response_text)
+
+#         content = response_data.get("content", "I'm having trouble processing your request.")
+#         next_node_id = response_data.get("next_node_id")
+#         state_updates = response_data.get("state_updates", {})
+#         database_operation = response_data.get("database_operation")
+
+#         # Execute database operation
+#         operation_result = None
+#         if database_operation:
+#             operation = database_operation.get("operation")
+#             parameters = database_operation.get("parameters", {})
+#             try:
+#                 if operation == "UPDATE_PATIENT":
+#                     patient = db.query(Patient).filter(Patient.id == patientId).first()
+#                     if not patient:
+#                         raise HTTPException(status_code=404, detail="Patient not found")
+#                     setattr(patient, parameters["field_name"], parameters["field_value"])
+#                     patient.updated_at = datetime.utcnow()
+#                     db.commit()
+#                     db.refresh(patient)
+#                     operation_result = {
+#                         "id": patient.id,
+#                         "mrn": patient.mrn,
+#                         "first_name": patient.first_name,
+#                         "last_name": patient.last_name,
+#                         "date_of_birth": patient.date_of_birth,
+#                         "phone": patient.phone,
+#                         "organization_id": patient.organization_id
+#                     }
+#                     # Update JSON file
+#                     patient_path = f"patients/{patient.id}.json"
+#                     os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+#                     with open(patient_path, "w") as f:
+#                         patient_dict = {
+#                             "id": patient.id,
+#                             "mrn": patient.mrn,
+#                             "first_name": patient.first_name,
+#                             "last_name": patient.last_name,
+#                             "date_of_birth": patient.date_of_birth,
+#                             "phone": patient.phone,
+#                             "organization_id": patient.organization_id,
+#                             "created_at": patient.created_at.isoformat() if patient.created_at else None,
+#                             "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+#                         }
+#                         json.dump(patient_dict, f, indent=2)
+#                     content += f"\nProfile updated successfully!"
+#                 elif operation == "CREATE_PATIENT":
+#                     # Fallback if patientId is invalid; use session_data for phone/organization_id
+#                     mrn = generate_mrn()
+#                     patient = Patient(
+#                         id=str(uuid.uuid4()),
+#                         mrn=mrn,
+#                         first_name=parameters.get("first_name", ""),
+#                         last_name=parameters.get("last_name", ""),
+#                         date_of_birth=parameters.get("date_of_birth"),
+#                         phone=session_data.get("phone", "unknown"),
+#                         organization_id=session_data.get("organization_id", "default_org"),
+#                         created_at=datetime.utcnow(),
+#                         updated_at=datetime.utcnow()
+#                     )
+#                     db.add(patient)
+#                     db.commit()
+#                     db.refresh(patient)
+#                     operation_result = {
+#                         "id": patient.id,
+#                         "mrn": patient.mrn,
+#                         "first_name": patient.first_name,
+#                         "last_name": patient.last_name,
+#                         "date_of_birth": patient.date_of_birth,
+#                         "phone": patient.phone,
+#                         "organization_id": patient.organization_id
+#                     }
+#                     # Save JSON file
+#                     patient_path = f"patients/{patient.id}.json"
+#                     os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+#                     with open(patient_path, "w") as f:
+#                         patient_dict = {
+#                             "id": patient.id,
+#                             "mrn": patient.mrn,
+#                             "first_name": patient.first_name,
+#                             "last_name": patient.last_name,
+#                             "date_of_birth": patient.date_of_birth,
+#                             "phone": patient.phone,
+#                             "organization_id": patient.organization_id,
+#                             "created_at": patient.created_at.isoformat() if patient.created_at else None,
+#                             "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+#                         }
+#                         json.dump(patient_dict, f, indent=2)
+#                     content += f"\nProfile created successfully!"
+#             except Exception as e:
+#                 db.rollback()
+#                 print(f"Database operation failed: {str(e)}")
+#                 content += f"\nSorry, I couldn’t update your profile. Let’s try again."
+#                 response_data["next_node_id"] = current_node_id
+
+#         print(f"Response: {content}")
+#         print(f"Next node ID: {next_node_id}")
+#         print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
+
+#         response = {
+#             "content": content,
+#             "next_node_id": next_node_id,
+#             "state_updates": state_updates
+#         }
+#         if operation_result:
+#             response["operation_result"] = operation_result
+#         return response
+
+#     except Exception as e:
+#         print(f"ERROR in patient_onboarding: {str(e)}")
+#         return {
+#             "error": f"Failed to process message: {str(e)}",
+#             "content": "I'm having trouble processing your request. Please try again."
+#         }
 @app.post("/api/patient_onboarding")
 async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
     try:
         print("\n==== STARTING PATIENT ONBOARDING/CHAT ====")
         from llama_index.retrievers.bm25 import BM25Retriever
-        from llama_index.core import StorageContext, load_index_from_storage
-        import os
 
         # Request validation
         message = request.get("message", "").strip()
@@ -10390,8 +11597,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         flow_instructions = request.get("flow_instructions")
-        patient_history = request.get("patient_history", "")
-        print(f"[PATIENT HISTORY], {patient_history}")
 
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
@@ -10404,122 +11609,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         if not flow_id:
             raise HTTPException(status_code=400, detail="Flow ID is required")
 
-        # --- Import BM25Retriever and RetrieverQueryEngine ---
-        from llama_index.retrievers.bm25 import BM25Retriever
-        from llama_index.core.query_engine import RetrieverQueryEngine
-        # ----------------------------------------------------
-        query_to_use = message
-        if previous_messages:
-            print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
-            context_messages = previous_messages[-4:] # Get last 3 messages
-
-            context_str = "Conversation history:\n"
-            for msg_obj in context_messages:
-                 role = msg_obj.get('role', 'unknown').capitalize()
-                 content = msg_obj.get('content', 'N/A')
-                 context_str += f"{role}: {content}\n"
-
-            # Combine context with the current message to form the query
-            # Structure the query to help the retriever understand it's a follow-up
-            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
-
-            print(f"Augmented Query for Retrieval:\n{query_to_use}")
-        else:
-            print("No previous messages found. Using original message for retrieval.")
-            # query_to_use remains the original message
-
-
-
-        if flow_instructions == "indexed" and assistantId:
-            try:
-                # Define the persist directory path for this assistant's flow instructions
-                base_dir = os.path.abspath(os.path.dirname(__file__))
-                persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
-
-                print(f"Attempting to load index from: {persist_dir}")
-
-                # Check if the directory exists
-                if os.path.exists(persist_dir):
-                    # Load the storage context from the persist directory
-                    storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-
-                    # Load the index from storage
-                    print("Loading index from storage...")
-                    index = load_index_from_storage(storage_context)
-                    print("Index loaded successfully.")
-
-                    # --- Create the BM25 Retriever ---
-                    # Retrieve all nodes from the index's document store to build the BM25 index over them.
-                    all_nodes = list(index.docstore.docs.values())
-
-                    bm25_retriever = None # Initialize to None
-                    if not all_nodes:
-                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
-                    else:
-                        # Use from_defaults with the retrieved nodes
-                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
-                        # Set similarity_top_k here when creating the retriever instance
-                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
-                        print("BM25Retriever built.")
-
-                    # --- Create a query engine ---
-                    # Use RetrieverQueryEngine directly when using a custom retriever
-                    query_engine = None # Initialize query_engine
-
-                    if bm25_retriever:
-                        # Create the query engine using the custom BM25 retriever
-                        # RetrieverQueryEngine will use the default LLM from Settings for synthesis
-                        print("Creating query engine using BM25Retriever...")
-                        query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
-                    else:
-                        # Fallback: If BM25 failed to build, use the index's default vector retriever
-                        print("Falling back to creating query engine using default VectorRetriever...")
-                        # Use index.as_query_engine() which wraps the default vector retriever
-                        query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
-
-                    if query_engine is None:
-                        raise ValueError("Failed to create any query engine (BM25 or default).")
-
-
-                    # --- Keep the rest of the query logic ---
-                    print(f"Querying index with message: '{message}'")
-                    response = query_engine.query(message)
-
-                    retrieved_text = response.response
-                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
-
-                    print(f"Successfully queried index for assistant: {assistantId}")
-                    print(f"LLM Synthesized Response: {retrieved_text}")
-
-                    print("\n--- Retrieved Source Nodes ---")
-                    if source_nodes:
-                        retrieved_texts = []
-                        # Check if nodes have scores before trying to format
-                        score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
-                        for i, node_with_score in enumerate(source_nodes):
-                            score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
-                            retrieved_texts.append(node_with_score.node.text)
-                            # print(f"Node {i+1}{score_str}:")
-                            # print(node_with_score.node.text)
-                            # print("-" * 20)
-                    else:
-                        print("No source nodes were retrieved by the retriever.")
-                    print("----------------------------\n")
-
-                    # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
-                    flow_instructions = "\n---\n".join(retrieved_texts)
-
-                else:
-                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
-                    flow_instructions = "No indexed flow instructions found."
-
-            except Exception as e:
-                print(f"Error retrieving indexed flow instructions: {str(e)}")
-                # Ensure traceback is imported if you use it
-                # print(f"Stacktrace: {traceback.format_exc()}")
-                flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-
-        print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
@@ -10694,26 +11783,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         else:
             document_retriever = app.state.document_indexes.get(assistantId, {}).get("retriever")
 
-        query_for_doc = message
-        if previous_messages:
-            context_messages = previous_messages[-4:] # Get last 3 messages
-
-            context_str = "Conversation history:\n"
-            for msg_obj in context_messages:
-                 role = msg_obj.get('role', 'unknown').capitalize()
-                 content = msg_obj.get('content', 'N/A')
-                 context_str += f"{role}: {content}\n"
-
-            # Combine context with the current message to form the query
-            # Structure the query to help the retriever understand it's a follow-up
-            query_for_doc = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant context you can reterive?"
-
-            print(f"Document Augmented Query for Retrieval:\n{query_for_doc}")
-        else:
-            print("No previous messages found. Using original message for retrieval.")
-            # query_to_use remains the original message
-
-
         if document_retriever:
             print(f"Retrieving documents for query: '{message}'")
             retrieved_nodes = document_retriever.retrieve(message)
@@ -10741,578 +11810,72 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
-#         flow_instruction_context=  f"""
-# # Current Flow Instructions:
+        flow_instruction_context = f"""
+Current Flow Instructions:
 
-# • **Onboarding**
-#   Initial patient enrollment with four main branches:
-#   - Pregnancy Preference Unknown
-#   - Desired Pregnancy Preference
-#   - Undesired/Unsure Pregnancy Preference
-#   - Early Pregnancy Loss
-#   Final pathways to either Offboarding or Program Archived
+• **Menu-Items**  
+  “What are you looking for today?  
+   1. Pregnancy test  
+   2. Early pregnancy-loss support  
+   3. Abortion  
+   4. Symptoms-related help  
+   5. Miscarriage support”
 
-# • **Follow-Up Confirmation of Pregnancy Survey**
-#   "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. 
-#   Have you had a moment to take your home pregnancy test?"
-#   Reply Y or N
+• **Pregnancy-Test**  
+  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
 
-#   [If Y] "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+• **LMP-Query**  
+  “Do you know the day of your last menstrual period?”
 
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+• **LMP-Date**  
+  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
 
-#   [If Y] "Were the results positive? Reply Y or N"
+• **Symptom-Triage**  
+  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
 
-#   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP).
-#   Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+–– **Bleeding branch** ––  
+• **Bleeding-Triage**  
+  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
 
-#   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+• **Bleeding-Heavy-Check**  
+  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
 
-#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
-#   Stay tuned for your estimated gestational age, we're calculating it now."
-#   [LMP Updated]
-#   [Update LMP on dashboard]
+• **Bleeding-Urgent**  
+  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
 
-#   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+• **Bleeding-Pain-Check**  
+  “Are you experiencing any pain or cramping? Reply Y or N.”
 
-#   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
+• **Bleeding-Advice**  
+  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
 
-#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
-#   Stay tuned for your estimated gestational age, we're calculating it now."
-#   [EDD Updated]
-#   [Update EDD on dashboard]
+–– **Nausea branch** ––  
+• **Nausea-Triage**  
+  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
 
-#   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+• **Nausea-Advice**  
+  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
 
-#   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+• **Nausea-Urgent**  
+  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
 
-#   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
-#   [LMP Unknown]
-#   [Low – No Alert to Penn]
+–– **Miscarriage support** ––  
+• **Miscarriage-Support**  
+  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
 
-#   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+• **Miscarriage-Emotions**  
+  “How are you feeling emotionally? I can connect you to social resources if needed.”
 
-#   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
-#   [Archive Patient]
-#   [Patient not pregnant]
-#   [No Alert to Penn]
+• **Miscarriage-Infection**  
+  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
 
-# • **Pregnancy Test Results NLP Survey**
-#   "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+• **Call-Transfer**  
+  “I’m transferring you now to a specialist for further assistance.”  
 
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "Were the results positive? Reply Y or N"
-
-#   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
-
-#   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
-
-#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
-#   [LMP Updated]
-#   [Update LMP on dashboard]
-
-#   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
-
-#   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
-
-#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
-#   [EDD Updated]
-#   [Update EDD on dashboard]
-
-#   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
-
-#   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
-
-#   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
-#   [LMP Unknown]
-#   [Low – No Alert to Penn]
-
-#   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
-
-#   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
-#   [Archive Patient]
-#   [Patient not pregnant]
-#   [No Alert to Penn]
-
-# • **Pregnancy Intention Survey**
-#   "$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all.
-
-#   I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
-
-#   [If A - Excited] "Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-#   [Excited about being pregnant]
-#   [Low - no alert to Penn]
-
-#   [If B - Not sure] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-#   [Not sure about being pregnant]
-#   [Low - no alert to Penn]
-
-#   [If C - Not excited] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-#   [Not Excited about being pregnant]
-#   [Low - no alert to Penn]
-
-#   "Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
-
-#   [If A → A (Continuing pregnancy)] "Do you have a prenatal provider? Reply Y or N"
-#   [EPS Desired]
-#   [Change Early Pregnancy Preference to DESIRED]
-
-#   [If Y] "Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
-
-#   [If N] "It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
-#   [7 days later]
-#   Established Care Survey - OB
-
-#   [If Any → B (Options)] "We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
-#   [EPS Unsure]
-#   [Change Early Pregnancy Preference to UNSURE]
-#   [4 days later]
-#   Established Care Survey - PEACE
-
-#   [If Any → C (Abortion)] "Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
-#   [EPS Undesired]
-#   [Change Early Pregnancy Preference to UNDESIRED / UNSURE]
-#   [4 days later]
-#   Established Care Survey - PEACE
-
-# SYMPTOM MANAGEMENT FLOWS:
-
-# • **Menu-Items**  
-#   "What are you looking for today?  
-#    A) I have a question about symptoms
-#    B) I have a question about medications
-#    C) I have a question about an appointment
-#    D) Information about what to expect at a PEACE visit
-#    E) Something else
-#    F) Nothing at this time
-#    Reply with just one letter."
-
-#   [If A] "We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it’s best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-#   [If B] "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
-
-#   [If C] "Unfortunately, I can’t see when your appointment is, but you can call the clinic to find out more information. If I don’t answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
-
-#   [If D] "The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions."
-
-#   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
-
-#   [If E] "OK, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short sentences about one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-#   [If F] "OK, remember you can text this number at any time with questions or concerns."
-
-# • **Symptom-Triage**  
-#   "What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
-
-# • **Vaginal Bleeding - 1st Trimester**
-#   "Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
-
-#   [If Y] "Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
-#   [Patient reports heavy vaginal bleeding with previous ectopic pregnancy]
-#   [High – Alert to Penn]
-
-#   "Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
-
-#   [If Y] "This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
-#   [Patient reports heavy vaginal bleeding]
-#   [High – Alert to Penn]
-
-#   "Are you in any pain or cramping? Reply Y or N"
-
-#   [If Y] "Have you been to the ER during this pregnancy? Reply Y or N"
-
-#   [If Y] "Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance."
-#   [Ongoing symptoms post ER visit]
-#   [Medium – Alert to Penn]
-#   [EPS ER Visit becomes TRUE for ER visit this pregnancy]
-
-#   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department."
-#   [Patient reports light vaginal bleeding with cramps]
-#   [Medium – Alert to Penn]
-
-#   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note."
-#   [Patient reports light vaginal bleeding (no cramps)]
-#   [Low – Alert to Penn]
-
-#   "If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
-#   [Follow-up: 24 hours later]
-#   Vaginal Bleeding – 1st Trimester Follow-up
-
-# • **Vaginal Bleeding - Follow-up**
-#   "Hey $patient_firstname, just checking on you. How's your vaginal bleeding today? A) Stopped B) Stayed the same C) Gotten heavier Reply with just one letter"
-
-#   [If A - Stopped] "We're glad to hear it. If anything changes - especially if you begin filling 4 or more super pads in two hours, go to your local ER."
-#   [Patient reports stopped bleeding]
-#   [Low - No alert to Penn]
-
-#   [If B - Same] "Thanks for sharing—we're sorry to hear your situation hasn't improved. Since your vaginal bleeding has lasted longer than a day, we recommend you call your OB/GYN or $clinic_phone$ and ask for the Early Pregnancy Access Center. If you do not feel well or you're having a medical emergency - especially if you've filled 4 or more super pads in two hours -- go to your local ER."
-#   [Patient reports persistent vaginal bleeding]
-#   [Low - Alert to Penn]
-
-#   [If C - Heavier] "Sorry to hear that. Thanks for sharing. Since your vaginal bleeding has lasted longer than a day, and has increased, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-#   [Patient reports increased vaginal bleeding]
-#   [Medium - Alert to Penn]
-
-# • **Nausea - 1st Trimester**
-#   "We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
-
-#   [If Y] "OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans."
-
-#   [If N] "OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back."
-#   [Patient reports nausea with 24 hrs no foods or liquids staying down]
-#   [Medium – Alert to Penn]
-
-#   "If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
-#   [Follow-up scheduled: Nausea 1st Trimester Follow-up]
-
-# • **Nausea - 1st Trimester Follow-up**
-#   "Hey $patient_firstname, just checking on you. How's your nausea today? A) Better B) Stayed the same C) Worse Reply with just the letter"
-
-#   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you."
-#   [Patient reports nausea better]
-#   [Low - No alert to Penn]
-
-#   [If B] "Thanks for sharing—Sorry you aren't feeling better yet, but we're glad to hear you could keep a little down. Would you like us to check on you tomorrow as well? Reply Y or N"
-#   [Patient reports nausea staying the same]
-#   [Low - No alert to Penn]
-
-#   [If Y] "OK. We're here to help. Let us know if anything changes."
-#   [Follow-up in 24 hours]
-
-#   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. There are safe ways to treat this, so don't wait. If you're not feeling well or have a medical emergency, visit your local ER."
-
-#   [If C] "Have you kept food or drinks down since I last checked in? Reply Y or N"
-
-#   [If N] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please visit your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-#   [Patient reports worsening nausea with 24 hrs no food/liquid]
-#   [Medium – Alert to Penn]
-
-# • **Vomiting - 1st Trimester**
-#   "Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] TRIGGER 2ND NODE → NAUSEA TRIAGE
-
-# • **Vomiting - 1st Trimester Follow-up**
-#   "Checking on you, $patient_firstname. How's your vomiting today? A) Better B) Stayed the same C) Worse Reply with just the letter"
-
-#   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you have not seen an OB yet. Don't wait—there are safe treatment options for you."
-#   [Patient reports vomiting better]
-#   [Low - No alert to Penn]
-
-#   [If B] "Thanks for sharing—Sorry you aren't feeling better yet. Would you like us to check on you tomorrow as well? Reply Y or N"
-#   [Patient reports vomiting staying the same]
-#   [Low - No alert to Penn]
-
-#   [If Y] "OK. We're here to help. Let us know if anything changes."
-
-#   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. If you're not feeling well or have a medical emergency, visit your local ER."
-
-#   [If C] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-#   [Patient reports worsening vomiting with >24 hrs no foods or liquids staying down]
-#   [Medium – Alert to Penn]
-
-# • **Pain - Early Pregnancy**
-#   "We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
-#   [Patient reports pain]
-#   [Low - No Alert to Penn]
-
-# • **Ectopic Pregnancy Concern**
-#   "We're sorry to hear this. It sounds like you're concerned about an ectopic pregnancy, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
-#   [Patient reports possible ectopic pregnancy]
-#   [Low - No Alert to Penn]
-
-# • **Menstrual Period Concern**
-#   "It sounds like you're concerned about your menstrual period, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "EPS Vaginal Bleeding (First Trimester) Let me ask you a few more questions about your medical history to determine the next best steps."
-#   [Patient reports menstrual period]
-#   [Low - No Alert to Penn]
-
-# PREGNANCY DECISION SUPPORT FLOWS:
-
-# • **Possible Early Pregnancy Loss**
-#   "It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
-
-#   [If A] "We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
-#   [Patient reports confirmed early pregnancy loss]
-#   [High – Alert to Penn & Scheduling]
-#   [Turn on Early Pregnancy Loss tip program]
-#   [Updating enrollment field with today's date]
-
-#   [If B] Trigger Vaginal Bleeding – 1st Trimester
-#   [Patient reports possible early pregnancy loss]
-#   [Low – No Alert to Penn]
-
-#   [If C] "Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
-#   Trigger Vaginal Bleeding – 1st Trimester
-#   [Patient reports possible early pregnancy loss]
-#   [Low – No Alert to Penn]
-
-# • **Undesired Pregnancy - Desires Abortion**
-#   "It sounds like you want to get connected to care for an abortion, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$ and ask to be connected to the PEACE clinic (pregnancy early access center). The clinic intake staff will answer your questions and help schedule an abortion. You can also find more information about laws in your state and how to get an abortion at AbortionFinder.org"
-#   [Patient requesting Abortion]
-#   [No alert to Penn]
-#   [Turn on Undesired tip program]
-#   [Updating enrollment field with today's date]
-
-# • **Undesired Pregnancy - Completed Abortion**
-#   "It sounds like you've already had an abortion, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "Caring for yourself after an abortion is important. Follow the instructions given to you. Most people can return to normal activities 1 to 2 days after the procedure. You may have cramps and light bleeding for up to 2 weeks. Call $clinic_phone$, option 5 and ask to be connected to the PEACE clinic (pregnancy early access center) if you have any questions or concerns."
-
-#   "Being a part of your care journey has been a real privilege. On behalf of your team at Penn, we hope we've been helpful to you during this time. Since I only guide you through this brief period, I won't be available for texting after today. Remember, you have a lot of resources available from Penn AND your community right at your fingertips."
-#   [Patient stating Completed Abortion]
-#   [No alert to Penn]
-#   [Archive Patient]
-
-# • **Desired Pregnancy Survey**
-#   "It sounds like you want to get connected to care for your pregnancy, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "That's something I can definitely do! Call $clinic_phone$ Penn OB/GYN Associates or Dickens Clinic and make an appointment. It's important to receive prenatal care early on (and throughout your pregnancy) to reduce the risk of complications and ensure that both you and your baby are healthy."
-#   [Patient requesting to keep pregnancy]
-#   [Low - No alert to Penn]
-#   [Turn on Desired Pregnancy tip program]
-#   [Updating enrollment field with today's date]
-
-# • **Unsure About Pregnancy Survey**
-#   "Becoming a parent is a big step. Deciding if you want to continue a pregnancy is a personal decision. Talking openly and honestly with your partner or healthcare team is key. We're here for you. You can also try some thought work here: https://www.pregnancyoptions.info/pregnancy-options-workbook Would you like to get connected to care to discuss your options for pregnancy, is that correct? Reply Y or N"
-
-#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-#   [If Y] "Few decisions are greater than this one, but we've got your back. The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$, and ask to be scheduled in the PEACE clinic (pregnancy early access center). They are here to support you no matter what you choose."
-#   [Patient unsure about pregnancy]
-#   [Low - No alert to Penn]
-#   [Turn on EPS Unsure tip program]
-#   [Updating enrollment field with today's date]
-
-# POSTPARTUM SUPPORT FLOWS:
-
-# • **Postpartum Onboarding – Week 1**
-#   "Hi $patient_firstname$, congratulations on your new baby! Let's get started with a few short messages to support you and your newborn. You can always reply STOP to stop receiving messages."
-#   [DAY: 0, TIME: 8 AM]
-
-#   "Feeding your baby is one of the most important parts of newborn care. Feeding your baby at least 8-12 times every 24 hours is normal and important to support their growth. You may need to wake your baby to feed if they're sleepy or jaundiced."
-#   [DAY: 0, TIME: 12 PM]
-
-#   "It's important to keep track of your baby's output (wet and dirty diapers) to know they're feeding well. By the time your baby is 5 days old, they should have 5+ wet diapers and 3+ poops per day."
-#   [DAY: 0, TIME: 4 PM]
-
-#   "Jaundice is common in newborns and usually goes away on its own. Signs of jaundice include yellowing of the skin or eyes. If you're worried or if your baby isn't feeding well or is hard to wake up, call your pediatrician or visit the ER."
-#   [DAY: 0, TIME: 8 PM]
-
-#   "Schedule a pediatrician visit. [Add scheduling link or instructions]"
-#   [DAY: 1, TIME: 8 AM]
-
-#   "Hi $patient_firstname$, following up to check on how you're feeling after delivery. The postpartum period is a time of recovery, both physically and emotionally. It's normal to feel tired, sore, or even overwhelmed. You're not alone. Let us know if you need support."
-#   [DAY: 1, TIME: 12 PM]
-
-#   "Some symptoms may require urgent care. If you experience chest pain, heavy bleeding, or trouble breathing, call 911 or go to the ER. For other questions or concerns, message us anytime."
-#   [DAY: 1, TIME: 4 PM]
-
-# • **Postpartum Onboarding – Week 2**
-#   "Hi $patient_firstname$, checking in to see how things are going now that your baby is about a week old. We shared some helpful info last week and want to make sure you're doing okay."
-#   [DAY: 7, TIME: 8 AM]
-
-#   "Hi there—feeling different emotions after delivery is common. You may feel joy, sadness, or both. About 80% of people experience the 'baby blues,' which typically go away in a couple of weeks. If you're not feeling well emotionally or have thoughts of hurting yourself or others, please reach out for help."
-#   [DAY: 7, TIME: 12 PM]
-
-#   "Experts recommend always placing your baby on their back to sleep, in a crib or bassinet without blankets, pillows, or stuffed toys. This reduces the risk of SIDS (Sudden Infant Death Syndrome)."
-#   [DAY: 7, TIME: 4 PM]
-
-#   "Reminder to schedule your postpartum check-in."
-#   [DAY: 9, TIME: 8 AM]
-
-#   "Diaper rash is common. It can usually be treated with diaper cream and frequent diaper changes. If your baby develops a rash that doesn't go away or seems painful, call your pediatrician."
-#   [DAY: 9, TIME: 12 PM]
-
-#   "Hi $patient_firstname$, checking in again—how is feeding going? Breastfeeding can be challenging at times. It's okay to ask for help from a lactation consultant or your provider. Let us know if you have questions."
-#   [DAY: 9, TIME: 4 PM]
-
-#   "Hi $patient_firstname$, just a quick note about contraception. You can get pregnant again even if you haven't gotten your period yet. If you're not ready to be pregnant again soon, it's important to consider your birth control options. Talk to your provider to learn what's right for you."
-#   [DAY: 10, TIME: 12 PM]
-
-#   "Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources."
-#   [DAY: 10, TIME: 5 PM]
-
-# EMERGENCY SITUATION MANAGEMENT:
-
-# • **Emergency Room Survey**
-#   "It sounds like you are telling me about an emergency. Are you currently in the ER (or on your way)? Reply Y or N"
-
-#   [If Y] "We're sorry to hear and thanks for sharing. Glad you're seeking care. Please let us know if there's anything we can do for you."
-#   [High Alert: Current ER Visit]
-#   [Patient has reported a current emergency room visit]
-#   [High alert to Penn]
-#   [Checkbox becomes TRUE for ER visit this pregnancy]
-
-#   [If N] "Were you recently discharged from an emergency room visit?"
-
-#   [If Y] "We're sorry to hear about your visit. To help your care team stay in the loop, would you like us to pass on any info? No worries if not, just reply 'no'."
-#   "Let us know if you need anything else."
-#   [High Alert: Recent ER Visit]
-#   [Patient has reported a recent emergency room visit]
-#   [High alert to Penn]
-#   [Checkbox becomes TRUE for ER visit this pregnancy]
-
-#   [If N] "If you're not feeling well or have a medical emergency, go to your local ER. If I misunderstood your message, try rephrasing & using short sentences. You may also reply MENU for a list of support options."
-
-# EVALUATION SURVEYS:
-
-# • **Pre-Program Impact Survey**
-#   "Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy."
-
-#   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
-
-#   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
-
-#   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
-
-# • **Post-Program Impact Survey**
-#   "Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
-
-#   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
-
-#   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
-
-#   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
-
-# • **NPS Quantitative Survey**
-#   "Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
-
-#   "On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
-
-#   Next: → NPS Qualitative Survey
-
-# • **NPS Qualitative Survey**
-#   "Thanks for your response. What's the reason for your score?"
-
-#   "Thanks, your feedback helps us improve future programs."
-
-# MENU RESPONSES:
-
-# • **A. Symptoms Response**
-#   "We understand questions and concerns come up. By texting this number, you can connect with your question, and I may have an answer. This isn't an emergency line, so it's best to reach out to your doctor if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious - it's essential to seek medical attention."
-
-# • **B. Medications Response**
-#   "Do you have questions about: A) Medication management B) Medications that are safe in pregnancy C) Abortion medications"
-
-#   "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
-
-# • **C. Appointment Response**
-#   "Unfortunately, I can't see when your appointment is, but you can call the clinic to find out more information. If I don't answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you more detailed information about your appointment or general information about what to expect at a visit. Just ask me."
-
-# • **D. PEACE Visit Response**
-#   "The Pregnancy Early Access Center is a support team, which is here to help you make choices throughout the next steps and make sure you have all the information you need. They're like planning for judgment-free care. You can ask all your questions at your visit. You have options, you can place the baby for adoption or you can continue the pregnancy and choose to parent."
-
-#   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
-
-# • **E. Something Else Response**
-#   "Ok, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short questions that are on one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-# • **F. Nothing Response**
-#   "OK, remember you can text this number at any time with questions or concerns."
-
-# ADDITIONAL INSTRUCTIONS:
-
-# • **Always-On Q & A ON FIT**
-#   "Always-On Q & A ON FIT - Symptom Triage (Nausea, Vomiting & Bleeding + Pregnancy Preference)"
-
-# • **General Default Response**
-#   "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+"""
         
-#         """
-       
-#         flow_instruction_context = f"""
-# Current Flow Instructions:
-
-# • **Menu-Items**  
-#   “What are you looking for today?  
-#    1. Pregnancy test  
-#    2. Early pregnancy-loss support  
-#    3. Abortion  
-#    4. Symptoms-related help  
-#    5. Miscarriage support”
-
-# • **Pregnancy-Test**  
-#   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
-
-# • **LMP-Query**  
-#   “Do you know the day of your last menstrual period?”
-
-# • **LMP-Date**  
-#   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
-
-# • **Symptom-Triage**  
-#   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
-
-# –– **Bleeding branch** ––  
-# • **Bleeding-Triage**  
-#   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
-
-# • **Bleeding-Heavy-Check**  
-#   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
-
-# • **Bleeding-Urgent**  
-#   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
-
-# • **Bleeding-Pain-Check**  
-#   “Are you experiencing any pain or cramping? Reply Y or N.”
-
-# • **Bleeding-Advice**  
-#   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
-
-# –– **Nausea branch** ––  
-# • **Nausea-Triage**  
-#   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
-
-# • **Nausea-Advice**  
-#   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
-
-# • **Nausea-Urgent**  
-#   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
-
-# –– **Miscarriage support** ––  
-# • **Miscarriage-Support**  
-#   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
-
-# • **Miscarriage-Emotions**  
-#   “How are you feeling emotionally? I can connect you to social resources if needed.”
-
-# • **Miscarriage-Infection**  
-#   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
-
-# • **Call-Transfer**  
-#   “I’m transferring you now to a specialist for further assistance.”  
-
-# """
-        
-        flow_instruction_context = flow_instructions
-        # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+        # flow_instruction_context = flow_instructions
+        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
@@ -11367,9 +11930,6 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
-Patient History Summary (Patient Previous Session Conversation):
-{patient_history}
-
 Session Data:
 {json.dumps(session_data, indent=2)}
 
@@ -11390,23 +11950,9 @@ Instructions:
    IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
-2. **PRIORITIZE PATIENT HISTORY - CRITICAL**:
-   - You MUST carefully read the Patient History Summary section before responding.
-   - This history contains crucial medical information from previous sessions.
-   - ALWAYS acknowledge and reference previous data like:
-     * Last menstrual period dates
-     * Previous pregnancy test results
-     * Reported symptoms
-     * Medication discussions
-     * Gestational age calculations
-     * Other MEDICAL Related Information OR Symptoms
-   - If a patient asks about symptoms or conditions, FIRST check if related information appears in their history.
-   - Example: If they ask about bloating but their history mentions they're pregnant, acknowledge the pregnancy status BEFORE giving general advice.
-   - Acknowldge the patient before asking for information that is clearly provided in the patient history (For example LMP dates if already known, or any Symptoms).
-   - Show continuity of care by referring to previous interactions: "As we discussed in your previous visit..." or "Given your pregnancy status that we confirmed earlier..."
 
 
-3. **Conversation Flow**:
+2. **Conversation Flow**:
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
@@ -11420,21 +11966,21 @@ Instructions:
      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
      - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
-4. **Response Style**:
+3. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
    - Avoid robotic phrases like "Processing node" or "Moving to next step."
    - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
    - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
 
-5. **Database Operations**:
+4. **Database Operations**:
    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
    - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
 
-6. **Flow Progression**:
+5. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 
-8. **Response Structure**:
+6. **Response Structure**:
    Return a JSON object:
    ```json
    {{
@@ -11582,7 +12128,6 @@ Examples:
             "error": f"Failed to process message: {str(e)}",
             "content": "I'm having trouble processing your request. Please try again."
         }
-
 
 @app.get("/api/flow-index/{flow_id}")
 async def check_flow_index_status(flow_id: str):
