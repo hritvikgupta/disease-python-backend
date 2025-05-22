@@ -12266,19 +12266,68 @@ Instructions:
     
 
 
-2. **Conversation Flow**:
-   - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
-   - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
-    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
-   - If the user asks about medications or treatments, check the Document Content first.
-   - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
-   - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
-   - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
-   - For date-related instructions (e.g., gestational age):
-     - Validate dates as MM/DD/YYYY, not after {current_date}.
-     - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
-     - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
-     - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
+2. **Conversation Flow (If Profile Complete)**:
+   If the `Patient Profile` is complete (no required fields missing):
+   
+   *   **Case A: Start of Conversation:** 
+       If `Conversation History` is empty, always use the instruction text from the "**Menu-Items**" node in `Structured Flow Instructions` as the response `content`. Set `next_node_id` to the `current_node_id` of the "**Menu-Items**" node found in `Structured Flow Instructions`.
+   
+   *   **Case B: User is Responding or Starting a New Topic:** 
+        If `Conversation History` is NOT empty:
+       
+       *   **Step 1**: Extract the Assistant's last message from `Conversation History`.
+       
+       *   **Step 2**: Determine if the `User Message` is a direct response to the last Assistant question:
+           - Direct responses include: 'Y', 'N', 'yes', 'no', letters 'A'-'K', specific words like 'Bleeding', dates in MM/DD/YYYY format
+           - Normalize responses: "Yes"/"yes"/"Y"/"y" → "Y", "No"/"no"/"N"/"n" → "N"
+       
+       *   **Step 3A - Direct Response Path**:
+           If the `User Message` IS a direct response:
+           
+           - **Find Current Node**: Match the Assistant's last message to a node instruction in `Structured Flow Instructions` to identify the current active node.
+           
+           - **Find Matching Branch**: Within the current node's instruction, look for branching logic that matches the normalized user response:
+             Format: `–– If [RESPONSE] ([Meaning]) –– (next_node_id: [TARGET_NODE])`
+           
+           - **Get Target Node**: Extract the `TARGET_NODE` ID from the matching branch.
+           
+           - **Retrieve Target Instruction**: Find the instruction text for `TARGET_NODE` in `Structured Flow Instructions`.
+           
+           - **CRITICAL**: Use the target node's instruction text as your `content`. DO NOT repeat the current node's instruction.
+           
+           - **Set Next Node**: Set `next_node_id` to `TARGET_NODE`.
+           
+           - **Special LMP Date Handling**: If the current node was asking for LMP date confirmation AND user provided a valid date in MM/DD/YYYY format:
+             * Calculate gestational age in weeks from LMP date to current date
+             * Determine trimester (1-12 weeks: First, 13-27 weeks: Second, 28+ weeks: Third)
+             * Modify `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester! [Continue with target node instruction]"
+             * Add to `state_updates`: `{"gestational_age_weeks": X, "trimester": "Y"}`
+           
+           - **Fallback for Unmatched Direct Response**: If no matching branch is found:
+             * Search `Document Content` for information relevant to the user's response
+             * If relevant document content exists: Use document information and include ALL specific resources (URLs, phone numbers, contact info, medical information) VERBATIM
+             * If no relevant document content: Provide friendly clarification like "I didn't quite catch that. Could you try replying with Y or N?" 
+             * Set `next_node_id` to current node ID for retry
+       
+       *   **Step 3B - New Topic Path**:
+           If the `User Message` is NOT a direct response (user changed subject or asked something new):
+           
+           - **Analyze User Intent**: Identify the topic/intent from `User Message` (e.g., "symptoms", "medications", "appointment", "pregnancy test", specific medical terms).
+           
+           - **Find Flow Starting Points**: Look for relevant starting nodes in `Structured Flow Instructions` related to this topic (e.g., nodes linked from main menu).
+           
+           - **Search Document Content**: Look for highly relevant information in `Document Content` related to the user's specific query.
+           
+           - **Priority Decision**:
+             * **If Flow Starting Point is clear and actionable**: Use the starting node's instruction text as `content`. Set `next_node_id` to that node's target.
+             * **If Document Content is more specific/relevant**: Use document information as `content` and include ALL specific resources (URLs, phone numbers, contact info, medical information, treatment options) VERBATIM. Set `next_node_id` to null or current node ID.
+             * **Generic Fallback**: If neither provides a good match, give a friendly response acknowledging the message and offer to help or guide back to main options. Set `next_node_id` to null or current node ID.
+
+       *    For date-related instructions (e.g., gestational age):
+            - Validate dates as MM/DD/YYYY, not after {current_date}.
+            - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+            - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+            - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
 3. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
