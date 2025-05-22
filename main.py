@@ -11993,24 +11993,28 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         flow_instruction_context = f"""
         Main Patient Journey Flows
 
-        • **Menu-Items**  
-  “What are you looking for today?  
-   1. Pregnancy test  
-   2. Early pregnancy-loss support  
-   3. Abortion  
-   4. Symptoms-related help  
-   5. Miscarriage support”
+        Main Patient Journey Flows
 
-• Onboarding (current_node_id: onboarding)
+        • **Start Conversation** (current_node_id: start_conversation)
+          "Hi $patient_firstname! I'm here to help you with your healthcare needs. What would you like to talk about today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) Something else F) Nothing at this time Reply with just one letter."
+          (next_node_id: menu_items)
 
-"Initial patient enrollment with four main branches: Pregnancy Preference Unknown, Desired Pregnancy Preference, Undesired/Unsure Pregnancy Preference, Early Pregnancy Loss. Final pathways to either Offboarding or Program Archived."
+        • **Menu-Items** (current_node_id: menu_items)
+          "What are you looking for today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) Something else F) Nothing at this time Reply with just one letter."
+          –– If A (Symptoms) –– (next_node_id: symptoms_response)
+          –– If B (Medications) –– (next_node_id: medications_response)
+          –– If C (Appointment) –– (next_node_id: appointment_response)
+          –– If D (PEACE Visit) –– (next_node_id: peace_visit_response_part_1)
+          –– If E (Something Else) –– (next_node_id: something_else_response)
+          –– If F (Nothing) –– (next_node_id: nothing_response)
 
-(next_node_id: follow_up_confirmation_of_pregnancy_survey)
+        • **Onboarding** (current_node_id: onboarding)
+          "Initial patient enrollment with four main branches: Pregnancy Preference Unknown, Desired Pregnancy Preference, Undesired/Unsure Pregnancy Preference, Early Pregnancy Loss. Final pathways to either Offboarding or Program Archived."
+          (next_node_id: follow_up_confirmation_of_pregnancy_survey)
 
-• Follow-Up Confirmation of Pregnancy Survey (current_node_id: follow_up_confirmation_of_pregnancy_survey)
-
-"Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. Have you had a moment to take your home pregnancy test? Reply Y or N"
-
+        • **Follow-Up Confirmation of Pregnancy Survey** (current_node_id: follow_up_confirmation_of_pregnancy_survey)
+          "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. Have you had a moment to take your home pregnancy test? Reply Y or N"
+          (next_node_id: pregnancy_test_results_nlp_survey)
 (next_node_id: pregnancy_test_results_nlp_survey)
 
 • Pregnancy Test Results NLP Survey (current_node_id: pregnancy_test_results_nlp_survey)
