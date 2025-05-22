@@ -12238,7 +12238,8 @@ Instructions:
     *   If the `Patient Profile` is complete (no required fields missing):
         *   **Case A: Start of Conversation:** If `Conversation History` is empty, always use the instruction text from the "**Menu-Items**" node in `Structured Flow Instructions` as the response `content`. Set `next_node_id` to the `current_node_id` of the "**Menu-Items**" node found in `Structured Flow Instructions`.
         *   **Case B: User is Responding or Starting a New Topic:** If `Conversation History` is NOT empty, first identify the exact question or prompt text from the Assistant's *immediately preceding message*. Also, analyze the `User Message` to understand its intent and topic.
-            *   **Subcase B1: User Provided a Direct Response to the Previous Question.** Check if the `User Message` provides a direct, clear answer or selection (like 'Y', 'N', 'yes', 'no', a letter 'A'-'K', a specific word like 'Bleeding', or a date like 'MM/DD/YYYY') that directly addresses the *last question asked by the Assistant*.
+            *   Subcase B1: First Match the ** User Message ** With the Last Response in the ** Conversation History ** to Know the Next Step or next_node_id from the 'Structured Flow Instructions'.
+            *   **Subcase B2: User Provided a Direct Response to the Previous Question.** Check if the `User Message` provides a direct, clear answer or selection (like 'Y', 'N', 'yes', 'no', a letter 'A'-'K', a specific word like 'Bleeding', or a date like 'MM/DD/YYYY') that directly addresses the *last question asked by the Assistant*.
                 *   If YES, the `User Message` IS a direct response:
                     *   Find the node in `Structured Flow Instructions` (`flow_instruction_context`) whose instruction text most closely matches the Assistant's *last message*. This is the current active flow node.
                     *   Within the instruction text of this active flow node, look for the specific branching logic lines (`–– If X (Meaning) –– (next_node_id: Y)`) that correspond to the `User Message`'s content or meaning.
@@ -12257,7 +12258,7 @@ Instructions:
                         - For date inputs: Validate that the input matches MM/DD/YYYY format and is not after {current_date}.
                         Then, match the normalized response to the branching logic (`–– If X (Meaning) –– (next_node_id: Y)`) in the current node's instruction text.
            
-            *   **Subcase B2: User Introduced a New Topic.** If the `User Message` does NOT provide a direct response to the last question (i.e., the user changed the subject or asked something new). Analyze the `User Message` to understand the new intent or topic (e.g., "symptoms", "medications", "appointment", "pregnancy test", specific medical term, etc.).
+            *   **Subcase B3: User Introduced a New Topic.** If the `User Message` does NOT provide a direct response to the last question (i.e., the user changed the subject or asked something new). Analyze the `User Message` to understand the new intent or topic (e.g., "symptoms", "medications", "appointment", "pregnancy test", specific medical term, etc.).
                 *   Identify potential flow starting points in `Structured Flow Instructions` related to this topic (e.g., nodes linked from the main menu like "Symptom-Triage" or "Medications Response").
                 *   Identify highly relevant sections in `Document Content` related to this topic, looking for specific answers, resources, or details.
                 *   **Compare Flow Starting Points and Document Content:** Determine which source provides the most relevant and helpful information for the user's *specific* query *at this moment*.
