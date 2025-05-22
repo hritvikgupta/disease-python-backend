@@ -11614,6 +11614,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         from llama_index.core.query_engine import RetrieverQueryEngine
         from llama_index.core import VectorStoreIndex, StorageContext
         from llama_index.core.retrievers import VectorIndexRetriever
+        from llama_index.core.retrievers import QueryFusionRetriever
+
         # ----------------------------------------------------
         query_to_use = message
         if previous_messages:
@@ -11637,42 +11639,220 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
 
 
+        # if flow_instructions == "indexed" and assistantId:
+        #     try:    
+        #         # base_dir = os.path.abspath(os.path.dirname(__file__))
+        #         # persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+        #         # print(f"Attempting to load index from: {persist_dir}")
+
+        #         # if os.path.exists(persist_dir):
+        #         #     # Load the storage context from the persist directory
+        #         #     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+        #         #     print("Loading index from storage...")
+        #         #     index = load_index_from_storage(storage_context)
+        #         #     print("Index loaded successfully.")
+
+        #         #     # Create VectorStoreRetriever
+        #         #     print("Building VectorStoreRetriever...")
+        #         #     vector_retriever = VectorIndexRetriever(
+        #         #         index=index,
+        #         #         similarity_top_k=10,  # Retrieve top 5 most similar nodes
+        #         #         embed_model=Settings.embed_model  # Use a lightweight embedding model
+        #         #     )
+        #         #     print("VectorStoreRetriever built.")
+
+        #         #     # Create query engine
+        #         #     print("Creating query engine using VectorStoreRetriever...")
+        #         #     query_engine = RetrieverQueryEngine(retriever=vector_retriever)
+        #         # Define the persist directory path for this assistant's flow instructions
+        #         base_dir = os.path.abspath(os.path.dirname(__file__))
+        #         persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+
+        #         print(f"Attempting to load index from: {persist_dir}")
+
+        #         # Check if the directory exists
+        #         if os.path.exists(persist_dir):
+        #             # Load the storage context from the persist directory
+        #             storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+
+        #             # Load the index from storage
+        #             print("Loading index from storage...")
+        #             index = load_index_from_storage(storage_context)
+        #             print("Index loaded successfully.")
+
+        #             # --- Create the BM25 Retriever ---
+        #             # Retrieve all nodes from the index's document store to build the BM25 index over them.
+        #             all_nodes = list(index.docstore.docs.values())
+
+        #             bm25_retriever = None # Initialize to None
+        #             if not all_nodes:
+        #                 print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
+        #             else:
+        #                 # Use from_defaults with the retrieved nodes
+        #                 print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
+        #                 # Set similarity_top_k here when creating the retriever instance
+        #                 bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
+        #                 print("BM25Retriever built.")
+
+        #             # --- Create a query engine ---
+        #             # Use RetrieverQueryEngine directly when using a custom retriever
+        #             query_engine = None # Initialize query_engine
+
+        #             if bm25_retriever:
+        #                 # Create the query engine using the custom BM25 retriever
+        #                 # RetrieverQueryEngine will use the default LLM from Settings for synthesis
+        #                 print("Creating query engine using BM25Retriever...")
+        #                 query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
+        #             else:
+        #                 # Fallback: If BM25 failed to build, use the index's default vector retriever
+        #                 print("Falling back to creating query engine using default VectorRetriever...")
+        #                 # Use index.as_query_engine() which wraps the default vector retriever
+        #                 query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
+
+        #             if query_engine is None:
+        #                 raise ValueError("Failed to create any query engine (BM25 or default).")
+                    
+
+                    
+        #             # --- Keep the rest of the query logic ---
+        #             print(f"Querying index with message: '{query_to_use}'")
+        #             response = query_engine.query(query_to_use)
+
+        #             retrieved_text = response.response
+        #             source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
+
+        #             print(f"Successfully queried index for assistant: {assistantId}")
+        #             print(f"LLM Synthesized Response: {retrieved_text}")
+
+        #             print("\n--- Retrieved Source Nodes ---")
+        #             if source_nodes:
+        #                 retrieved_texts = []
+        #                 # Check if nodes have scores before trying to format
+        #                 score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
+        #                 for i, node_with_score in enumerate(source_nodes):
+        #                     score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
+        #                     retrieved_texts.append(node_with_score.node.text)
+        #                     # print(f"Node {i+1}{score_str}:")
+        #                     # print(node_with_score.node.text)
+        #                     # print("-" * 20)
+        #             else:
+        #                 print("No source nodes were retrieved by the retriever.")
+        #             print("----------------------------\n")
+
+        #             # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
+        #             flow_instructions = "\n---\n".join(retrieved_texts)
+
+        #         else:
+        #             print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
+        #             flow_instructions = "No indexed flow instructions found."
+
+        #     except Exception as e:
+        #         print(f"Error retrieving indexed flow instructions: {str(e)}")
+        #         # Ensure traceback is imported if you use it
+        #         # print(f"Stacktrace: {traceback.format_exc()}")
+        #         flow_instructions = f"Error retrieving flow instructions: {str(e)}"
+        
         if flow_instructions == "indexed" and assistantId:
-            try:    
+            try:
                 base_dir = os.path.abspath(os.path.dirname(__file__))
                 persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+
                 print(f"Attempting to load index from: {persist_dir}")
 
+                index = None # Initialize index
+                # Check if the directory exists
                 if os.path.exists(persist_dir):
                     # Load the storage context from the persist directory
                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+
+                    # Load the index from storage
                     print("Loading index from storage...")
                     index = load_index_from_storage(storage_context)
                     print("Index loaded successfully.")
+                else:
+                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}. Cannot load index.")
 
-                    # Create VectorStoreRetriever
-                    print("Building VectorStoreRetriever...")
+
+                # Initialize retrievers - proceed even if index wasn't loaded,
+                # though BM25 needs nodes from docstore which comes from index.
+                # Vector retriever *requires* the index.
+                bm25_retriever = None
+                vector_retriever = None
+                retrievers_list = []
+
+                # Create BM25 Retriever (needs nodes from loaded index)
+                if index:
+                    all_nodes = list(index.docstore.docs.values())
+                    if not all_nodes:
+                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever. BM25 will not be used.")
+                    else:
+                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
+                        # similarity_top_k here is the initial fetch for BM25
+                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=10) # Fetch more initial results
+                        retrievers_list.append(bm25_retriever)
+                        print("BM25Retriever built.")
+
+                # Create Vector Retriever (requires loaded index)
+                if index:
+                    print("Building VectorIndexRetriever...")
+                    # similarity_top_k here is the initial fetch for Vector
                     vector_retriever = VectorIndexRetriever(
                         index=index,
-                        similarity_top_k=10,  # Retrieve top 5 most similar nodes
-                        embed_model=Settings.embed_model  # Use a lightweight embedding model
+                        similarity_top_k=10, # Fetch more initial results
+                        # embed_model is picked up from global Settings unless specified
                     )
-                    print("VectorStoreRetriever built.")
+                    retrievers_list.append(vector_retriever)
+                    print("VectorIndexRetriever built.")
+                else:
+                    print("Warning: Index not loaded, cannot build VectorIndexRetriever.")
 
-                    # Create query engine
-                    print("Creating query engine using VectorStoreRetriever...")
-                    query_engine = RetrieverQueryEngine(retriever=vector_retriever)
-                    # --- Keep the rest of the query logic ---
+
+                query_engine = None # Initialize query_engine
+
+                # Check if we have *any* retrievers to work with
+                if not retrievers_list:
+                    print("Error: No retrievers could be initialized (index likely not found or empty).")
+                    flow_instructions = "Indexed flow instructions not available or empty."
+                else:
+                    # --- Create the QueryFusionRetriever for Hybrid Retrieval ---
+                    print(f"Building QueryFusionRetriever with {len(retrievers_list)} retrievers...")
+                    # This retriever runs the query (or generated queries) through
+                    # the list of retrievers and fuses the results using the mode="reciprocal_rerank".
+                    # num_queries=4 means it will generate 3 extra queries. Set to 1 to disable.
+                    # similarity_top_k is the *final* number of results after fusion.
+                    fusion_retriever = QueryFusionRetriever(
+                        retrievers=retrievers_list,
+                        similarity_top_k=5, # How many *final* unique results from fusion are passed to the LLM
+                        num_queries=4,  # Number of queries to generate (1 + 3 generated). Set to 1 to disable.
+                        mode="reciprocal_rerank", # Use RRF to combine results
+                        use_async=True, # Recommended for speed
+                        verbose=True, # Good for debugging
+                        # query_gen_prompt="..." # Optional: override prompt for generating queries
+                    )
+                    print("QueryFusionRetriever built.")
+
+                    # --- Create the query engine using the Fusion Retriever ---
+                    print("Creating query engine using QueryFusionRetriever...")
+                    query_engine = RetrieverQueryEngine(retriever=fusion_retriever)
+                    print("Query engine built.")
+
+                    # --- Query the engine ---
+                    # Pass the augmented query to the engine. The retriever will
+                    # potentially generate multiple queries from this, run them,
+                    # fuse results, and then the LLM will use the original query
+                    # and the fused nodes to synthesize the response.
                     print(f"Querying index with message: '{query_to_use}'")
                     response = query_engine.query(query_to_use)
 
-                    retrieved_text = response.response
-                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
+                    # --- Process the response ---
+                    # response.response contains the text synthesized by the LLM
+                    retrieved_text = str(response) # Use str() for safety
+                    source_nodes = response.source_nodes # Nodes returned by the fusion retriever
 
                     print(f"Successfully queried index for assistant: {assistantId}")
                     print(f"LLM Synthesized Response: {retrieved_text}")
 
-                    print("\n--- Retrieved Source Nodes ---")
+                    print("\n--- Retrieved Source Nodes (after Fusion) ---")
                     if source_nodes:
                         retrieved_texts = []
                         # Check if nodes have scores before trying to format
@@ -11690,13 +11870,15 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
                     flow_instructions = "\n---\n".join(retrieved_texts)
 
-                else:
-                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
-                    flow_instructions = "No indexed flow instructions found."
+
+                    # --- Set the final flow_instructions ---
+                    # Use the LLM's synthesized response! This is the key fix.
+
 
             except Exception as e:
-                print(f"Error retrieving indexed flow instructions: {str(e)}")
-                # Ensure traceback is imported if you use it
+                print(f"Error during indexed flow instruction retrieval: {str(e)}")
+                # Import traceback at the top if you uncomment this
+                # import traceback
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
 
@@ -11973,21 +12155,22 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 #         Main Patient Journey Flows
 
 #         • **Start Conversation** (current_node_id: start_conversation)
-#           "Hi $patient_firstname! I'm here to help you with your healthcare needs. What would you like to talk about today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) Something else F) Nothing at this time Reply with just one letter."
+#           "Hi $patient_firstname! I'm here to help you with your healthcare needs. What would you like to talk about today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test  F) I need help with pregnancy loss  G) Something else H) Nothing at this time Reply with just one letter."
 #           (next_node_id: menu_items)
 
-#         • **Menu-Items** (current_node_id: menu_items)
-#         "What are you looking for today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test F) Something else G) Nothing at this time H) Take the Pre-Program Impact Survey I) Take the Post-Program Impact Survey J) Take the NPS Quantitative Survey Reply with just one letter."
-#         –– If A (Symptoms) –– (next_node_id: symptoms_response)
-#         –– If B (Medications) –– (next_node_id: medications_response)
-#         –– If C (Appointment) –– (next_node_id: appointment_response)
-#         –– If D (PEACE Visit) –– (next_node_id: peace_visit_response_part_1)
-#         –– If E (Pregnancy Test) –– (next_node_id: follow_up_confirmation_of_pregnancy_survey)
-#         –– If F (Something Else) –– (next_node_id: something_else_response)
-#         –– If G (Nothing) –– (next_node_id: nothing_response)
-#         –– If H (Pre-Program Impact Survey) –– (next_node_id: pre_program_impact_survey)
-#         –– If I (Post-Program Impact Survey) –– (next_node_id: post_program_impact_survey)
-#         –– If J (NPS Quantitative Survey) –– (next_node_id: nps_quantitative_survey)
+# • **Menu-Items** (current_node_id: menu_items)
+#   "What are you looking for today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test F) I need help with pregnancy loss G) Something else H) Nothing at this time I) Take the Pre-Program Impact Survey J) Take the Post-Program Impact Survey K) Take the NPS Quantitative Survey Reply with just one letter."
+#   –– If A (Symptoms) –– (next_node_id: symptoms_response)
+#   –– If B (Medications) –– (next_node_id: medications_response)
+#   –– If C (Appointment) –– (next_node_id: appointment_response)
+#   –– If D (PEACE Visit) –– (next_node_id: peace_visit_response_part_1)
+#   –– If E (Pregnancy Test) –– (next_node_id: follow_up_confirmation_of_pregnancy_survey)
+#   –– If F (Pregnancy Loss) –– (next_node_id: pregnancy_loss_response)
+#   –– If G (Something Else) –– (next_node_id: something_else_response)
+#   –– If H (Nothing) –– (next_node_id: nothing_response)
+#   –– If I (Pre-Program Impact Survey) –– (next_node_id: pre_program_impact_survey)
+#   –– If J (Post-Program Impact Survey) –– (next_node_id: post_program_impact_survey)
+#   –– If K (NPS Quantitative Survey) –– (next_node_id: nps_quantitative_survey)
 
 #         • **Onboarding** (current_node_id: onboarding)
 #           "Initial patient enrollment with four main branches: Pregnancy Preference Unknown, Desired Pregnancy Preference, Undesired/Unsure Pregnancy Preference, Early Pregnancy Loss. Final pathways to either Offboarding or Program Archived."
