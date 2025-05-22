@@ -11737,16 +11737,17 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             "gender": patient.gender,
             "phone": patient.phone,
             "email": patient.email,
-            "address": patient.address,
-            "insurance_provider": patient.insurance_provider,
-            "insurance_id": patient.insurance_id,
-            "primary_care_provider": patient.primary_care_provider,
-            "emergency_contact_name": patient.emergency_contact_name,
-            "emergency_contact_phone": patient.emergency_contact_phone,
-            "organization_id": patient.organization_id,
-            "created_at": patient.created_at.isoformat() if patient.created_at else None,
-            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+    
         }
+            # "address": patient.address,
+            # "insurance_provider": patient.insurance_provider,
+            # "insurance_id": patient.insurance_id,
+            # "primary_care_provider": patient.primary_care_provider,
+            # "emergency_contact_name": patient.emergency_contact_name,
+            # "emergency_contact_phone": patient.emergency_contact_phone,
+            # "organization_id": patient.organization_id,
+            # "created_at": patient.created_at.isoformat() if patient.created_at else None,
+            # "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
         patient_fields = json.dumps(patient_dict, indent=2)
 
         # Format conversation history
