@@ -12282,35 +12282,15 @@ Instructions:
             - Identify the node *in the retrieved set* whose instruction text matches the *last Assistant message* from the `Conversation History`. This is the "current active node".
             - Find the branching logic within this node's text that corresponds to the normalized `User Message`.
             - Identify the `TARGET_NODE` ID from this branch.
-            - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context.
+            - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
             
-            # --- START MODIFICATION ---
-            # Determine the default content from the target node
-            DEFAULT_CONTENT = this TARGET_NODE's instruction text.
-
-            # Special LMP Date Handling - This overrides the default content if applicable
-            - If the current active node is `enter_lmp_date` (the node asking for the MM/DD/YYYY LMP format) AND user provided a valid date (MM/DD/YYYY) that is not after `Current Date {current_date}`:
-                - Calculate gestational age in whole weeks from the provided LMP date (`User Message`) to `Current Date {current_date}`.
-                - Determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks).
-                - **Set the `content` of your response to:** "Perfect! Thanks for sharing that date. Based on your LMP of [Provided Date MM/DD/YYYY], you're about [Calculated Weeks] weeks along, which is in your [Calculated Trimester] trimester!"
-                - Store gestational age and trimester in `state_updates` (e.g., `{{ "gestational_age_weeks": Calculated Weeks, "trimester": "Calculated Trimester" }}`).
-            - ELSE IF the current active node is `enter_lmp_date` AND user provided an *invalid* date format or a date after `Current Date {current_date}`:
-                - **Set the `content` of your response to:** "Sorry, that doesn't look like a valid date in MM/DD/YYYY format, or the date is in the future. Could you please provide the first day of your last menstrual period (LMP) in MM/DD/YYYY format, like 03/29/2024?"
-                # Note: next_node_id will be handled below, keep it on enter_lmp_date
-            - **ELSE (if no special LMP date handling applies):**
-                # Use the default content determined earlier
-                - **Set the `content` of your response to: DEFAULT_CONTENT**
-                # Note: next_node_id will be handled below
-
-            - Set `next_node_id` to the `TARGET_NODE` ID. # This instruction needs to consider the invalid date case too.
-
-            # Refined instruction for setting next_node_id for direct responses
-            - **Set `next_node_id` output.**
-            - If the special LMP Date Handling check resulted in an *invalid date* error (content was set to the error message):
-                - Set `next_node_id` output to the `current active node` (`enter_lmp_date`).
-            - ELSE (if date was valid or special handling didn't apply):
-                 - Set `next_node_id` output to the `TARGET_NODE` ID identified from the flow branch.
-
+            - Set `next_node_id` to the `TARGET_NODE` ID.
+            - **Special LMP Date Handling**: 
+            - If the current active node was asking for LMP (Last Menstural Period) date confirmation AND user provided a valid date (MM/DD/YYYY): 
+                - Validate dates as MM/DD/YYYY, not after {current_date}.
+                - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+                - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+                - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
         - ** If the User Message IS NOT a direct response (New Topic):**
             - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
