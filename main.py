@@ -11654,8 +11654,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     print("Building VectorStoreRetriever...")
                     vector_retriever = VectorIndexRetriever(
                         index=index,
-                        similarity_top_k=5,  # Retrieve top 5 most similar nodes
-                        embed_model="local:BAAI/bge-small-en"  # Use a lightweight embedding model
+                        similarity_top_k=10,  # Retrieve top 5 most similar nodes
+                        embed_model=Settings.embed_model  # Use a lightweight embedding model
                     )
                     print("VectorStoreRetriever built.")
 
