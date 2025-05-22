@@ -10742,7 +10742,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
         flow_instruction_context=  f"""
-             MAIN PATIENT JOURNEY FLOWS:
+# Current Flow Instructions:
 
 • **Onboarding**
   Initial patient enrollment with four main branches:
