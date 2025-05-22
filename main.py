@@ -13086,7 +13086,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 # """
         
         flow_instruction_context = flow_instructions
-        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+        # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
@@ -13193,7 +13193,7 @@ Instructions:
 
 6. **General Instructions**
    - If Conversation History is Empty then always start with the **Menu-Items** to ask the user what they are looking for. 
-   
+
 7. **Response Structure**:
    Return a JSON object:
    ```json
