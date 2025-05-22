@@ -141,10 +141,10 @@ os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # Setting LLMs - keep existing configuration
 llm = Gemini(
-    model="models/gemini-2.5-pro-preview-05-06",
+    model="models/llama-4-maverick-17b-128e-instruct-maas",
     api_key=GOOGLE_API_KEY,  
 )
-MODEL_ID = "models/gemini-2.5-pro-preview-05-06"  # Latest version as of May 2025
+MODEL_ID = "models/llama-4-maverick-17b-128e-instruct-maas"  # Latest version as of May 2025
 # vecto_chat = genai.GenerativeModel(MODEL_ID)
 gemini_model = Gemini(
     model=MODEL_ID,  # Add the "models/" prefix
