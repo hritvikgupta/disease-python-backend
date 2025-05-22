@@ -12422,7 +12422,7 @@ Instructions:
          - Validate the date (not after {current_date}).
          - Calculate gestational age from LMP to {current_date} (weeks = days/7, First Trimester: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks).
          - Include in the response (e.g., "You’re about 8 weeks along, in your first trimester!").
-         - Store in `state_updates` as `{"gestational_age_weeks": X, "trimester": "First"}`.
+         - Store in `state_updates` as `{{"gestational_age_weeks": X, "trimester": "First"}}`.
 
 3. **Response Style**:
    - Respond warmly and conversationally (e.g., "Great, thanks for letting me know!" instead of robotic phrases).
