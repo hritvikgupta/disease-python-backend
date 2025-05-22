@@ -10741,575 +10741,575 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
-        flow_instruction_context=  f"""
-# Current Flow Instructions:
+#         flow_instruction_context=  f"""
+# # Current Flow Instructions:
 
-• **Onboarding**
-  Initial patient enrollment with four main branches:
-  - Pregnancy Preference Unknown
-  - Desired Pregnancy Preference
-  - Undesired/Unsure Pregnancy Preference
-  - Early Pregnancy Loss
-  Final pathways to either Offboarding or Program Archived
+# • **Onboarding**
+#   Initial patient enrollment with four main branches:
+#   - Pregnancy Preference Unknown
+#   - Desired Pregnancy Preference
+#   - Undesired/Unsure Pregnancy Preference
+#   - Early Pregnancy Loss
+#   Final pathways to either Offboarding or Program Archived
 
-• **Follow-Up Confirmation of Pregnancy Survey**
-  "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. 
-  Have you had a moment to take your home pregnancy test?"
-  Reply Y or N
+# • **Follow-Up Confirmation of Pregnancy Survey**
+#   "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. 
+#   Have you had a moment to take your home pregnancy test?"
+#   Reply Y or N
 
-  [If Y] "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+#   [If Y] "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
 
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
 
-  [If Y] "Were the results positive? Reply Y or N"
+#   [If Y] "Were the results positive? Reply Y or N"
 
-  [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP).
-  Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+#   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP).
+#   Do you know this date? Reply Y or N (It's OK if you're uncertain)"
 
-  [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+#   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
 
-  [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
-  Stay tuned for your estimated gestational age, we're calculating it now."
-  [LMP Updated]
-  [Update LMP on dashboard]
+#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
+#   Stay tuned for your estimated gestational age, we're calculating it now."
+#   [LMP Updated]
+#   [Update LMP on dashboard]
 
-  [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+#   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
 
-  [If Y] "Great. Please reply in this format: MM/DD/YYYY"
+#   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
 
-  [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
-  Stay tuned for your estimated gestational age, we're calculating it now."
-  [EDD Updated]
-  [Update EDD on dashboard]
+#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps.
+#   Stay tuned for your estimated gestational age, we're calculating it now."
+#   [EDD Updated]
+#   [Update EDD on dashboard]
 
-  [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+#   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
 
-  [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+#   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
 
-  [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
-  [LMP Unknown]
-  [Low – No Alert to Penn]
+#   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+#   [LMP Unknown]
+#   [Low – No Alert to Penn]
 
-  [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+#   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
 
-  "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
-  [Archive Patient]
-  [Patient not pregnant]
-  [No Alert to Penn]
+#   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+#   [Archive Patient]
+#   [Patient not pregnant]
+#   [No Alert to Penn]
 
-• **Pregnancy Test Results NLP Survey**
-  "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+# • **Pregnancy Test Results NLP Survey**
+#   "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
 
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
 
-  [If Y] "Were the results positive? Reply Y or N"
+#   [If Y] "Were the results positive? Reply Y or N"
 
-  [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+#   [If YES] "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
 
-  [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+#   [If Y] "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
 
-  [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
-  [LMP Updated]
-  [Update LMP on dashboard]
+#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+#   [LMP Updated]
+#   [Update LMP on dashboard]
 
-  [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+#   [If N] "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
 
-  [If Y] "Great. Please reply in this format: MM/DD/YYYY"
+#   [If Y] "Great. Please reply in this format: MM/DD/YYYY"
 
-  [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
-  [EDD Updated]
-  [Update EDD on dashboard]
+#   [Upon receiving date] "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+#   [EDD Updated]
+#   [Update EDD on dashboard]
 
-  [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+#   [If both N] "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
 
-  [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+#   [If Y] "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
 
-  [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
-  [LMP Unknown]
-  [Low – No Alert to Penn]
+#   [If N] "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+#   [LMP Unknown]
+#   [Low – No Alert to Penn]
 
-  [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+#   [If test result N] "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
 
-  "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
-  [Archive Patient]
-  [Patient not pregnant]
-  [No Alert to Penn]
+#   "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+#   [Archive Patient]
+#   [Patient not pregnant]
+#   [No Alert to Penn]
 
-• **Pregnancy Intention Survey**
-  "$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all.
+# • **Pregnancy Intention Survey**
+#   "$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all.
 
-  I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
+#   I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
 
-  [If A - Excited] "Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-  [Excited about being pregnant]
-  [Low - no alert to Penn]
+#   [If A - Excited] "Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+#   [Excited about being pregnant]
+#   [Low - no alert to Penn]
 
-  [If B - Not sure] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-  [Not sure about being pregnant]
-  [Low - no alert to Penn]
+#   [If B - Not sure] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+#   [Not sure about being pregnant]
+#   [Low - no alert to Penn]
 
-  [If C - Not excited] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
-  [Not Excited about being pregnant]
-  [Low - no alert to Penn]
+#   [If C - Not excited] "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+#   [Not Excited about being pregnant]
+#   [Low - no alert to Penn]
 
-  "Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+#   "Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
 
-  [If A → A (Continuing pregnancy)] "Do you have a prenatal provider? Reply Y or N"
-  [EPS Desired]
-  [Change Early Pregnancy Preference to DESIRED]
+#   [If A → A (Continuing pregnancy)] "Do you have a prenatal provider? Reply Y or N"
+#   [EPS Desired]
+#   [Change Early Pregnancy Preference to DESIRED]
 
-  [If Y] "Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
+#   [If Y] "Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
 
-  [If N] "It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
-  [7 days later]
-  Established Care Survey - OB
+#   [If N] "It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
+#   [7 days later]
+#   Established Care Survey - OB
 
-  [If Any → B (Options)] "We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
-  [EPS Unsure]
-  [Change Early Pregnancy Preference to UNSURE]
-  [4 days later]
-  Established Care Survey - PEACE
+#   [If Any → B (Options)] "We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
+#   [EPS Unsure]
+#   [Change Early Pregnancy Preference to UNSURE]
+#   [4 days later]
+#   Established Care Survey - PEACE
 
-  [If Any → C (Abortion)] "Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
-  [EPS Undesired]
-  [Change Early Pregnancy Preference to UNDESIRED / UNSURE]
-  [4 days later]
-  Established Care Survey - PEACE
+#   [If Any → C (Abortion)] "Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
+#   [EPS Undesired]
+#   [Change Early Pregnancy Preference to UNDESIRED / UNSURE]
+#   [4 days later]
+#   Established Care Survey - PEACE
 
-SYMPTOM MANAGEMENT FLOWS:
-
-• **Menu-Items**  
-  "What are you looking for today?  
-   A) I have a question about symptoms
-   B) I have a question about medications
-   C) I have a question about an appointment
-   D) Information about what to expect at a PEACE visit
-   E) Something else
-   F) Nothing at this time
-   Reply with just one letter."
-
-  [If A] "We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it’s best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-  [If B] "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
-
-  [If C] "Unfortunately, I can’t see when your appointment is, but you can call the clinic to find out more information. If I don’t answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
-
-  [If D] "The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions."
-
-  "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
-
-  [If E] "OK, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short sentences about one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-  [If F] "OK, remember you can text this number at any time with questions or concerns."
-
-• **Symptom-Triage**  
-  "What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
-
-• **Vaginal Bleeding - 1st Trimester**
-  "Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
-
-  [If Y] "Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
-  [Patient reports heavy vaginal bleeding with previous ectopic pregnancy]
-  [High – Alert to Penn]
-
-  "Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
-
-  [If Y] "This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
-  [Patient reports heavy vaginal bleeding]
-  [High – Alert to Penn]
-
-  "Are you in any pain or cramping? Reply Y or N"
-
-  [If Y] "Have you been to the ER during this pregnancy? Reply Y or N"
-
-  [If Y] "Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance."
-  [Ongoing symptoms post ER visit]
-  [Medium – Alert to Penn]
-  [EPS ER Visit becomes TRUE for ER visit this pregnancy]
-
-  [If N] "While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department."
-  [Patient reports light vaginal bleeding with cramps]
-  [Medium – Alert to Penn]
-
-  [If N] "While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note."
-  [Patient reports light vaginal bleeding (no cramps)]
-  [Low – Alert to Penn]
-
-  "If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
-  [Follow-up: 24 hours later]
-  Vaginal Bleeding – 1st Trimester Follow-up
-
-• **Vaginal Bleeding - Follow-up**
-  "Hey $patient_firstname, just checking on you. How's your vaginal bleeding today? A) Stopped B) Stayed the same C) Gotten heavier Reply with just one letter"
-
-  [If A - Stopped] "We're glad to hear it. If anything changes - especially if you begin filling 4 or more super pads in two hours, go to your local ER."
-  [Patient reports stopped bleeding]
-  [Low - No alert to Penn]
-
-  [If B - Same] "Thanks for sharing—we're sorry to hear your situation hasn't improved. Since your vaginal bleeding has lasted longer than a day, we recommend you call your OB/GYN or $clinic_phone$ and ask for the Early Pregnancy Access Center. If you do not feel well or you're having a medical emergency - especially if you've filled 4 or more super pads in two hours -- go to your local ER."
-  [Patient reports persistent vaginal bleeding]
-  [Low - Alert to Penn]
-
-  [If C - Heavier] "Sorry to hear that. Thanks for sharing. Since your vaginal bleeding has lasted longer than a day, and has increased, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-  [Patient reports increased vaginal bleeding]
-  [Medium - Alert to Penn]
-
-• **Nausea - 1st Trimester**
-  "We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
-
-  [If Y] "OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans."
-
-  [If N] "OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back."
-  [Patient reports nausea with 24 hrs no foods or liquids staying down]
-  [Medium – Alert to Penn]
-
-  "If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
-  [Follow-up scheduled: Nausea 1st Trimester Follow-up]
-
-• **Nausea - 1st Trimester Follow-up**
-  "Hey $patient_firstname, just checking on you. How's your nausea today? A) Better B) Stayed the same C) Worse Reply with just the letter"
-
-  [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you."
-  [Patient reports nausea better]
-  [Low - No alert to Penn]
-
-  [If B] "Thanks for sharing—Sorry you aren't feeling better yet, but we're glad to hear you could keep a little down. Would you like us to check on you tomorrow as well? Reply Y or N"
-  [Patient reports nausea staying the same]
-  [Low - No alert to Penn]
-
-  [If Y] "OK. We're here to help. Let us know if anything changes."
-  [Follow-up in 24 hours]
-
-  [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. There are safe ways to treat this, so don't wait. If you're not feeling well or have a medical emergency, visit your local ER."
-
-  [If C] "Have you kept food or drinks down since I last checked in? Reply Y or N"
-
-  [If N] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please visit your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-  [Patient reports worsening nausea with 24 hrs no food/liquid]
-  [Medium – Alert to Penn]
-
-• **Vomiting - 1st Trimester**
-  "Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] TRIGGER 2ND NODE → NAUSEA TRIAGE
-
-• **Vomiting - 1st Trimester Follow-up**
-  "Checking on you, $patient_firstname. How's your vomiting today? A) Better B) Stayed the same C) Worse Reply with just the letter"
-
-  [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you have not seen an OB yet. Don't wait—there are safe treatment options for you."
-  [Patient reports vomiting better]
-  [Low - No alert to Penn]
-
-  [If B] "Thanks for sharing—Sorry you aren't feeling better yet. Would you like us to check on you tomorrow as well? Reply Y or N"
-  [Patient reports vomiting staying the same]
-  [Low - No alert to Penn]
-
-  [If Y] "OK. We're here to help. Let us know if anything changes."
-
-  [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. If you're not feeling well or have a medical emergency, visit your local ER."
-
-  [If C] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
-  [Patient reports worsening vomiting with >24 hrs no foods or liquids staying down]
-  [Medium – Alert to Penn]
-
-• **Pain - Early Pregnancy**
-  "We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
-  [Patient reports pain]
-  [Low - No Alert to Penn]
-
-• **Ectopic Pregnancy Concern**
-  "We're sorry to hear this. It sounds like you're concerned about an ectopic pregnancy, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
-  [Patient reports possible ectopic pregnancy]
-  [Low - No Alert to Penn]
-
-• **Menstrual Period Concern**
-  "It sounds like you're concerned about your menstrual period, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "EPS Vaginal Bleeding (First Trimester) Let me ask you a few more questions about your medical history to determine the next best steps."
-  [Patient reports menstrual period]
-  [Low - No Alert to Penn]
-
-PREGNANCY DECISION SUPPORT FLOWS:
-
-• **Possible Early Pregnancy Loss**
-  "It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
-
-  [If A] "We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
-  [Patient reports confirmed early pregnancy loss]
-  [High – Alert to Penn & Scheduling]
-  [Turn on Early Pregnancy Loss tip program]
-  [Updating enrollment field with today's date]
-
-  [If B] Trigger Vaginal Bleeding – 1st Trimester
-  [Patient reports possible early pregnancy loss]
-  [Low – No Alert to Penn]
-
-  [If C] "Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
-  Trigger Vaginal Bleeding – 1st Trimester
-  [Patient reports possible early pregnancy loss]
-  [Low – No Alert to Penn]
-
-• **Undesired Pregnancy - Desires Abortion**
-  "It sounds like you want to get connected to care for an abortion, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$ and ask to be connected to the PEACE clinic (pregnancy early access center). The clinic intake staff will answer your questions and help schedule an abortion. You can also find more information about laws in your state and how to get an abortion at AbortionFinder.org"
-  [Patient requesting Abortion]
-  [No alert to Penn]
-  [Turn on Undesired tip program]
-  [Updating enrollment field with today's date]
-
-• **Undesired Pregnancy - Completed Abortion**
-  "It sounds like you've already had an abortion, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "Caring for yourself after an abortion is important. Follow the instructions given to you. Most people can return to normal activities 1 to 2 days after the procedure. You may have cramps and light bleeding for up to 2 weeks. Call $clinic_phone$, option 5 and ask to be connected to the PEACE clinic (pregnancy early access center) if you have any questions or concerns."
-
-  "Being a part of your care journey has been a real privilege. On behalf of your team at Penn, we hope we've been helpful to you during this time. Since I only guide you through this brief period, I won't be available for texting after today. Remember, you have a lot of resources available from Penn AND your community right at your fingertips."
-  [Patient stating Completed Abortion]
-  [No alert to Penn]
-  [Archive Patient]
-
-• **Desired Pregnancy Survey**
-  "It sounds like you want to get connected to care for your pregnancy, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "That's something I can definitely do! Call $clinic_phone$ Penn OB/GYN Associates or Dickens Clinic and make an appointment. It's important to receive prenatal care early on (and throughout your pregnancy) to reduce the risk of complications and ensure that both you and your baby are healthy."
-  [Patient requesting to keep pregnancy]
-  [Low - No alert to Penn]
-  [Turn on Desired Pregnancy tip program]
-  [Updating enrollment field with today's date]
-
-• **Unsure About Pregnancy Survey**
-  "Becoming a parent is a big step. Deciding if you want to continue a pregnancy is a personal decision. Talking openly and honestly with your partner or healthcare team is key. We're here for you. You can also try some thought work here: https://www.pregnancyoptions.info/pregnancy-options-workbook Would you like to get connected to care to discuss your options for pregnancy, is that correct? Reply Y or N"
-
-  [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-
-  [If Y] "Few decisions are greater than this one, but we've got your back. The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$, and ask to be scheduled in the PEACE clinic (pregnancy early access center). They are here to support you no matter what you choose."
-  [Patient unsure about pregnancy]
-  [Low - No alert to Penn]
-  [Turn on EPS Unsure tip program]
-  [Updating enrollment field with today's date]
-
-POSTPARTUM SUPPORT FLOWS:
-
-• **Postpartum Onboarding – Week 1**
-  "Hi $patient_firstname$, congratulations on your new baby! Let's get started with a few short messages to support you and your newborn. You can always reply STOP to stop receiving messages."
-  [DAY: 0, TIME: 8 AM]
-
-  "Feeding your baby is one of the most important parts of newborn care. Feeding your baby at least 8-12 times every 24 hours is normal and important to support their growth. You may need to wake your baby to feed if they're sleepy or jaundiced."
-  [DAY: 0, TIME: 12 PM]
-
-  "It's important to keep track of your baby's output (wet and dirty diapers) to know they're feeding well. By the time your baby is 5 days old, they should have 5+ wet diapers and 3+ poops per day."
-  [DAY: 0, TIME: 4 PM]
-
-  "Jaundice is common in newborns and usually goes away on its own. Signs of jaundice include yellowing of the skin or eyes. If you're worried or if your baby isn't feeding well or is hard to wake up, call your pediatrician or visit the ER."
-  [DAY: 0, TIME: 8 PM]
-
-  "Schedule a pediatrician visit. [Add scheduling link or instructions]"
-  [DAY: 1, TIME: 8 AM]
-
-  "Hi $patient_firstname$, following up to check on how you're feeling after delivery. The postpartum period is a time of recovery, both physically and emotionally. It's normal to feel tired, sore, or even overwhelmed. You're not alone. Let us know if you need support."
-  [DAY: 1, TIME: 12 PM]
-
-  "Some symptoms may require urgent care. If you experience chest pain, heavy bleeding, or trouble breathing, call 911 or go to the ER. For other questions or concerns, message us anytime."
-  [DAY: 1, TIME: 4 PM]
-
-• **Postpartum Onboarding – Week 2**
-  "Hi $patient_firstname$, checking in to see how things are going now that your baby is about a week old. We shared some helpful info last week and want to make sure you're doing okay."
-  [DAY: 7, TIME: 8 AM]
-
-  "Hi there—feeling different emotions after delivery is common. You may feel joy, sadness, or both. About 80% of people experience the 'baby blues,' which typically go away in a couple of weeks. If you're not feeling well emotionally or have thoughts of hurting yourself or others, please reach out for help."
-  [DAY: 7, TIME: 12 PM]
-
-  "Experts recommend always placing your baby on their back to sleep, in a crib or bassinet without blankets, pillows, or stuffed toys. This reduces the risk of SIDS (Sudden Infant Death Syndrome)."
-  [DAY: 7, TIME: 4 PM]
-
-  "Reminder to schedule your postpartum check-in."
-  [DAY: 9, TIME: 8 AM]
-
-  "Diaper rash is common. It can usually be treated with diaper cream and frequent diaper changes. If your baby develops a rash that doesn't go away or seems painful, call your pediatrician."
-  [DAY: 9, TIME: 12 PM]
-
-  "Hi $patient_firstname$, checking in again—how is feeding going? Breastfeeding can be challenging at times. It's okay to ask for help from a lactation consultant or your provider. Let us know if you have questions."
-  [DAY: 9, TIME: 4 PM]
-
-  "Hi $patient_firstname$, just a quick note about contraception. You can get pregnant again even if you haven't gotten your period yet. If you're not ready to be pregnant again soon, it's important to consider your birth control options. Talk to your provider to learn what's right for you."
-  [DAY: 10, TIME: 12 PM]
-
-  "Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources."
-  [DAY: 10, TIME: 5 PM]
-
-EMERGENCY SITUATION MANAGEMENT:
-
-• **Emergency Room Survey**
-  "It sounds like you are telling me about an emergency. Are you currently in the ER (or on your way)? Reply Y or N"
-
-  [If Y] "We're sorry to hear and thanks for sharing. Glad you're seeking care. Please let us know if there's anything we can do for you."
-  [High Alert: Current ER Visit]
-  [Patient has reported a current emergency room visit]
-  [High alert to Penn]
-  [Checkbox becomes TRUE for ER visit this pregnancy]
-
-  [If N] "Were you recently discharged from an emergency room visit?"
-
-  [If Y] "We're sorry to hear about your visit. To help your care team stay in the loop, would you like us to pass on any info? No worries if not, just reply 'no'."
-  "Let us know if you need anything else."
-  [High Alert: Recent ER Visit]
-  [Patient has reported a recent emergency room visit]
-  [High alert to Penn]
-  [Checkbox becomes TRUE for ER visit this pregnancy]
-
-  [If N] "If you're not feeling well or have a medical emergency, go to your local ER. If I misunderstood your message, try rephrasing & using short sentences. You may also reply MENU for a list of support options."
-
-EVALUATION SURVEYS:
-
-• **Pre-Program Impact Survey**
-  "Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy."
-
-  "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
-
-  "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
-
-  "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
-
-• **Post-Program Impact Survey**
-  "Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
-
-  "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
-
-  "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
-
-  "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
-
-• **NPS Quantitative Survey**
-  "Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
-
-  "On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
-
-  Next: → NPS Qualitative Survey
-
-• **NPS Qualitative Survey**
-  "Thanks for your response. What's the reason for your score?"
-
-  "Thanks, your feedback helps us improve future programs."
-
-MENU RESPONSES:
-
-• **A. Symptoms Response**
-  "We understand questions and concerns come up. By texting this number, you can connect with your question, and I may have an answer. This isn't an emergency line, so it's best to reach out to your doctor if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious - it's essential to seek medical attention."
-
-• **B. Medications Response**
-  "Do you have questions about: A) Medication management B) Medications that are safe in pregnancy C) Abortion medications"
-
-  "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
-
-• **C. Appointment Response**
-  "Unfortunately, I can't see when your appointment is, but you can call the clinic to find out more information. If I don't answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you more detailed information about your appointment or general information about what to expect at a visit. Just ask me."
-
-• **D. PEACE Visit Response**
-  "The Pregnancy Early Access Center is a support team, which is here to help you make choices throughout the next steps and make sure you have all the information you need. They're like planning for judgment-free care. You can ask all your questions at your visit. You have options, you can place the baby for adoption or you can continue the pregnancy and choose to parent."
-
-  "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
-
-• **E. Something Else Response**
-  "Ok, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short questions that are on one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
-
-• **F. Nothing Response**
-  "OK, remember you can text this number at any time with questions or concerns."
-
-ADDITIONAL INSTRUCTIONS:
-
-• **Always-On Q & A ON FIT**
-  "Always-On Q & A ON FIT - Symptom Triage (Nausea, Vomiting & Bleeding + Pregnancy Preference)"
-
-• **General Default Response**
-  "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
-        
-        """
-       
-#         flow_instruction_context = f"""
-# Current Flow Instructions:
+# SYMPTOM MANAGEMENT FLOWS:
 
 # • **Menu-Items**  
-#   “What are you looking for today?  
-#    1. Pregnancy test  
-#    2. Early pregnancy-loss support  
-#    3. Abortion  
-#    4. Symptoms-related help  
-#    5. Miscarriage support”
+#   "What are you looking for today?  
+#    A) I have a question about symptoms
+#    B) I have a question about medications
+#    C) I have a question about an appointment
+#    D) Information about what to expect at a PEACE visit
+#    E) Something else
+#    F) Nothing at this time
+#    Reply with just one letter."
 
-# • **Pregnancy-Test**  
-#   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+#   [If A] "We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it’s best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention."
 
-# • **LMP-Query**  
-#   “Do you know the day of your last menstrual period?”
+#   [If B] "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
 
-# • **LMP-Date**  
-#   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+#   [If C] "Unfortunately, I can’t see when your appointment is, but you can call the clinic to find out more information. If I don’t answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
+
+#   [If D] "The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions."
+
+#   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+
+#   [If E] "OK, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short sentences about one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+
+#   [If F] "OK, remember you can text this number at any time with questions or concerns."
 
 # • **Symptom-Triage**  
-#   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+#   "What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
 
-# –– **Bleeding branch** ––  
-# • **Bleeding-Triage**  
-#   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+# • **Vaginal Bleeding - 1st Trimester**
+#   "Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
 
-# • **Bleeding-Heavy-Check**  
-#   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+#   [If Y] "Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
+#   [Patient reports heavy vaginal bleeding with previous ectopic pregnancy]
+#   [High – Alert to Penn]
 
-# • **Bleeding-Urgent**  
-#   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+#   "Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
 
-# • **Bleeding-Pain-Check**  
-#   “Are you experiencing any pain or cramping? Reply Y or N.”
+#   [If Y] "This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
+#   [Patient reports heavy vaginal bleeding]
+#   [High – Alert to Penn]
 
-# • **Bleeding-Advice**  
-#   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+#   "Are you in any pain or cramping? Reply Y or N"
 
-# –– **Nausea branch** ––  
-# • **Nausea-Triage**  
-#   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+#   [If Y] "Have you been to the ER during this pregnancy? Reply Y or N"
 
-# • **Nausea-Advice**  
-#   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+#   [If Y] "Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance."
+#   [Ongoing symptoms post ER visit]
+#   [Medium – Alert to Penn]
+#   [EPS ER Visit becomes TRUE for ER visit this pregnancy]
 
-# • **Nausea-Urgent**  
-#   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+#   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department."
+#   [Patient reports light vaginal bleeding with cramps]
+#   [Medium – Alert to Penn]
 
-# –– **Miscarriage support** ––  
-# • **Miscarriage-Support**  
-#   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+#   [If N] "While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note."
+#   [Patient reports light vaginal bleeding (no cramps)]
+#   [Low – Alert to Penn]
 
-# • **Miscarriage-Emotions**  
-#   “How are you feeling emotionally? I can connect you to social resources if needed.”
+#   "If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+#   [Follow-up: 24 hours later]
+#   Vaginal Bleeding – 1st Trimester Follow-up
 
-# • **Miscarriage-Infection**  
-#   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+# • **Vaginal Bleeding - Follow-up**
+#   "Hey $patient_firstname, just checking on you. How's your vaginal bleeding today? A) Stopped B) Stayed the same C) Gotten heavier Reply with just one letter"
 
-# • **Call-Transfer**  
-#   “I’m transferring you now to a specialist for further assistance.”  
+#   [If A - Stopped] "We're glad to hear it. If anything changes - especially if you begin filling 4 or more super pads in two hours, go to your local ER."
+#   [Patient reports stopped bleeding]
+#   [Low - No alert to Penn]
 
-# """
+#   [If B - Same] "Thanks for sharing—we're sorry to hear your situation hasn't improved. Since your vaginal bleeding has lasted longer than a day, we recommend you call your OB/GYN or $clinic_phone$ and ask for the Early Pregnancy Access Center. If you do not feel well or you're having a medical emergency - especially if you've filled 4 or more super pads in two hours -- go to your local ER."
+#   [Patient reports persistent vaginal bleeding]
+#   [Low - Alert to Penn]
+
+#   [If C - Heavier] "Sorry to hear that. Thanks for sharing. Since your vaginal bleeding has lasted longer than a day, and has increased, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+#   [Patient reports increased vaginal bleeding]
+#   [Medium - Alert to Penn]
+
+# • **Nausea - 1st Trimester**
+#   "We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
+
+#   [If Y] "OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans."
+
+#   [If N] "OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back."
+#   [Patient reports nausea with 24 hrs no foods or liquids staying down]
+#   [Medium – Alert to Penn]
+
+#   "If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
+#   [Follow-up scheduled: Nausea 1st Trimester Follow-up]
+
+# • **Nausea - 1st Trimester Follow-up**
+#   "Hey $patient_firstname, just checking on you. How's your nausea today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+
+#   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you."
+#   [Patient reports nausea better]
+#   [Low - No alert to Penn]
+
+#   [If B] "Thanks for sharing—Sorry you aren't feeling better yet, but we're glad to hear you could keep a little down. Would you like us to check on you tomorrow as well? Reply Y or N"
+#   [Patient reports nausea staying the same]
+#   [Low - No alert to Penn]
+
+#   [If Y] "OK. We're here to help. Let us know if anything changes."
+#   [Follow-up in 24 hours]
+
+#   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. There are safe ways to treat this, so don't wait. If you're not feeling well or have a medical emergency, visit your local ER."
+
+#   [If C] "Have you kept food or drinks down since I last checked in? Reply Y or N"
+
+#   [If N] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please visit your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+#   [Patient reports worsening nausea with 24 hrs no food/liquid]
+#   [Medium – Alert to Penn]
+
+# • **Vomiting - 1st Trimester**
+#   "Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] TRIGGER 2ND NODE → NAUSEA TRIAGE
+
+# • **Vomiting - 1st Trimester Follow-up**
+#   "Checking on you, $patient_firstname. How's your vomiting today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+
+#   [If A] "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you have not seen an OB yet. Don't wait—there are safe treatment options for you."
+#   [Patient reports vomiting better]
+#   [Low - No alert to Penn]
+
+#   [If B] "Thanks for sharing—Sorry you aren't feeling better yet. Would you like us to check on you tomorrow as well? Reply Y or N"
+#   [Patient reports vomiting staying the same]
+#   [Low - No alert to Penn]
+
+#   [If Y] "OK. We're here to help. Let us know if anything changes."
+
+#   [If N] "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. If you're not feeling well or have a medical emergency, visit your local ER."
+
+#   [If C] "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+#   [Patient reports worsening vomiting with >24 hrs no foods or liquids staying down]
+#   [Medium – Alert to Penn]
+
+# • **Pain - Early Pregnancy**
+#   "We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
+#   [Patient reports pain]
+#   [Low - No Alert to Penn]
+
+# • **Ectopic Pregnancy Concern**
+#   "We're sorry to hear this. It sounds like you're concerned about an ectopic pregnancy, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] Trigger EPS Vaginal Bleeding (First Trimester)
+#   [Patient reports possible ectopic pregnancy]
+#   [Low - No Alert to Penn]
+
+# • **Menstrual Period Concern**
+#   "It sounds like you're concerned about your menstrual period, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "EPS Vaginal Bleeding (First Trimester) Let me ask you a few more questions about your medical history to determine the next best steps."
+#   [Patient reports menstrual period]
+#   [Low - No Alert to Penn]
+
+# PREGNANCY DECISION SUPPORT FLOWS:
+
+# • **Possible Early Pregnancy Loss**
+#   "It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
+
+#   [If A] "We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
+#   [Patient reports confirmed early pregnancy loss]
+#   [High – Alert to Penn & Scheduling]
+#   [Turn on Early Pregnancy Loss tip program]
+#   [Updating enrollment field with today's date]
+
+#   [If B] Trigger Vaginal Bleeding – 1st Trimester
+#   [Patient reports possible early pregnancy loss]
+#   [Low – No Alert to Penn]
+
+#   [If C] "Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
+#   Trigger Vaginal Bleeding – 1st Trimester
+#   [Patient reports possible early pregnancy loss]
+#   [Low – No Alert to Penn]
+
+# • **Undesired Pregnancy - Desires Abortion**
+#   "It sounds like you want to get connected to care for an abortion, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$ and ask to be connected to the PEACE clinic (pregnancy early access center). The clinic intake staff will answer your questions and help schedule an abortion. You can also find more information about laws in your state and how to get an abortion at AbortionFinder.org"
+#   [Patient requesting Abortion]
+#   [No alert to Penn]
+#   [Turn on Undesired tip program]
+#   [Updating enrollment field with today's date]
+
+# • **Undesired Pregnancy - Completed Abortion**
+#   "It sounds like you've already had an abortion, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "Caring for yourself after an abortion is important. Follow the instructions given to you. Most people can return to normal activities 1 to 2 days after the procedure. You may have cramps and light bleeding for up to 2 weeks. Call $clinic_phone$, option 5 and ask to be connected to the PEACE clinic (pregnancy early access center) if you have any questions or concerns."
+
+#   "Being a part of your care journey has been a real privilege. On behalf of your team at Penn, we hope we've been helpful to you during this time. Since I only guide you through this brief period, I won't be available for texting after today. Remember, you have a lot of resources available from Penn AND your community right at your fingertips."
+#   [Patient stating Completed Abortion]
+#   [No alert to Penn]
+#   [Archive Patient]
+
+# • **Desired Pregnancy Survey**
+#   "It sounds like you want to get connected to care for your pregnancy, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "That's something I can definitely do! Call $clinic_phone$ Penn OB/GYN Associates or Dickens Clinic and make an appointment. It's important to receive prenatal care early on (and throughout your pregnancy) to reduce the risk of complications and ensure that both you and your baby are healthy."
+#   [Patient requesting to keep pregnancy]
+#   [Low - No alert to Penn]
+#   [Turn on Desired Pregnancy tip program]
+#   [Updating enrollment field with today's date]
+
+# • **Unsure About Pregnancy Survey**
+#   "Becoming a parent is a big step. Deciding if you want to continue a pregnancy is a personal decision. Talking openly and honestly with your partner or healthcare team is key. We're here for you. You can also try some thought work here: https://www.pregnancyoptions.info/pregnancy-options-workbook Would you like to get connected to care to discuss your options for pregnancy, is that correct? Reply Y or N"
+
+#   [If N] "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+
+#   [If Y] "Few decisions are greater than this one, but we've got your back. The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$, and ask to be scheduled in the PEACE clinic (pregnancy early access center). They are here to support you no matter what you choose."
+#   [Patient unsure about pregnancy]
+#   [Low - No alert to Penn]
+#   [Turn on EPS Unsure tip program]
+#   [Updating enrollment field with today's date]
+
+# POSTPARTUM SUPPORT FLOWS:
+
+# • **Postpartum Onboarding – Week 1**
+#   "Hi $patient_firstname$, congratulations on your new baby! Let's get started with a few short messages to support you and your newborn. You can always reply STOP to stop receiving messages."
+#   [DAY: 0, TIME: 8 AM]
+
+#   "Feeding your baby is one of the most important parts of newborn care. Feeding your baby at least 8-12 times every 24 hours is normal and important to support their growth. You may need to wake your baby to feed if they're sleepy or jaundiced."
+#   [DAY: 0, TIME: 12 PM]
+
+#   "It's important to keep track of your baby's output (wet and dirty diapers) to know they're feeding well. By the time your baby is 5 days old, they should have 5+ wet diapers and 3+ poops per day."
+#   [DAY: 0, TIME: 4 PM]
+
+#   "Jaundice is common in newborns and usually goes away on its own. Signs of jaundice include yellowing of the skin or eyes. If you're worried or if your baby isn't feeding well or is hard to wake up, call your pediatrician or visit the ER."
+#   [DAY: 0, TIME: 8 PM]
+
+#   "Schedule a pediatrician visit. [Add scheduling link or instructions]"
+#   [DAY: 1, TIME: 8 AM]
+
+#   "Hi $patient_firstname$, following up to check on how you're feeling after delivery. The postpartum period is a time of recovery, both physically and emotionally. It's normal to feel tired, sore, or even overwhelmed. You're not alone. Let us know if you need support."
+#   [DAY: 1, TIME: 12 PM]
+
+#   "Some symptoms may require urgent care. If you experience chest pain, heavy bleeding, or trouble breathing, call 911 or go to the ER. For other questions or concerns, message us anytime."
+#   [DAY: 1, TIME: 4 PM]
+
+# • **Postpartum Onboarding – Week 2**
+#   "Hi $patient_firstname$, checking in to see how things are going now that your baby is about a week old. We shared some helpful info last week and want to make sure you're doing okay."
+#   [DAY: 7, TIME: 8 AM]
+
+#   "Hi there—feeling different emotions after delivery is common. You may feel joy, sadness, or both. About 80% of people experience the 'baby blues,' which typically go away in a couple of weeks. If you're not feeling well emotionally or have thoughts of hurting yourself or others, please reach out for help."
+#   [DAY: 7, TIME: 12 PM]
+
+#   "Experts recommend always placing your baby on their back to sleep, in a crib or bassinet without blankets, pillows, or stuffed toys. This reduces the risk of SIDS (Sudden Infant Death Syndrome)."
+#   [DAY: 7, TIME: 4 PM]
+
+#   "Reminder to schedule your postpartum check-in."
+#   [DAY: 9, TIME: 8 AM]
+
+#   "Diaper rash is common. It can usually be treated with diaper cream and frequent diaper changes. If your baby develops a rash that doesn't go away or seems painful, call your pediatrician."
+#   [DAY: 9, TIME: 12 PM]
+
+#   "Hi $patient_firstname$, checking in again—how is feeding going? Breastfeeding can be challenging at times. It's okay to ask for help from a lactation consultant or your provider. Let us know if you have questions."
+#   [DAY: 9, TIME: 4 PM]
+
+#   "Hi $patient_firstname$, just a quick note about contraception. You can get pregnant again even if you haven't gotten your period yet. If you're not ready to be pregnant again soon, it's important to consider your birth control options. Talk to your provider to learn what's right for you."
+#   [DAY: 10, TIME: 12 PM]
+
+#   "Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources."
+#   [DAY: 10, TIME: 5 PM]
+
+# EMERGENCY SITUATION MANAGEMENT:
+
+# • **Emergency Room Survey**
+#   "It sounds like you are telling me about an emergency. Are you currently in the ER (or on your way)? Reply Y or N"
+
+#   [If Y] "We're sorry to hear and thanks for sharing. Glad you're seeking care. Please let us know if there's anything we can do for you."
+#   [High Alert: Current ER Visit]
+#   [Patient has reported a current emergency room visit]
+#   [High alert to Penn]
+#   [Checkbox becomes TRUE for ER visit this pregnancy]
+
+#   [If N] "Were you recently discharged from an emergency room visit?"
+
+#   [If Y] "We're sorry to hear about your visit. To help your care team stay in the loop, would you like us to pass on any info? No worries if not, just reply 'no'."
+#   "Let us know if you need anything else."
+#   [High Alert: Recent ER Visit]
+#   [Patient has reported a recent emergency room visit]
+#   [High alert to Penn]
+#   [Checkbox becomes TRUE for ER visit this pregnancy]
+
+#   [If N] "If you're not feeling well or have a medical emergency, go to your local ER. If I misunderstood your message, try rephrasing & using short sentences. You may also reply MENU for a list of support options."
+
+# EVALUATION SURVEYS:
+
+# • **Pre-Program Impact Survey**
+#   "Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy."
+
+#   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+#   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+#   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+
+# • **Post-Program Impact Survey**
+#   "Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
+
+#   "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+#   "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+#   "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+
+# • **NPS Quantitative Survey**
+#   "Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
+
+#   "On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
+
+#   Next: → NPS Qualitative Survey
+
+# • **NPS Qualitative Survey**
+#   "Thanks for your response. What's the reason for your score?"
+
+#   "Thanks, your feedback helps us improve future programs."
+
+# MENU RESPONSES:
+
+# • **A. Symptoms Response**
+#   "We understand questions and concerns come up. By texting this number, you can connect with your question, and I may have an answer. This isn't an emergency line, so it's best to reach out to your doctor if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious - it's essential to seek medical attention."
+
+# • **B. Medications Response**
+#   "Do you have questions about: A) Medication management B) Medications that are safe in pregnancy C) Abortion medications"
+
+#   "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+
+# • **C. Appointment Response**
+#   "Unfortunately, I can't see when your appointment is, but you can call the clinic to find out more information. If I don't answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you more detailed information about your appointment or general information about what to expect at a visit. Just ask me."
+
+# • **D. PEACE Visit Response**
+#   "The Pregnancy Early Access Center is a support team, which is here to help you make choices throughout the next steps and make sure you have all the information you need. They're like planning for judgment-free care. You can ask all your questions at your visit. You have options, you can place the baby for adoption or you can continue the pregnancy and choose to parent."
+
+#   "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+
+# • **E. Something Else Response**
+#   "Ok, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short questions that are on one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+
+# • **F. Nothing Response**
+#   "OK, remember you can text this number at any time with questions or concerns."
+
+# ADDITIONAL INSTRUCTIONS:
+
+# • **Always-On Q & A ON FIT**
+#   "Always-On Q & A ON FIT - Symptom Triage (Nausea, Vomiting & Bleeding + Pregnancy Preference)"
+
+# • **General Default Response**
+#   "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+        
+#         """
+       
+        flow_instruction_context = f"""
+Current Flow Instructions:
+
+• **Menu-Items**  
+  “What are you looking for today?  
+   1. Pregnancy test  
+   2. Early pregnancy-loss support  
+   3. Abortion  
+   4. Symptoms-related help  
+   5. Miscarriage support”
+
+• **Pregnancy-Test**  
+  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+
+• **LMP-Query**  
+  “Do you know the day of your last menstrual period?”
+
+• **LMP-Date**  
+  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+
+• **Symptom-Triage**  
+  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+
+–– **Bleeding branch** ––  
+• **Bleeding-Triage**  
+  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+
+• **Bleeding-Heavy-Check**  
+  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+
+• **Bleeding-Urgent**  
+  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+
+• **Bleeding-Pain-Check**  
+  “Are you experiencing any pain or cramping? Reply Y or N.”
+
+• **Bleeding-Advice**  
+  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+
+–– **Nausea branch** ––  
+• **Nausea-Triage**  
+  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+
+• **Nausea-Advice**  
+  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+
+• **Nausea-Urgent**  
+  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+
+–– **Miscarriage support** ––  
+• **Miscarriage-Support**  
+  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+
+• **Miscarriage-Emotions**  
+  “How are you feeling emotionally? I can connect you to social resources if needed.”
+
+• **Miscarriage-Infection**  
+  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+
+• **Call-Transfer**  
+  “I’m transferring you now to a specialist for further assistance.”  
+
+"""
         
         # flow_instruction_context = flow_instructions
         # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
