@@ -79,7 +79,7 @@ from llama_index.llms.openai import OpenAI
 import logging
 # from google import genai
 # from google.genai import types
-nest_asyncio.apply()
+# nest_asyncio.apply()
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -11826,7 +11826,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                         similarity_top_k=5, # How many *final* unique results from fusion are passed to the LLM
                         num_queries=4,  # Number of queries to generate (1 + 3 generated). Set to 1 to disable.
                         mode="reciprocal_rerank", # Use RRF to combine results
-                        use_async=True, # Recommended for speed
+                        use_async=False, # Recommended for speed
                         verbose=True, # Good for debugging
                         # query_gen_prompt="..." # Optional: override prompt for generating queries
                     )
