@@ -11612,79 +11612,48 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         # --- Import BM25Retriever and RetrieverQueryEngine ---
         from llama_index.retrievers.bm25 import BM25Retriever
         from llama_index.core.query_engine import RetrieverQueryEngine
+        from llama_index.core import VectorStoreIndex, StorageContext
+        from llama_index.core.retrievers import VectorIndexRetriever, HybridRetriever
         # ----------------------------------------------------
         query_to_use = message
         if previous_messages:
             print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
-            context_messages = previous_messages[-4:] # Get last 3 messages
-
-            context_str = "Conversation history:\n"
-            for msg_obj in context_messages:
-                 role = msg_obj.get('role', 'unknown').capitalize()
-                 content = msg_obj.get('content', 'N/A')
-                 context_str += f"{role}: {content}\n"
-
-            # Combine context with the current message to form the query
-            # Structure the query to help the retriever understand it's a follow-up
+            context_messages = previous_messages[-4:]
+            context_str = "Conversation history:\n" + "\n".join(f"{msg.get('role', 'unknown').capitalize()}: {msg.get('content', 'N/A')}" for msg in context_messages)
             query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
-
             print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
             print("No previous messages found. Using original message for retrieval.")
-            # query_to_use remains the original message
-
-
 
         if flow_instructions == "indexed" and assistantId:
             try:
-                # Define the persist directory path for this assistant's flow instructions
-                base_dir = os.path.abspath(os.path.dirname(__file__))
-                persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
-
+                persist_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "flow_instructions_storage", f"flow_instruction_{assistantId}")
                 print(f"Attempting to load index from: {persist_dir}")
 
-                # Check if the directory exists
                 if os.path.exists(persist_dir):
-                    # Load the storage context from the persist directory
                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-
-                    # Load the index from storage
                     print("Loading index from storage...")
                     index = load_index_from_storage(storage_context)
                     print("Index loaded successfully.")
 
-                    # --- Create the BM25 Retriever ---
-                    # Retrieve all nodes from the index's document store to build the BM25 index over them.
+                    # Retrieve all nodes
                     all_nodes = list(index.docstore.docs.values())
 
-                    bm25_retriever = None # Initialize to None
-                    if not all_nodes:
-                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
-                    else:
-                        # Use from_defaults with the retrieved nodes
-                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
-                        # Set similarity_top_k here when creating the retriever instance
-                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
-                        print("BM25Retriever built.")
+                    # Build BM25 and Vector retrievers
+                    bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=3)
+                    vector_retriever = VectorIndexRetriever(index=index, similarity_top_k=3)
 
-                    # --- Create a query engine ---
-                    # Use RetrieverQueryEngine directly when using a custom retriever
-                    query_engine = None # Initialize query_engine
+                    # Create HybridRetriever
+                    hybrid_retriever = HybridRetriever(
+                        [bm25_retriever, vector_retriever],
+                        retrieval_mode="reciprocal_rerank",
+                        similarity_top_k=5
+                    )
+                    print("HybridRetriever built.")
 
-                    if bm25_retriever:
-                        # Create the query engine using the custom BM25 retriever
-                        # RetrieverQueryEngine will use the default LLM from Settings for synthesis
-                        print("Creating query engine using BM25Retriever...")
-                        query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
-                    else:
-                        # Fallback: If BM25 failed to build, use the index's default vector retriever
-                        print("Falling back to creating query engine using default VectorRetriever...")
-                        # Use index.as_query_engine() which wraps the default vector retriever
-                        query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
-
-                    if query_engine is None:
-                        raise ValueError("Failed to create any query engine (BM25 or default).")
-
+                    # Create query engine
+                    print("Creating query engine using HybridRetriever...")
+                    query_engine = RetrieverQueryEngine(retriever=hybrid_retriever)
 
                     # --- Keep the rest of the query logic ---
                     print(f"Querying index with message: '{query_to_use}'")
