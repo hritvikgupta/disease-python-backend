@@ -11609,6 +11609,121 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         if not flow_id:
             raise HTTPException(status_code=400, detail="Flow ID is required")
 
+        # --- Import BM25Retriever and RetrieverQueryEngine ---
+        from llama_index.retrievers.bm25 import BM25Retriever
+        from llama_index.core.query_engine import RetrieverQueryEngine
+        # ----------------------------------------------------
+        query_to_use = message
+        if previous_messages:
+            print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
+            context_messages = previous_messages[-4:] # Get last 3 messages
+
+            context_str = "Conversation history:\n"
+            for msg_obj in context_messages:
+                 role = msg_obj.get('role', 'unknown').capitalize()
+                 content = msg_obj.get('content', 'N/A')
+                 context_str += f"{role}: {content}\n"
+
+            # Combine context with the current message to form the query
+            # Structure the query to help the retriever understand it's a follow-up
+            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
+
+            print(f"Augmented Query for Retrieval:\n{query_to_use}")
+        else:
+            print("No previous messages found. Using original message for retrieval.")
+            # query_to_use remains the original message
+
+
+
+        if flow_instructions == "indexed" and assistantId:
+            try:
+                # Define the persist directory path for this assistant's flow instructions
+                base_dir = os.path.abspath(os.path.dirname(__file__))
+                persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
+
+                print(f"Attempting to load index from: {persist_dir}")
+
+                # Check if the directory exists
+                if os.path.exists(persist_dir):
+                    # Load the storage context from the persist directory
+                    storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+
+                    # Load the index from storage
+                    print("Loading index from storage...")
+                    index = load_index_from_storage(storage_context)
+                    print("Index loaded successfully.")
+
+                    # --- Create the BM25 Retriever ---
+                    # Retrieve all nodes from the index's document store to build the BM25 index over them.
+                    all_nodes = list(index.docstore.docs.values())
+
+                    bm25_retriever = None # Initialize to None
+                    if not all_nodes:
+                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever.")
+                    else:
+                        # Use from_defaults with the retrieved nodes
+                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
+                        # Set similarity_top_k here when creating the retriever instance
+                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=5)
+                        print("BM25Retriever built.")
+
+                    # --- Create a query engine ---
+                    # Use RetrieverQueryEngine directly when using a custom retriever
+                    query_engine = None # Initialize query_engine
+
+                    if bm25_retriever:
+                        # Create the query engine using the custom BM25 retriever
+                        # RetrieverQueryEngine will use the default LLM from Settings for synthesis
+                        print("Creating query engine using BM25Retriever...")
+                        query_engine = RetrieverQueryEngine(retriever=bm25_retriever)
+                    else:
+                        # Fallback: If BM25 failed to build, use the index's default vector retriever
+                        print("Falling back to creating query engine using default VectorRetriever...")
+                        # Use index.as_query_engine() which wraps the default vector retriever
+                        query_engine = index.as_query_engine(similarity_top_k=5) # Configure default retriever here
+
+                    if query_engine is None:
+                        raise ValueError("Failed to create any query engine (BM25 or default).")
+
+
+                    # --- Keep the rest of the query logic ---
+                    print(f"Querying index with message: '{query_to_use}'")
+                    response = query_engine.query(query_to_use)
+
+                    retrieved_text = response.response
+                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
+
+                    print(f"Successfully queried index for assistant: {assistantId}")
+                    print(f"LLM Synthesized Response: {retrieved_text}")
+
+                    print("\n--- Retrieved Source Nodes ---")
+                    if source_nodes:
+                        retrieved_texts = []
+                        # Check if nodes have scores before trying to format
+                        score_available = hasattr(source_nodes[0], 'score') if source_nodes else False
+                        for i, node_with_score in enumerate(source_nodes):
+                            score_str = f" (Score: {node_with_score.score:.4f})" if score_available else ""
+                            retrieved_texts.append(node_with_score.node.text)
+                            # print(f"Node {i+1}{score_str}:")
+                            # print(node_with_score.node.text)
+                            # print("-" * 20)
+                    else:
+                        print("No source nodes were retrieved by the retriever.")
+                    print("----------------------------\n")
+
+                    # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
+                    flow_instructions = "\n---\n".join(retrieved_texts)
+
+                else:
+                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
+                    flow_instructions = "No indexed flow instructions found."
+
+            except Exception as e:
+                print(f"Error retrieving indexed flow instructions: {str(e)}")
+                # Ensure traceback is imported if you use it
+                # print(f"Stacktrace: {traceback.format_exc()}")
+                flow_instructions = f"Error retrieving flow instructions: {str(e)}"
+
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
@@ -11810,71 +11925,71 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
-        flow_instruction_context = f"""
-Current Flow Instructions:
+#         flow_instruction_context = f"""
+# Current Flow Instructions:
 
-• **Menu-Items**  
-  “What are you looking for today?  
-   1. Pregnancy test  
-   2. Early pregnancy-loss support  
-   3. Abortion  
-   4. Symptoms-related help  
-   5. Miscarriage support”
+# • **Menu-Items**  
+#   “What are you looking for today?  
+#    1. Pregnancy test  
+#    2. Early pregnancy-loss support  
+#    3. Abortion  
+#    4. Symptoms-related help  
+#    5. Miscarriage support”
 
-• **Pregnancy-Test**  
-  “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
+# • **Pregnancy-Test**  
+#   “Have you had a positive pregnancy test? Reply yes, no, or unsure.”
 
-• **LMP-Query**  
-  “Do you know the day of your last menstrual period?”
+# • **LMP-Query**  
+#   “Do you know the day of your last menstrual period?”
 
-• **LMP-Date**  
-  “What was the first day of your last menstrual period? (MM/DD/YYYY)”
+# • **LMP-Date**  
+#   “What was the first day of your last menstrual period? (MM/DD/YYYY)”
 
-• **Symptom-Triage**  
-  “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
+# • **Symptom-Triage**  
+#   “What symptom are you experiencing? Reply ‘Bleeding’, ‘Nausea’, or ‘Vomiting’.”
 
-–– **Bleeding branch** ––  
-• **Bleeding-Triage**  
-  “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
+# –– **Bleeding branch** ––  
+# • **Bleeding-Triage**  
+#   “Have you had a history of ectopic pregnancy? Reply EY for Yes, EN for No.”
 
-• **Bleeding-Heavy-Check**  
-  “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
+# • **Bleeding-Heavy-Check**  
+#   “Is the bleeding heavy (4+ super-pads in 2 hrs)? Reply Y or N.”
 
-• **Bleeding-Urgent**  
-  “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
+# • **Bleeding-Urgent**  
+#   “This could be serious. Please call your OB/GYN at [clinic_phone] or go to ER. Are you seeing miscarriage?”
 
-• **Bleeding-Pain-Check**  
-  “Are you experiencing any pain or cramping? Reply Y or N.”
+# • **Bleeding-Pain-Check**  
+#   “Are you experiencing any pain or cramping? Reply Y or N.”
 
-• **Bleeding-Advice**  
-  “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
+# • **Bleeding-Advice**  
+#   “Please monitor your bleeding and note the color. Contact your provider. I’ll check in in 24 hrs.”
 
-–– **Nausea branch** ––  
-• **Nausea-Triage**  
-  “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
+# –– **Nausea branch** ––  
+# • **Nausea-Triage**  
+#   “Have you been able to keep food or liquids down in the last 24 hrs? Reply Y or N.”
 
-• **Nausea-Advice**  
-  “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
+# • **Nausea-Advice**  
+#   “Try small meals, ginger, or vitamin B6. I’ll check back in 24 hrs.”
 
-• **Nausea-Urgent**  
-  “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
+# • **Nausea-Urgent**  
+#   “If you can’t keep anything down, contact your provider or PEACE at [clinic_phone]. You might need Unisom.”
 
-–– **Miscarriage support** ––  
-• **Miscarriage-Support**  
-  “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
+# –– **Miscarriage support** ––  
+# • **Miscarriage-Support**  
+#   “I’m sorry you’re going through this. Do you need emotional support or infection-prevention support?”
 
-• **Miscarriage-Emotions**  
-  “How are you feeling emotionally? I can connect you to social resources if needed.”
+# • **Miscarriage-Emotions**  
+#   “How are you feeling emotionally? I can connect you to social resources if needed.”
 
-• **Miscarriage-Infection**  
-  “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
+# • **Miscarriage-Infection**  
+#   “To prevent infection, avoid tampons, sex, or swimming. Let me know if you develop fever.”
 
-• **Call-Transfer**  
-  “I’m transferring you now to a specialist for further assistance.”  
+# • **Call-Transfer**  
+#   “I’m transferring you now to a specialist for further assistance.”  
 
-"""
+# """
         
-        # flow_instruction_context = flow_instructions
+        flow_instruction_context = flow_instructions
         print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
