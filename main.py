@@ -11367,8 +11367,6 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
-Patient History Summary (Patient Previous Session Conversation):
-{patient_history}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
