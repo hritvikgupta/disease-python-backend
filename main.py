@@ -12301,7 +12301,8 @@ Instructions:
              * Calculate gestational age in weeks from LMP date to current date
              * Determine trimester (1-12 weeks: First, 13-27 weeks: Second, 28+ weeks: Third)
              * Modify `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester! [Continue with target node instruction]"
-             * Add to `state_updates`: `{"gestational_age_weeks": X, "trimester": "Y"}`
+             * Add to `state_updates`: `{{"gestational_age_weeks": X, "trimester": "Y"}}`
+
            
            - **Fallback for Unmatched Direct Response**: If no matching branch is found:
              * Search `Document Content` for information relevant to the user's response
