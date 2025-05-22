@@ -11805,6 +11805,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         # Get current node
         current_node_id = session_data.get('currentNodeId')
+        print("[CURRENT NODE ID]",current_node_id)
         current_node_doc = ""
         # if current_node_id:
         #     try:
