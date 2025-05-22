@@ -12267,62 +12267,31 @@ Instructions:
 
 
 2. **Conversation Flow (If Profile Complete)**:
-   If the `Patient Profile` is complete (no required fields missing):
-   
-   *   **Case A: Start of Conversation:** 
-       If `Conversation History` is empty, always use the instruction text from the "**Menu-Items**" node in `Structured Flow Instructions` as the response `content`. Set `next_node_id` to the `current_node_id` of the "**Menu-Items**" node found in `Structured Flow Instructions`.
-   
-   *   **Case B: User is Responding or Starting a New Topic:** 
-        If `Conversation History` is NOT empty:
-       
-       *   **Step 1**: Extract the Assistant's last message from `Conversation History`.
-       
-       *   **Step 2**: Determine if the `User Message` is a direct response to the last Assistant question:
-           - Direct responses include: 'Y', 'N', 'yes', 'no', letters 'A'-'K', specific words like 'Bleeding', dates in MM/DD/YYYY format
-           - Normalize responses: "Yes"/"yes"/"Y"/"y" → "Y", "No"/"no"/"N"/"n" → "N"
-       
-       *   **Step 3A - Direct Response Path**:
-           If the `User Message` IS a direct response:
-           
-           - **Find Current Node**: Match the Assistant's last message to a node instruction in `Structured Flow Instructions` to identify the current active node.
-           
-           - **Find Matching Branch**: Within the current node's instruction, look for branching logic that matches the normalized user response:
-             Format: `–– If [RESPONSE] ([Meaning]) –– (next_node_id: [TARGET_NODE])`
-           
-           - **Get Target Node**: Extract the `TARGET_NODE` ID from the matching branch.
-           
-           - **Retrieve Target Instruction**: Find the instruction text for `TARGET_NODE` in `Structured Flow Instructions`.
-           
-           - **CRITICAL**: Use the target node's instruction text as your `content`. DO NOT repeat the current node's instruction.
-           
-           - **Set Next Node**: Set `next_node_id` to `TARGET_NODE`.
-           
-           - **Special LMP Date Handling**: If the current node was asking for LMP date confirmation AND user provided a valid date in MM/DD/YYYY format:
-             * Calculate gestational age in weeks from LMP date to current date
-             * Determine trimester (1-12 weeks: First, 13-27 weeks: Second, 28+ weeks: Third)
-             * Modify `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester! [Continue with target node instruction]"
-             * Add to `state_updates`: `{{"gestational_age_weeks": X, "trimester": "Y"}}`
+        If the `Patient Profile` is complete (no required fields missing):
+        *   **Step 2.1 - Identify User Intent and Response Type**:
+        - Based on the `User Message` and `Conversation History`, determine the user's *current* primary intent or topic.
+        - Determine if the `User Message` is a *direct response* to the *last Assistant message* (e.g., 'Y', 'N', 'yes', 'no', a letter choice like 'A', 'B', 'E', a date like 'MM/DD/YYYY', or a specific keyword expected by the previous node like 'Bleeding'). Normalize direct responses ('Yes'/'y' -> 'Y', 'No'/'n' -> 'N', 'A'/'a' -> 'A', etc.).
 
-           
-           - **Fallback for Unmatched Direct Response**: If no matching branch is found:
-             * Search `Document Content` for information relevant to the user's response
-             * If relevant document content exists: Use document information and include ALL specific resources (URLs, phone numbers, contact info, medical information) VERBATIM
-             * If no relevant document content: Provide friendly clarification like "I didn't quite catch that. Could you try replying with Y or N?" 
-             * Set `next_node_id` to current node ID for retry
-       
-       *   **Step 3B - New Topic Path**:
-           If the `User Message` is NOT a direct response (user changed subject or asked something new):
-           
-           - **Analyze User Intent**: Identify the topic/intent from `User Message` (e.g., "symptoms", "medications", "appointment", "pregnancy test", specific medical terms).
-           
-           - **Find Flow Starting Points**: Look for relevant starting nodes in `Structured Flow Instructions` related to this topic (e.g., nodes linked from main menu).
-           
-           - **Search Document Content**: Look for highly relevant information in `Document Content` related to the user's specific query.
-           
-           - **Priority Decision**:
-             * **If Flow Starting Point is clear and actionable**: Use the starting node's instruction text as `content`. Set `next_node_id` to that node's target.
-             * **If Document Content is more specific/relevant**: Use document information as `content` and include ALL specific resources (URLs, phone numbers, contact info, medical information, treatment options) VERBATIM. Set `next_node_id` to null or current node ID.
-             * **Generic Fallback**: If neither provides a good match, give a friendly response acknowledging the message and offer to help or guide back to main options. Set `next_node_id` to null or current node ID.
+        *   **Step 2.2 - Find the Most Relevant Flow Node from Retrieved Instructions**:
+        - Carefully review the `Structured Flow Instructions` provided (these are texts from nodes retrieved).
+        - **If the User Message IS a direct response:**
+            - Identify the node *in the retrieved set* whose instruction text matches the *last Assistant message* from the `Conversation History`. This is the "current active node".
+            - Find the branching logic within this node's text that corresponds to the normalized `User Message`.
+            - Identify the `TARGET_NODE` ID from this branch.
+            - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
+            - Set `next_node_id` to the `TARGET_NODE` ID.
+            - **Special LMP Date Handling**: If the current active node was asking for LMP date confirmation AND user provided a valid date (MM/DD/YYYY): Calculate gestational age/trimester from the provided date to `Current Date`. Modify the `content` to start with: "Perfect! Thanks for sharing that date. Based on your LMP of [DATE], you're about [X] weeks along, which is in your [TRIMESTER] trimester! [Continue with target node instruction text if applicable, otherwise use a suitable closing statement.]". Add gestational age/trimester to `state_updates`.
+
+        - **If the User Message IS NOT a direct response (New Topic):**
+            - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
+            - **Find the single node *in this retrieved set* whose instruction text represents the best *entry point* or *most relevant response* for the user's *current* query.** For example, if the user asks about symptoms, look for the node explicitly labeled "A. Symptoms Response" or "Symptom-Triage".
+            - **Set the `content` of your response to the instruction text of this most relevant entry point node.**
+            - Set `next_node_id` to the `next_node_id` specified *for this matched node* in the `Structured Flow Instructions` context. For example, if you matched the "A. Symptoms Response" node, its `next_node_id` is likely "symptom_triage". If the matched node has `next_node_id: null`, set `next_node_id` to null.
+            - **Prioritize the *current* explicit user query over previous conversation topics when selecting the primary node for the response.**
+
+        *   **Step 2.3 - Incorporate Document Content (if applicable)**:
+            - After determining the primary flow node response, review the `Document Content`.
+            - If the `Document Content` contains specific details (like resource URLs, phone numbers, exact medical advice, medication names, treatment options) highly relevant to the user's query *that are not already fully covered by the chosen flow node text*, augment the response to include these specific details. **Always include URLs, phone numbers, contact information, medication names, etc., from `Document Content` VERBATIM if they are relevant.**
 
        *    For date-related instructions (e.g., gestational age):
             - Validate dates as MM/DD/YYYY, not after {current_date}.
