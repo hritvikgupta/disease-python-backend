@@ -11613,7 +11613,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         from llama_index.retrievers.bm25 import BM25Retriever
         from llama_index.core.query_engine import RetrieverQueryEngine
         from llama_index.core import VectorStoreIndex, StorageContext
-        from llama_index.core.retrievers import VectorIndexRetriever, HybridRetriever
+        from llama_index.core.retrievers import VectorIndexRetriever
+        from llama_index.retrievers.hybrid import HybridRetriever
         # ----------------------------------------------------
         query_to_use = message
         if previous_messages:
