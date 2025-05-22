@@ -13191,7 +13191,10 @@ Instructions:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 
-6. **Response Structure**:
+6. **General Instructions**
+   - If Conversation History is Empty then always start with the **Menu-Items** to ask the user what they are looking for. 
+   
+7. **Response Structure**:
    Return a JSON object:
    ```json
    {{
