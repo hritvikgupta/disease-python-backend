@@ -11471,6 +11471,7 @@ Instructions:
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
 2. **Conversation Flow**:
+   - When a flow instruction indicates "Flow ends" or provides no next_node_id, the analyze the user message next_node_id to decide. See Step 7 For More Details
    - Use the `Current Node`, `User Message`, `Conversation History` and the `Structured Flow Instructions` to decide the what next question to ask and what is the next node id. 
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
