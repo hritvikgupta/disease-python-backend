@@ -9905,6 +9905,96 @@ Return your response as a JSON object with the following structure:
             ai_response = response_data.get("content", "I'm having trouble processing your request.")
             next_node_id = response_data.get("next_node_id")
             state_updates = response_data.get("state_updates", {})
+            database_operation = response_data.get("database_operation")
+
+            operation_result = None
+            if database_operation:
+                operation = database_operation.get("operation")
+                parameters = database_operation.get("parameters", {})
+                try:
+                    if operation == "UPDATE_PATIENT":
+                        patient = db.query(Patient).filter(Patient.id == patientId).first()
+                        if not patient:
+                            raise HTTPException(status_code=404, detail="Patient not found")
+                        setattr(patient, parameters["field_name"], parameters["field_value"])
+                        patient.updated_at = datetime.utcnow()
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Update JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile updated successfully!"
+                    elif operation == "CREATE_PATIENT":
+                        # Fallback if patientId is invalid; use session_data for phone/organization_id
+                        mrn = generate_mrn()
+                        patient = Patient(
+                            id=str(uuid.uuid4()),
+                            mrn=mrn,
+                            first_name=parameters.get("first_name", ""),
+                            last_name=parameters.get("last_name", ""),
+                            date_of_birth=parameters.get("date_of_birth"),
+                            phone=session_data.get("phone", "unknown"),
+                            organization_id=session_data.get("organization_id", "default_org"),
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(patient)
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Save JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile created successfully!"
+                except Exception as e:
+                    db.rollback()
+                    print(f"Database operation failed: {str(e)}")
+                    content += f"\nSorry, I couldn’t update your profile. Let’s try again."
+                    response_data["next_node_id"] = current_node_id
+
 
             # Check if no function match and no progression (e.g., no functions or all unmatched)
             has_functions = False
