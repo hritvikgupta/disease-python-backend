@@ -9402,6 +9402,9 @@ async def vector_flow_chat(request: dict):
             Patient Profile (includes phone and organization_id):
             {patient_fields}
 
+            User Message : 
+            {message}
+
             You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
 
             1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
@@ -9547,7 +9550,7 @@ async def vector_flow_chat(request: dict):
             print(f"Response: {content}")
             print(f"Next node ID: {next_node_id}")
             print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
-
+        
             response = {
                 "content": content,
                 "next_node_id": next_node_id,
