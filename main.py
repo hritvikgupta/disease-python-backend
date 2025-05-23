@@ -10398,7 +10398,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         previous_messages = request.get("previous_messages", [])
         flow_instructions = request.get("instruction_type")
         patient_history = request.get("patient_history", "")
-        print(f"[PATIENT HISTORY], {patient_history}")
+        # print(f"[PATIENT HISTORY], {patient_history}")
 
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
@@ -10417,7 +10417,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         # ----------------------------------------------------
         query_to_use = message
         if previous_messages:
-            print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
+            # print(f"Previous messages found ({len(previous_messages)}). Building contextual query.")
             context_messages = previous_messages[-4:] # Get last 3 messages
 
             context_str = "Conversation history:\n"
@@ -10430,7 +10430,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             # Structure the query to help the retriever understand it's a follow-up
             query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
 
-            print(f"Augmented Query for Retrieval:\n{query_to_use}")
+            # print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
             print("No previous messages found. Using original message for retrieval.")
             # query_to_use remains the original message
@@ -10526,7 +10526,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
 
-        print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
+        # print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
@@ -10656,7 +10656,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         #         current_node_doc = "No starting node found."
        
        
-        print('[CURRENT NODE DOC]', current_node_doc)
+        print('[CURRENT NODE ID]', current_node_id)
         # Load document index
         document_context = ""
         document_retriever = None
@@ -11321,7 +11321,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 # """
         
         flow_instruction_context = flow_instructions
-        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+        # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
