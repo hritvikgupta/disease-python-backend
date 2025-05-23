@@ -10561,7 +10561,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                 bm25_retriever = None
                 vector_retriever = None
                 retrievers_list = []
-
+                all_nodes = list(index.docstore.docs.values())
                 # Create BM25 Retriever (needs nodes from loaded index)
                 if index:
                     all_nodes = list(index.docstore.docs.values())
@@ -10605,7 +10605,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # similarity_top_k is the *final* number of results after fusion.
                     fusion_retriever = QueryFusionRetriever(
                         retrievers=retrievers_list,
-                        similarity_top_k=5, # How many *final* unique results from fusion are passed to the LLM
+                        similarity_top_k=min(2, len(all_nodes)),  # Don't exceed available nodes
                         num_queries=5,  # Number of queries to generate (1 + 3 generated). Set to 1 to disable.
                         mode="reciprocal_rerank", # Use RRF to combine results
                         use_async=False, # Recommended for speed
