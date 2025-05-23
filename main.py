@@ -10428,7 +10428,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             # Combine context with the current message to form the query
             # Structure the query to help the retriever understand it's a follow-up
-            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step?"
+            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step or nodes?"
 
             # print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
@@ -10489,8 +10489,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
 
                     # --- Keep the rest of the query logic ---
-                    print(f"Querying index with message: '{message}'")
-                    response = query_engine.query(message)
+                    print(f"Querying index with message: '{query_to_use}'")
+                    response = query_engine.query(query_to_use)
 
                     retrieved_text = response.response
                     source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
@@ -10526,7 +10526,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
 
-        # print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
+        print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
