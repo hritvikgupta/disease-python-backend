@@ -11390,8 +11390,365 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 #   “I’m transferring you now to a specialist for further assistance.”  
 
 # """
-        
-        flow_instruction_context = flow_instructions
+        flow_instruction_context = f"""
+Main Menu
+Node ID: menu-items
+"What are you looking for today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test F) I need help with pregnancy loss G) Something else H) Nothing at this time I) Take the Pre-Program Impact Survey J) Take the Post-Program Impact Survey K) Take the NPS Quantitative Survey Reply with just one letter."
+
+If A → go to symptoms-response
+If B → go to medications-response
+If C → go to appointment-response
+If D → go to peace-visit-response
+If E → go to follow-up-confirmation-of-pregnancy-survey
+If F → go to pregnancy-loss-response
+If G → go to something-else-response
+If H → go to nothing-response
+If I → go to pre-program-impact-survey
+If J → go to post-program-impact-survey
+If K → go to nps-quantitative-survey
+
+Pregnancy Test Flow
+Node ID: follow-up-confirmation-of-pregnancy-survey
+"Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. Have you had a moment to take your home pregnancy test? Reply Y or N"
+
+If Y or Yes → go to pregnancy-test-results-nlp-survey
+If N or No → go to default-response
+
+Node ID: pregnancy-test-results-nlp-survey
+"It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+
+If Y or Yes → go to pregnancy-test-result-confirmation
+If N or No → go to default-response
+
+Node ID: pregnancy-test-result-confirmation
+"Were the results positive? Reply Y or N"
+
+If Y or Yes → go to ask-for-lmp
+If N or No → go to negative-test-result-response
+
+LMP and Dating Flow
+Node ID: ask-for-lmp
+"Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+
+If Y or Yes → go to enter-lmp-date
+If N or No → go to ask-for-edd
+
+Node ID: enter-lmp-date
+"Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+
+If date provided (MM/DD/YYYY format) → go to lmp-date-received
+
+Node ID: lmp-date-received
+"Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+Next node: null (Calculate gestational age and provide response, then wait for user's next message)
+Node ID: ask-for-edd
+"Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+
+If Y or Yes → go to enter-edd-date
+If N or No → go to check-penn-medicine-system
+
+Node ID: enter-edd-date
+"Great. Please reply in this format: MM/DD/YYYY"
+
+If date provided (MM/DD/YYYY format) → go to edd-date-received
+
+Node ID: edd-date-received
+"Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+Next node: null (Calculate gestational age and provide response, then wait for user's next message)
+Node ID: check-penn-medicine-system
+"We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+
+If Y or Yes → go to penn-system-confirmation
+If N or No → go to register-as-new-patient
+
+Node ID: penn-system-confirmation
+"Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+Next node: null
+Node ID: register-as-new-patient
+"Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+Next node: null
+Care Options Routing
+Node ID: prenatal-provider-check
+"Do you have a prenatal provider? Reply Y or N"
+
+If Y or Yes → go to schedule-appointment
+If N or No → go to schedule-with-penn-obgyn
+
+Node ID: schedule-appointment
+"Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
+Next node: null
+Node ID: schedule-with-penn-obgyn
+"It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
+Next node: null
+Node ID: connect-to-peace-clinic
+"We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
+Next node: null
+Node ID: connect-to-peace-for-abortion
+"Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
+Next node: null
+Negative Test Results
+Node ID: negative-test-result-response
+"Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN.
+Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+Next node: null
+Symptom Management
+Node ID: symptoms-response
+"We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it's best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention.
+What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
+
+If "Bleeding" → go to vaginal-bleeding-1st-trimester
+If "Nausea" → go to nausea-1st-trimester
+If "Vomiting" → go to vomiting-1st-trimester
+If "Pain" → go to pain-early-pregnancy
+If "Other" → go to default-response
+
+Bleeding Assessment
+Node ID: vaginal-bleeding-1st-trimester
+"Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
+
+If Y or Yes → go to immediate-provider-visit
+If N or No → go to heavy-bleeding-check
+
+Node ID: immediate-provider-visit
+"Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
+Next node: null
+Node ID: heavy-bleeding-check
+"Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
+
+If Y or Yes → go to urgent-provider-visit-for-heavy-bleeding
+If N or No → go to pain-or-cramping-check
+
+Node ID: urgent-provider-visit-for-heavy-bleeding
+"This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
+Next node: null
+Node ID: pain-or-cramping-check
+"Are you in any pain or cramping? Reply Y or N"
+
+If Y or Yes → go to er-visit-check-during-pregnancy
+If N or No → go to monitor-bleeding
+
+Node ID: er-visit-check-during-pregnancy
+"Have you been to the ER during this pregnancy? Reply Y or N"
+
+If Y or Yes → go to report-bleeding-to-provider
+If N or No → go to monitor-bleeding-at-home
+
+Node ID: report-bleeding-to-provider
+"Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance.
+If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+Next node: null
+Node ID: monitor-bleeding-at-home
+"While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department.
+If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+Next node: null
+Node ID: monitor-bleeding
+"While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note.
+If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+Next node: null
+Nausea Management
+Node ID: nausea-1st-trimester
+"We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
+
+If Y or Yes → go to nausea-management-advice
+If N or No → go to nausea-treatment-options
+
+Node ID: nausea-management-advice
+"OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans.
+If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
+
+Next node: null
+
+Node ID: nausea-treatment-options
+
+"OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back.
+If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
+Next node: null
+Vomiting Management
+Node ID: vomiting-1st-trimester
+"Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
+
+If N or No → go to default-response
+If Y or Yes → go to nausea-1st-trimester
+
+Pain Management
+Node ID: pain-early-pregnancy
+"We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
+
+If N or No → go to default-response
+If Y or Yes → go to vaginal-bleeding-1st-trimester
+
+Medications Management
+Node ID: medications-response
+"Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy
+Do you have questions about:
+A) Medication management
+B) Medications that are safe in pregnancy
+C) Abortion medications
+Reply with just one letter."
+
+If A → go to medication-management-response
+If B → go to safe-medications-response
+If C → go to abortion-medications-response
+
+Node ID: medication-management-response
+"Medication management during pregnancy can be tricky. Always check with your provider before starting or stopping any medication. They'll work with you to ensure you're taking the safest options available."
+Next node: null
+Node ID: safe-medications-response
+"Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+
+Next node: null
+
+Node ID: abortion-medications-response
+"Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+Next node: null
+Pregnancy Loss Management
+Node ID: pregnancy-loss-response
+"It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
+
+If N or No → go to default-response
+If Y or Yes → go to confirm-pregnancy-loss
+
+Node ID: confirm-pregnancy-loss
+"We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
+
+If (Yes) → go to support-and-schedule-appointment
+If (No)  → go to vaginal-bleeding-1st-trimester
+If  Unsure or Not Sture → go to schedule-peace-appointment
+
+Node ID: support-and-schedule-appointment
+"We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
+Next node: null
+
+Node ID: schedule-peace-appointment
+"Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
+Next node: go to vaginal-bleeding-1st-trimester
+Other Menu Responses
+
+Node ID: appointment-response
+
+"Unfortunately, I can't see when your appointment is, but you can call the clinic to find out more information. If I don't answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
+
+Next node: Route based on user's next message
+
+If user asks about symptoms → go to symptoms-response
+If user asks about medications → go to medications-response
+If user asks about appointments → stay in appointment-response
+If user asks general questions → go to menu-items
+If user says thanks/goodbye → go to nothing-response
+
+Node ID: peace-visit-response
+"The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions.
+Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+Next node: Route based on user's next message
+
+If user asks about symptoms → go to symptoms-response
+If user asks about medications → go to medications-response
+If user asks about appointments → go to appointment-response
+If user asks general questions → go to menu-items
+If user says thanks/goodbye → go to nothing-response
+
+Node ID: something-else-response
+"OK, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short sentences about one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+Next node: Route based on user's next message
+
+If user provides specific question → route to appropriate node
+If unclear → go to menu-items
+
+Node ID: nothing-response
+"OK, remember you can text this number at any time with questions or concerns."
+Next node: null
+Node ID: default-response
+"OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+Next node: Route based on user's next message
+
+If user mentions symptoms → go to symptoms-response
+If user asks general questions → go to menu-items
+If no clear direction → go to menu-items
+
+Survey Flows
+Node ID: pre-program-impact-survey
+"Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy.
+On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+If number provided (0-10) → go to knowledge-rating
+
+Node ID: knowledge-rating
+"On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+If number provided (0-10) → go to thank-you-message
+
+Node ID: thank-you-message
+"Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+Next node: null 
+Node ID: post-program-impact-survey
+"Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
+
+If response provided → go to post-program-confidence-rating
+
+Node ID: post-program-confidence-rating
+"On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+
+If number provided (0-10) → go to post-program-knowledge-rating
+
+Node ID: post-program-knowledge-rating
+"On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+
+If number provided (0-10) → go to post-program-thank-you
+
+Node ID: post-program-thank-you
+"Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+Next node: null
+Node ID: nps-quantitative-survey
+"Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
+
+If response provided → go to likelihood-to-recommend
+
+Node ID: likelihood-to-recommend
+"On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
+
+If number provided (0-10) → go to nps-qualitative-survey
+
+Node ID: nps-qualitative-survey
+"Thanks for your response. What's the reason for your score?"
+
+If response provided → go to feedback-acknowledgment
+
+Node ID: feedback-acknowledgment
+"Thanks, your feedback helps us improve future programs."
+Next node: null
+Pregnancy Intention Assessment
+Node ID: pregnancy-intention-survey
+"$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all. I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
+
+If A → go to excited-response
+If B → go to not-sure-response
+If C → go to not-excited-response
+
+Node ID: excited-response
+"Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you.
+Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+
+If A → go to prenatal-provider-check
+If B → go to connect-to-peace-clinic
+If C → go to connect-to-peace-for-abortion
+
+Node ID: not-sure-response
+"We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you.
+Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+
+If A → go to prenatal-provider-check
+If B → go to connect-to-peace-clinic
+If C → go to connect-to-peace-for-abortion
+
+Node ID: not-excited-response
+"We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you.
+Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+
+If A → go to prenatal-provider-check
+If B → go to connect-to-peace-clinic
+If C → go to connect-to-peace-for-abortion
+"""
+        # flow_instruction_context = flow_instructions
         # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
