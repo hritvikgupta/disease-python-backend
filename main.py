@@ -9388,8 +9388,175 @@ async def vector_flow_chat(request: dict):
 
         }
         patient_fields = json.dumps(patient_dict, indent=2)
+        required_fields = ["first_name", "last_name", "date_of_birth", "gender", "email"]
+        missing_fields = []
+        for field in required_fields:
+            value = getattr(patient, field, None)
+            if not value or (isinstance(value, str) and not value.strip()):
+                missing_fields.append(field)
+
+        if missing_fields: 
+            print("==== PATIENT ONBOARDING/CHAT START ====\n")
+            patient_fields_prompt = f"""
+
+            Patient Profile (includes phone and organization_id):
+            {patient_fields}
+
+            You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+
+            1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
+            2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
+            3. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
+            4. Maintain a warm, empathetic tone, like you're talking to a friend.
+
+            Instructions:
+            1. **Check Patient Profile**:
+            - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
+            - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
+            - Validate user input based on the field type:
+                - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+                - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
+            - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
+                - patient_id: {patientId}
+                - field_name: the field (e.g., "first_name")
+                - field_value: the validated value
+            - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
+            - If no fields are missing, proceed to conversation flow.
+            - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+            IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
+                Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
 
 
+            2. **Response Structure**:
+            Return a JSON object:
+            ```json
+            {{
+                "content": "Your friendly response to the user",
+                "next_node_id": "ID of the next node or current node",
+                "state_updates": {{"key": "value"}},
+                "database_operation": {{
+                "operation": "UPDATE_PATIENT | CREATE_PATIENT",
+                "parameters": {{
+                    "patient_id": "string",
+                    "field_name": "string",
+                    "field_value": "string"
+                }}
+                }} // Optional, only when updating/creating
+            }}
+
+"""
+            
+            response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            response_data = json.loads(response_text)
+
+            content = response_data.get("content", "I'm having trouble processing your request.")
+            next_node_id = response_data.get("next_node_id")
+            state_updates = response_data.get("state_updates", {})
+            database_operation = response_data.get("database_operation")
+
+            operation_result = None
+            if database_operation:
+                operation = database_operation.get("operation")
+                parameters = database_operation.get("parameters", {})
+                try:
+                    if operation == "UPDATE_PATIENT":
+                        patient = db.query(Patient).filter(Patient.id == patientId).first()
+                        if not patient:
+                            raise HTTPException(status_code=404, detail="Patient not found")
+                        setattr(patient, parameters["field_name"], parameters["field_value"])
+                        patient.updated_at = datetime.utcnow()
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Update JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile updated successfully!"
+                    elif operation == "CREATE_PATIENT":
+                        # Fallback if patientId is invalid; use session_data for phone/organization_id
+                        mrn = generate_mrn()
+                        patient = Patient(
+                            id=str(uuid.uuid4()),
+                            mrn=mrn,
+                            first_name=parameters.get("first_name", ""),
+                            last_name=parameters.get("last_name", ""),
+                            date_of_birth=parameters.get("date_of_birth"),
+                            phone=session_data.get("phone", "unknown"),
+                            organization_id=session_data.get("organization_id", "default_org"),
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(patient)
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Save JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile created successfully!"
+                except Exception as e:
+                    db.rollback()
+                    print(f"Database operation failed: {str(e)}")
+                    content += f"\nSorry, I couldn’t update your profile. Let’s try again."
+                    response_data["next_node_id"] = current_node_id
+
+            print(f"Response: {content}")
+            print(f"Next node ID: {next_node_id}")
+            print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
+
+            response = {
+                "content": content,
+                "next_node_id": next_node_id,
+                "state_updates": state_updates
+            }
+            if operation_result:
+                response["operation_result"] = operation_result
+            return response
+            
         # Create context for the query
         current_node_id = session_data.get('currentNodeId')
         print(f"Current node ID: {current_node_id}")
