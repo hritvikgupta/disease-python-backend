@@ -12477,10 +12477,11 @@ You are a helpful assistant tasked with providing accurate and context-aware res
     ```
 
 Examples:
+
 - Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi", Conversation History: Empty
   - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}} (Asks for first name first)
-- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones", Conversation History: [{{"role": "assistant", "content": "Could you share your first name?"}}, {"role": "user", "content": "Shenal"}] <-- History should show asking for LAST name based on profile step. Let's correct the example logic.
-- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones", Conversation History: [{{"role": "assistant", "content": "Hey Shenal! I need a bit more info... Could you share your last name?"}}, {"role": "user", "content": "Jones"}]
+- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones", Conversation History: [{{"role": "assistant", "content": "Could you share your first name?"}}, {{"role": "user", "content": "Shenal"}}] 
+- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones", Conversation History: [{{"role": "assistant", "content": "Hey Shenal! I need a bit more info... Could you share your last name?"}}, {{"role": "user", "content": "Jones"}}]
   - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! Now, what's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
 - Profile complete, Conversation History: Empty, Message: "hi"
   - Response: {{"content": "Hi $patient_firstname! I'm here to help you with your healthcare needs. What would you like to talk about today? A) I have a question about symptoms B) I have a question about medications ...", "next_node_id": "menu_items", "state_updates": {{}}}} (Uses the start_conversation message)
@@ -12490,7 +12491,8 @@ Examples:
   - Response: {{"content": "Perfect. Thanks so much. Based on that date, you're about 24 weeks along, in your second trimester! Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now.", "next_node_id": "pregnancy_intention_survey", "state_updates": {{"gestational_age_weeks": 24, "trimester": "Second"}}}} (Validates date, calculates age/trimester, includes in message, updates state, moves to next node)
 - Profile complete, Conversation History: [... assistant: "OK. We're here to help..."], Message: "Where can I get birth control?" Document Content includes the "Contraception Resources" node.
   - Response: {{"content": "Okay, I can help with that. Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources.", "next_node_id": "null", "state_updates": {{}}}} (Identifies "Contraception Resources" as best node for new topic, uses its message and next_node_id).
-"""
+  
+  """
         # Call LLM
         response_text = Settings.llm.complete(prompt).text  # Replace with Settings.llm.complete
         if "```json" in response_text:
