@@ -9396,6 +9396,7 @@ async def vector_flow_chat(request: dict):
             if not value or (isinstance(value, str) and not value.strip()):
                 missing_fields.append(field)
         print(f"[MISSING FIELDS], {missing_fields}")
+        print(f"[PATIENT FIELDS], {patient_fields}")
 
         if missing_fields: 
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
