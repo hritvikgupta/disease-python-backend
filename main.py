@@ -13700,7 +13700,7 @@ DEFAULT_NEXT_NODE: null # Terminal node or waits for new input
 ACTIONS: []
 ### NODE_END ###
 """
-        # flow_instruction_context = flow_instructions
+        flow_instruction_context = flow_instructions
         print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
