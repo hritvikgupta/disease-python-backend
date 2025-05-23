@@ -11430,6 +11430,9 @@ Instructions:
 6. **General Instructions**
     - If Conversation History  are found always start with **menu items* Node. 
     - If Any Nodes Have more than 2 options like A, B, C, D, E, etc then If User Message is E or D or Any of These Single Letter Then Match the response and go to that Node rather asking same question over again. 
+    - **IMP** 
+      - DO NOT REPOND WITH "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+      - Instead Calculate the gestational age in the Current Node Using {current_date} and provide reponse For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
 
 7. **Response Structure**:
    Return a JSON object:
