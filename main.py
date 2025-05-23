@@ -10538,18 +10538,20 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             "last_name": patient.last_name,
             "date_of_birth": patient.date_of_birth,
             "gender": patient.gender,
-            "phone": patient.phone,
-            "email": patient.email,
-            "address": patient.address,
-            "insurance_provider": patient.insurance_provider,
-            "insurance_id": patient.insurance_id,
-            "primary_care_provider": patient.primary_care_provider,
-            "emergency_contact_name": patient.emergency_contact_name,
-            "emergency_contact_phone": patient.emergency_contact_phone,
-            "organization_id": patient.organization_id,
-            "created_at": patient.created_at.isoformat() if patient.created_at else None,
-            "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+
         }
+        #  "email": patient.email,
+        #     "address": patient.address,
+            
+        #   "phone": patient.phone,
+        # "insurance_provider": patient.insurance_provider,
+            # "insurance_id": patient.insurance_id,
+            # "primary_care_provider": patient.primary_care_provider,
+            # "emergency_contact_name": patient.emergency_contact_name,
+            # "emergency_contact_phone": patient.emergency_contact_phone,
+            # "organization_id": patient.organization_id,
+            # "created_at": patient.created_at.isoformat() if patient.created_at else None,
+            # "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
         patient_fields = json.dumps(patient_dict, indent=2)
 
         # Format conversation history
@@ -11397,23 +11399,7 @@ Instructions:
    IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
-2. **PRIORITIZE PATIENT HISTORY - CRITICAL**:
-   - You MUST carefully read the Patient History Summary section before responding.
-   - This history contains crucial medical information from previous sessions.
-   - ALWAYS acknowledge and reference previous data like:
-     * Last menstrual period dates
-     * Previous pregnancy test results
-     * Reported symptoms
-     * Medication discussions
-     * Gestational age calculations
-     * Other MEDICAL Related Information OR Symptoms
-   - If a patient asks about symptoms or conditions, FIRST check if related information appears in their history.
-   - Example: If they ask about bloating but their history mentions they're pregnant, acknowledge the pregnancy status BEFORE giving general advice.
-   - Acknowldge the patient before asking for information that is clearly provided in the patient history (For example LMP dates if already known, or any Symptoms).
-   - Show continuity of care by referring to previous interactions: "As we discussed in your previous visit..." or "Given your pregnancy status that we confirmed earlier..."
-
-
-3. **Conversation Flow**:
+2. **Conversation Flow**:
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
@@ -11427,21 +11413,21 @@ Instructions:
      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
      - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
-4. **Response Style**:
+3. **Response Style**:
    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
    - Avoid robotic phrases like "Processing node" or "Moving to next step."
    - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
    - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
 
-5. **Database Operations**:
+4. **Database Operations**:
    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
    - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
 
-6. **Flow Progression**:
+5. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 
-8. **Response Structure**:
+6. **Response Structure**:
    Return a JSON object:
    ```json
    {{
