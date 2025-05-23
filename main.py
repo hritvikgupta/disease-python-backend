@@ -11398,7 +11398,8 @@ Instructions:
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
 2. **Conversation Flow**:
-   - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next, but don't follow them rigidly.
+   - Use the `User Message`, `Conversation History` and the `Structured Flow Instructions` to decide the what next question to ask. 
+   - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
    - If the user asks about medications or treatments, check the Document Content first.
