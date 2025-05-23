@@ -9337,7 +9337,7 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         patientId = request.get("patientId", "")
-
+        Onboarding = None
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
         print(f"Flow ID: {flow_id}")
@@ -9350,7 +9350,8 @@ async def vector_flow_chat(request: dict):
         print(f"Is likely new session: {is_new_session}")
         print(f"session data {session_data}")
         current_node_id = session_data.get('currentNodeId')
-        
+        current_node_doc = ""
+        print(f"Current node ID: {current_node_id}")
         survey_questions_length = session_data.get('survey_questions_length', 0)
         user_message_count = sum(1 for msg in previous_messages if msg.get("role") == "user")
         is_post_survey_start = (current_node_id is None and 
@@ -9395,6 +9396,7 @@ async def vector_flow_chat(request: dict):
             if not value or (isinstance(value, str) and not value.strip()):
                 missing_fields.append(field)
         print(f"[MISSING FIELDS], {missing_fields}")
+
         if missing_fields: 
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
             patient_fields_prompt = f"""
@@ -9548,6 +9550,12 @@ async def vector_flow_chat(request: dict):
                             }
                             json.dump(patient_dict, f, indent=2)
                         content += f"\nProfile created successfully!"
+                        starting_node_id, starting_node_doc = get_starting_node(flow_index)
+                        print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
+                        if starting_node_id:
+                            current_node_id = starting_node_id
+                            current_node_doc = starting_node_doc
+                            
                 except Exception as e:
                     db.rollback()
                     print(f"Database operation failed: {str(e)}")
@@ -9566,11 +9574,8 @@ async def vector_flow_chat(request: dict):
             if operation_result:
                 response["operation_result"] = operation_result
             return response
-            
-        # Create context for the query
-        current_node_id = session_data.get('currentNodeId')
-        print(f"Current node ID: {current_node_id}")
-
+        
+      
 
         # Format previous messages for better context
         conversation_history = ""
@@ -9645,7 +9650,6 @@ async def vector_flow_chat(request: dict):
                 
 
         # Basic String Query Approach - No Filters
-        current_node_doc = ""
         if current_node_id:
             try:
                 # Create basic retriever with no filters
@@ -9805,33 +9809,33 @@ The session data is:
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
-1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
-2. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
-3. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
-4. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
-5. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
-6. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
-7. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
-8. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
-9. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
-10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
-11. Maintain conversation continuity and ensure responses are contextually appropriate.
-12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
-13. If a date is provided in response to a function:
+2. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
+3. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
+4. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
+5. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
+6. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
+7. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
+8. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
+9. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
+10. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
+11. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
+12. Maintain conversation continuity and ensure responses are contextually appropriate.
+13. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
+14. If a date is provided in response to a function:
      - Validate the date as MM/DD/YYYY (e.g., '05/14/2025' or '5/5/2025'). A date is valid if:
      - It matches the format MM/DD/YYYY (with or without leading zeros for month/day).
      - It represents a real calendar date (e.g., not '02/30/2025').
      - It is not after the current date ({current_date}).
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
-14. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
+15. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
    - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
    - Convert the gestational age to weeks (integer division of days by 7).
    - Determine the trimester: First (≤12 weeks), Second (13–27 weeks), or Third (≥28 weeks).
    - Append to the node's instructed response: "Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester."
    - Store 'gestational_age_weeks' and 'trimester' in 'state_updates'.
 
-15. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
+16. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
