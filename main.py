@@ -12188,324 +12188,8 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 #   “I’m transferring you now to a specialist for further assistance.”  
 
 # """
-        flow_instruction_context = f"""
-        Start Conversation (ID: start_conversation)
-Prompt: "Hi $patient_firstname! I'm here to assist with your healthcare needs. What would you like to discuss? A) Symptoms B) Medications C) Appointment D) PEACE visit info E) Pregnancy test F) Pregnancy loss G) Something else H) Nothing"
-Response: Single letter (A-H)
-Next: menu_items
-Menu Items (ID: menu_items)
-Prompt: "What are you looking for? A) Symptoms B) Medications C) Appointment D) PEACE visit info E) Pregnancy test F) Pregnancy loss G) Something else H) Nothing I) Pre-Program Survey J) Post-Program Survey K) NPS Survey"
-Response: Single letter (A-K)
-Next:
-A → symptoms_response
-B → menu_b_medications_response
-C → appointment_response
-D → peace_visit_response REALLY
-E → follow_up_confirmation_of_pregnancy_survey
-F → possible_early_pregnancy_loss
-G → something_else_response
-H → nothing_response
-I → pre_program_impact_survey
-J → post_program_impact_survey
-K → nps_quantitative_survey
-Onboarding (ID: onboarding)
-Description: Enrolls patient with four branches: Unknown, Desired, Undesired/Unsure, Early Pregnancy Loss.
-Next: follow_up_confirmation_of_pregnancy_survey
-Pregnancy Test Confirmation (ID: follow_up_confirmation_of_pregnancy_survey)
-Prompt: "Hi $patient_firstname, have you taken your home pregnancy test? Reply Y or N"
-Response: Y or N
-Next: pregnancy_test_results_nlp_survey
-Pregnancy Test Results (ID: pregnancy_test_results_nlp_survey)
-Prompt: "Are you sharing pregnancy test results? Reply Y or N"
-Response:
-Y → pregnancy_test_result_confirmation
-N → default_response
-Pregnancy Test Result Confirmation (ID: pregnancy_test_result_confirmation)
-Prompt: "Were the results positive? Reply Y or N"
-Response:
-Y → ask_for_lmp
-N → negative_test_result_response
-Last Menstrual Period (LMP) (ID: ask_for_lmp)
-Prompt: "Do you know the first day of your last menstrual period (LMP)? Reply Y or N"
-Response:
-Y → enter_lmp_date
-N → ask_for_edd
-Enter LMP Date (ID: enter_lmp_date)
-Prompt: "Please reply with your LMP in MM/DD/YYYY format."
-Next: lmp_date_received
-LMP Date Received (ID: lmp_date_received)
-Prompt: "Thanks! We’re calculating your gestational age. We’ll support you with next steps."
-Next: pregnancy_intention_survey
-Estimated Due Date (EDD) (ID: ask_for_edd)
-Prompt: "Do you know your Estimated Due Date? Reply Y or N"
-Response:
-Y → enter_edd_date
-N → check_penn_medicine_system
-Enter EDD Date (ID: enter_edd_date)
-Prompt: "Please reply with your EDD in MM/DD/YYYY format."
-Next: edd_date_received
-EDD Date Received (ID: edd_date_received)
-Prompt: "Thanks! We’re calculating your gestational age. We’ll support you with next steps."
-Next: pregnancy_intention_survey
-Penn Medicine System Check (ID: check_penn_medicine_system)
-Prompt: "Have you been seen in the Penn Medicine system? Reply Y or N"
-Response:
-Y → penn_system_confirmation
-N → register_as_new_patient
-Penn System Confirmation (ID: penn_system_confirmation)
-Prompt: "Great. We’ll support you with next steps soon."
-Next: pregnancy_intention_survey
-Register as New Patient (ID: register_as_new_patient)
-Prompt: "Contact $clinic_phone$ to register as a new patient."
-Next: pregnancy_intention_survey
-Negative Test Result (ID: negative_test_result_response)
-Prompt: "Thanks for sharing. Contact $clinic_phone$ for follow-ups or to schedule an OB/GYN appointment."
-Next: offboarding_after_negative_result
-Offboarding After Negative Result (ID: offboarding_after_negative_result)
-Prompt: "It’s been a privilege to assist you. Text back if you become pregnant again."
-Next: null
-Pregnancy Intention Survey (ID: pregnancy_intention_survey)
-Prompt: "How do you feel about being pregnant? A) Excited B) Not sure C) Not excited"
-Response:
-A → excited_response
-B → not_sure_response
-C → not_excited_response
-Excited Response (ID: excited_response)
-Prompt: "Exciting news! Let’s connect you with a provider to explore care options."
-Next: care_options_prompt
-Not Sure Response (ID: not_sure_response)
-Prompt: "We’re here to help. Let’s connect you with a provider to discuss options."
-Next: care_options_prompt
-Not Excited Response (ID: not_excited_response)
-Prompt: "We’re here to support you. Let’s connect you with a provider to discuss options."
-Next: care_options_prompt
-Care Options Prompt (ID: care_options_prompt)
-Prompt: "Would you like help with: A) Continuing pregnancy B) Discussing options C) Abortion"
-Response:
-A → prenatal_provider_check
-B → connect_to_peace_clinic
-C → connect_to_peace_for_abortion
-Prenatal Provider Check (ID: prenatal_provider_check)
-Prompt: "Do you have a prenatal provider? Reply Y or N"
-Response:
-Y → schedule_appointment
-N → schedule_with_penn_obgyn
-Schedule Appointment (ID: schedule_appointment)
-Prompt: "Call $clinic_phone$ to schedule an appointment."
-Next: null
-Schedule with Penn OB/GYN (ID: schedule_with_penn_obgyn)
-Prompt: "Call $clinic_phone$ to schedule with Penn OB/GYN or Dickens Clinic."
-Next: null
-Connect to PEACE Clinic (ID: connect_to_peace_clinic)
-Prompt: "The PEACE team offers support for abortion, miscarriage, and prevention. Call $clinic_phone$ to schedule."
-Next: null
-Connect to PEACE for Abortion (ID: connect_to_peace_for_abortion)
-Prompt: "Call $clinic_phone$ to schedule with PEACE for abortion care."
-Next: null
-Symptoms Response (ID: symptoms_response)
-Prompt: "Text your question or call $clinic_phone$ for urgent concerns."
-Next: symptom_triage
-Medications Response (ID: menu_b_medications_response)
-Prompt: "Questions about: A) Medication management B) Safe medications C) Abortion medications"
-Response:
-A → medications_info
-B → medications_info
-C → null
-Medications Info (ID: medications_info)
-Prompt: "Share medications with your provider. Safe meds list: [URL]"
-Next: null
-Appointment Response (ID: appointment_response)
-Prompt: "Call $clinic_phone$ for appointment details or general visit info."
-Next: null
-PEACE Visit Response Part 1 (ID: peace_visit_response_part_1)
-Prompt: "PEACE supports your pregnancy decisions without judgment."
-Next: peace_visit_response_part_2
-PEACE Visit Response Part 2 (ID: peace_visit_response_part_2)
-Prompt: "PEACE may use ultrasound and discuss abortion, counseling, and financial aid."
-Next: null
-Something Else Response (ID: something_else_response)
-Prompt: "Text your question or call $clinic_phone$ for urgent help."
-Next: null
-Nothing Response (ID: nothing_response)
-Prompt: "Text anytime with questions."
-Next: null
-Symptom Triage (ID: symptom_triage)
-Prompt: "What symptom? Reply: Bleeding, Nausea, Vomiting, Pain, Other"
-Response:
-Bleeding → vaginal_bleeding_1st_trimester
-Nausea → nausea_1st_trimester
-Vomiting → vomiting_1st_trimester
-Pain → pain_early_pregnancy
-Other → default_response
-Vaginal Bleeding - 1st Trimester (ID: vaginal_bleeding_1st_trimester)
-Prompt: "Have you had an ectopic pregnancy? Reply Y or N"
-Response:
-Y → immediate_provider_visit
-N → heavy_bleeding_check
-Immediate Provider Visit (ID: immediate_provider_visit)
-Prompt: "See a provider immediately. Call $clinic_phone$ or visit the ER."
-Next: null
-Heavy Bleeding Check (ID: heavy_bleeding_check)
-Prompt: "Filled 4+ super pads in 2 hours? Reply Y or N"
-Response:
-Y → urgent_provider_visit_for_heavy_bleeding
-N → pain_or_cramping_check
-Urgent Provider Visit for Heavy Bleeding (ID: urgent_provider_visit_for_heavy_bleeding)
-Prompt: "See a provider now. Call $clinic_phone$ or visit the ER."
-Next: null
-Pain or Cramping Check (ID: pain_or_cramping_check)
-Prompt: "Are you in pain or cramping? Reply Y or N"
-Response:
-Y → er_visit_check_during_pregnancy
-N → monitor_bleeding
-ER Visit Check (ID: er_visit_check_during_pregnancy)
-Prompt: "Have you been to the ER during this pregnancy? Reply Y or N"
-Response:
-Y → report_bleeding_to_provider
-N → monitor_bleeding_at_home
-Report Bleeding to Provider (ID: report_bleeding_to_provider)
-Prompt: "Report bleeding to your provider."
-Next: continued_bleeding_follow_up
-Monitor Bleeding at Home (ID: monitor_bleeding_at_home)
-Prompt: "Monitor bleeding at home. Visit the ER if symptoms worsen."
-Next: continued_bleeding_follow_up
-Monitor Bleeding (ID: monitor_bleeding)
-Prompt: "Track bleeding color and amount. Contact a provider if concerned."
-Next: continued_bleeding_follow_up
-Continued Bleeding Follow-Up (ID: continued_bleeding_follow_up)
-Prompt: "If bleeding continues, contact a provider. Call $clinic_phone$ or visit the ER if severe."
-Next: vaginal_bleeding_follow_up
-Vaginal Bleeding Follow-Up (ID: vaginal_bleeding_follow_up)
-Prompt: "How’s your bleeding? A) Stopped B) Same C) Heavier"
-Response:
-A → bleeding_stopped_response
-B → persistent_bleeding_response
-C → increased_bleeding_response
-Bleeding Stopped Response (ID: bleeding_stopped_response)
-Prompt: "Glad it stopped. Go to the ER if it resumes heavily."
-Next: null
-Persistent Bleeding Response (ID: persistent_bleeding_response)
-Prompt: "Call your OB or $clinic_phone$ for persistent bleeding."
-Next: null
-Increased Bleeding Response (ID: increased_bleeding_response)
-Prompt: "Call your OB or $clinic_phone$ for increased bleeding. Visit the ER if urgent."
-Next: null
-Nausea - 1st Trimester (ID: nausea_1st_trimester)
-Prompt: "Can you keep food/liquids down for 24 hours? Reply Y or N"
-Response:
-Y → nausea_management_advice
-N → nausea_treatment_options
-Nausea Management Advice (ID: nausea_management_advice)
-Prompt: "Stay hydrated, eat small meals, try protein-rich foods."
-Next: nausea_follow_up_warning
-Nausea Treatment Options (ID: nausea_treatment_options)
-Prompt: "Try ginger, vitamin B6, or Unisom. Contact your provider."
-Next: nausea_follow_up_warning
-Nausea Follow-Up Warning (ID: nausea_follow_up_warning)
-Prompt: "Contact $clinic_phone$ if nausea worsens."
-Next: nausea_1st_trimester_follow_up
-Nausea Follow-Up (ID: nausea_1st_trimester_follow_up)
-Prompt: "How’s your nausea? A) Better B) Same C) Worse"
-Response:
-A → nausea_improved_response
-B → nausea_same_response
-C → nausea_worsened_check
-Nausea Improved Response (ID: nausea_improved_response)
-Prompt: "Glad it’s better. Contact $clinic_phone$ if it worsens."
-Next: null
-Nausea Same Response (ID: nausea_same_response)
-Prompt: "Check tomorrow? Reply Y or N"
-Response:
-Y → schedule_follow_up
-N → nausea_monitoring_advice
-Schedule Follow-Up (ID: schedule_follow_up)
-Prompt: "We’ll check in tomorrow."
-Next: null
-Nausea Monitoring Advice (ID: nausea_monitoring_advice)
-Prompt: "Contact $clinic_phone$ if you can’t keep food down."
-Next: null
-Nausea Worsened Check (ID: nausea_worsened_check)
-Prompt: "Can you keep food/drinks down? Reply Y or N"
-Response:
-Y → null
-N → urgent_nausea_response
-Urgent Nausea Response (ID: urgent_nausea_response)
-Prompt: "Call $clinic_phone$ or visit the ER for worsening nausea."
-Next: null
-Vomiting - 1st Trimester (ID: vomiting_1st_trimester)
-Prompt: "Concerned about vomiting? Reply Y or N"
-Response:
-Y → trigger_nausea_triage
-N → default_response
-Trigger Nausea Triage (ID: trigger_nausea_triage)
-Description: Redirects to nausea_1st_trimester
-Next: nausea_1st_trimester
-Pain - Early Pregnancy (ID: pain_early_pregnancy)
-Prompt: "Concerned about pain? Reply Y or N"
-Response:
-Y → trigger_vaginal_bleeding_flow
-N → default_response
-Trigger Vaginal Bleeding Flow (ID: trigger_vaginal_bleeding_flow)
-Description: Redirects to vaginal_bleeding_1st_trimester
-Next: vaginal_bleeding_1st_trimester
-Possible Early Pregnancy Loss (ID: possible_early_pregnancy_loss)
-Prompt: "Concerned about pregnancy loss? Reply Y or N"
-Response:
-Y → confirm_pregnancy_loss
-N → default_response
-Confirm Pregnancy Loss (ID: confirm_pregnancy_loss)
-Prompt: "Has a provider confirmed pregnancy loss? A) Yes B) No C) Not Sure"
-Response:
-A → support_and_schedule_appointment
-B → trigger_vaginal_bleeding_flow
-C → schedule_peace_appointment
-Support and Schedule Appointment (ID: support_and_schedule_appointment)
-Prompt: "Call $clinic_phone$ to schedule with PEACE for support."
-Next: null
-Schedule PEACE Appointment (ID: schedule_peace_appointment)
-Prompt: "Call $clinic_phone$ to schedule with PEACE for clarity."
-Next: trigger_vaginal_bleeding_flow
-Pre-Program Impact Survey (ID: pre_program_impact_survey)
-Prompt: "We’d love your thoughts on early pregnancy management."
-Next: confidence_rating
-Confidence Rating (ID: confidence_rating)
-Prompt: "Rate your confidence in navigating early pregnancy needs (0-10)."
-Next: knowledge_rating
-Knowledge Rating (ID: knowledge_rating)
-Prompt: "Rate your knowledge of early pregnancy (0-10)."
-Next: thank_you_message
-Thank You Message (ID: thank_you_message)
-Prompt: "Thank you! We look forward to supporting you."
-Next: null
-Post-Program Impact Survey (ID: post_program_impact_survey)
-Prompt: "Share your thoughts to improve the program."
-Next: post_program_confidence_rating
-Post-Program Confidence Rating (ID: post_program_confidence_rating)
-Prompt: "Rate your confidence in navigating early pregnancy needs (0-10)."
-Next: post_program_knowledge_rating
-Post-Program Knowledge Rating (ID: post_program_knowledge_rating)
-Prompt: "Rate your knowledge of early pregnancy (0-10)."
-Next: post_program_thank_you
-Post-Program Thank You (ID: post_program_thank_you)
-Prompt: "Thank you! We look forward to supporting you."
-Next: null
-NPS Quantitative Survey (ID: nps_quantitative_survey)
-Prompt: "Two quick questions about this texting service."
-Next: likelihood_to_recommend
-Likelihood to Recommend (ID: likelihood_to_recommend)
-Prompt: "How likely are you to recommend this program (0-10)?"
-Next: nps_qualitative_survey
-NPS Qualitative Survey (ID: nps_qualitative_survey)
-Prompt: "What’s the reason for your score?"
-Next: feedback_acknowledgment
-Feedback Acknowledgment (ID: feedback_acknowledgment)
-Prompt: "Thanks for your feedback."
-Next: null
-Default Response (ID: default_response)
-Prompt: "Text a symptom or topic for help."
-Next: null
-"""
-        # flow_instruction_context = flow_instructions
+
+        flow_instruction_context = flow_instructions
         print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
@@ -12530,156 +12214,15 @@ You are a helpful assistant tasked with providing accurate and context-aware res
 5. Do not repeat the node's INSTRUCTION verbatim; craft a friendly, relevant response.
 """
         # LLM prompt
-#         prompt = f"""
-# You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
-
-# 1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
-# 2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
-# 3. If the user's message doesn't match the current flow instructions, use document content or general knowledge to provide a helpful, relevant response.
-# 4. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
-# 5. Maintain a warm, empathetic tone, like you're talking to a friend.
-
-
-# Current Date (MM/DD/YYYY): {current_date}
-
-# User Message: "{message}"
-
-# Conversation History:
-# {conversation_history}
-
-# Patient ID: {patientId}
-
-# Assistant ID: {assistantId}
-
-# Flow ID: {flow_id}
-
-# Patient Profile (includes phone and organization_id):
-# {patient_fields}
-
-# Structured Flow Instructions (Use this to guide conversation flow based on user responses):
-# {flow_instruction_context}
-
-# Document Content:
-# {document_context}
-
-# Session Data:
-# {json.dumps(session_data, indent=2)}
-
-# Instructions:
-# 1. **Check Patient Profile**:
-#    - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
-#    - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
-#    - Validate user input based on the field type:
-#      - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
-#      - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
-#    - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
-#      - patient_id: {patientId}
-#      - field_name: the field (e.g., "first_name")
-#      - field_value: the validated value
-#    - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
-#    - If no fields are missing, proceed to conversation flow.
-#    - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
-#    **IMPORTANT**: Only ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-#    Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
-    
-
-
-# 2. **Conversation Flow (If Profile Complete)**:
-#         If the `Patient Profile` is complete (no required fields missing):
-#         *   **Step 2.1 - Identify User Intent and Response Type**:
-        
-#         - Based on the `User Message` and `Conversation History`, determine the user's *current* primary intent or topic.
-#         - Determine if the `User Message` is a *direct response* to the *last Assistant message* (e.g., 'Y', 'N', 'yes', 'no', a letter choice like 'A', 'B', 'E', a date like 'MM/DD/YYYY', or a specific keyword expected by the previous node like 'Bleeding'). Normalize direct responses ('Yes'/'y' -> 'Y', 'No'/'n' -> 'N', 'A'/'a' -> 'A', etc.).
-
-#         *   **Step 2.2 - Find the Most Relevant Flow Node from Retrieved Instructions**:
-        
-#         - Carefully review the `Structured Flow Instructions` provided (these are texts from nodes retrieved).
-#         - **If the User Message IS a direct response:**
-#             - Identify the node *in the retrieved set* whose instruction text matches the *last Assistant message* from the `Conversation History`. This is the "current active node".
-#             - Find the branching logic within this node's text that corresponds to the normalized `User Message`.
-#             - Identify the `TARGET_NODE` ID from this branch.
-#             - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
-            
-#             - Set `next_node_id` to the `TARGET_NODE` ID.
-#             - **Special LMP Date Handling**: 
-#             - If the current active node was asking for LMP (Last Menstural Period) date confirmation AND user provided a valid date (MM/DD/YYYY): 
-#                 - Validate dates as MM/DD/YYYY, not after {current_date}.
-#                 - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
-#                 - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
-#                 - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
-
-#         - ** If the User Message IS NOT a direct response (New Topic):**
-#             - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
-#             - **Find the single node *in this retrieved set* whose instruction text represents the best *entry point* or *most relevant response* for the user's *current* query.** For example, if the user asks about symptoms, look for the node explicitly labeled "Symptoms Response" or "Always-On Q & A ON FIT".
-#             - **Set the `content` of your response to the instruction text of this most relevant entry point node.**
-#             - **CRITICAL:** After identifying the matched node and its content, immediately find the `(next_node_id: ...)` line associated with *that specific matched node* in the `Structured Flow Instructions`. **The value inside the parentheses `(...)` after `next_node_id:` is the `TARGET_NODE` ID for the next step in that flow.**
-#             - **Set the `next_node_id` output to this extracted `TARGET_NODE` ID.** If the instruction is `(next_node_id: null)`, set `next_node_id` to `null`. **DO NOT default `next_node_id` to `null` or `None` if a `next_node_id` is explicitly provided for the matched node.**
-#             - **Prioritize the *current* explicit user query over previous conversation topics when selecting the primary node for the response.**
-
-#         -   - After determining the primary flow node response, review the `Document Content`.
-#             - If the `Document Content` contains specific details (like resource URLs, phone numbers, exact medical advice, medication names, treatment options) highly relevant to the user's query *that are not already fully covered by the chosen flow node text*, augment the response to include these specific details. **Always include URLs, phone numbers, contact information, medication names, etc., from `Document Content` VERBATIM if they are relevant.**
-
-#         -    For date-related instructions (e.g., gestational age):
-#             - Validate dates as MM/DD/YYYY, not after {current_date}.
-#             - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
-#             - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
-#             - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
-
-# 3. **Response Style**:
-#    - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
-#    - Avoid robotic phrases like "Processing node" or "Moving to next step."
-#    - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
-#    - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
-
-# 4. **Database Operations**:
-#    - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
-#    - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
-
-# 5. **Flow Progression**:
-#    - Update `next_node_id` based on the flow instructions if the user's response matches,.
-#    - Identify the Assistant's last message in `Conversation History`.
-#    - Normalize the `User Message` (e.g., "Yes" to "Y", "No" to "N").
-#    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
-
-# 6. **General Instructions**
-#    - If Conversation History is Empty then always start with the **Menu-Items** to ask the user what they are looking for. 
-
-# 7. **Response Structure**:
-#    Return a JSON object:
-#    ```json
-#    {{
-#      "content": "Your friendly response to the user",
-#      "next_node_id": "ID of the next node or current node",
-#      "state_updates": {{"key": "value"}},
-#      "database_operation": {{
-#        "operation": "UPDATE_PATIENT | CREATE_PATIENT",
-#        "parameters": {{
-#          "patient_id": "string",
-#          "field_name": "string",
-#          "field_value": "string"
-#        }}
-#      }} // Optional, only when updating/creating
-#    }}
-#    ```
-
-# Examples:
-# - Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
-#   - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
-# - Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
-#   - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
-# - Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": "03/29/1996"}}, Flow: "Ask about symptoms", Message: "I have a headache"
-#   - Response: {{"content": "Sorry to hear about your headache! How long have you been feeling this way?", "next_node_id": "node_symptom_duration", "state_updates": {{}}}}
-# - Profile complete, Flow: "Ask about symptoms", Message: "Book an appointment"
-#   - Response: {{"content": "Sure thing, let's get you an appointment! When are you free?", "next_node_id": "node_appointment", "state_updates": {{}}}}
-# """
-
         prompt = f"""
-        You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
 
 1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
-2. If the profile is complete, guide the conversation using the Current Node ID and Structured Flow Instructions to determine the next step based on the user's response.
-3. If the user's message doesn't match the current flow, use document content or general knowledge to provide a helpful, relevant response.
-4. Maintain a warm, empathetic tone, like you're talking to a friend.
+2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
+3. If the user's message doesn't match the current flow instructions, use document content or general knowledge to provide a helpful, relevant response.
+4. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
+5. Maintain a warm, empathetic tone, like you're talking to a friend.
+
 
 Current Date (MM/DD/YYYY): {current_date}
 
@@ -12694,10 +12237,8 @@ Assistant ID: {assistantId}
 
 Flow ID: {flow_id}
 
-Patient Profile:
+Patient Profile (includes phone and organization_id):
 {patient_fields}
-
-Current Node ID: {current_node_id}
 
 Structured Flow Instructions (Use this to guide conversation flow based on user responses):
 {flow_instruction_context}
@@ -12711,45 +12252,83 @@ Session Data:
 Instructions:
 1. **Check Patient Profile**:
    - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
-   - If any fields are missing, select one to ask for naturally (e.g., "Hey, I don’t have your first name yet, could you share it?").
-   - Validate user input based on field type (e.g., dates as MM/DD/YYYY, not after {current_date}).
-   - If valid, issue an `UPDATE_PATIENT` command with `patient_id`, `field_name`, and `field_value`.
-   - If invalid, ask again with clarification.
+   - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
+   - Validate user input based on the field type:
+     - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+     - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
+   - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
+     - patient_id: {patientId}
+     - field_name: the field (e.g., "first_name")
+     - field_value: the validated value
+   - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
    - If no fields are missing, proceed to conversation flow.
+   - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+   **IMPORTANT**: Only ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
+   Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
+    
+
 
 2. **Conversation Flow (If Profile Complete)**:
-   - If the `Patient Profile` is complete (no required fields missing):
-     * **Step 2.1 - Identify User Intent and Response Type**:
-       - Determine if the `User Message` is a *direct response* to the *last Assistant message* (e.g., 'Y', 'N', 'yes', 'no', a date like 'MM/DD/YYYY'). Normalize responses ('Yes'/'y' -> 'Y', 'No'/'n' -> 'N').
-     * **Step 2.2 - Determine Next Step Using Current Node**:
-       - If the `User Message` is a direct response:
-         - Use the `Current Node ID` to locate the corresponding node in the `Structured Flow Instructions`.
-         - Match the last Assistant message in the `Conversation History` to this node’s instruction text to confirm it’s the current active node.
-         - Within this node’s text, find the branching logic that matches the normalized `User Message` (e.g., 'Y' or 'N').
-         - Extract the `TARGET_NODE` ID from this branch (e.g., `(next_node_id: enter_lmp_date)`).
-         - Find the instruction text for this `TARGET_NODE` in the `Structured Flow Instructions`.
-         - **Set the `content` of your response to this TARGET NODE’s instruction text**, adapting it naturally (e.g., avoid verbatim repetition unless it fits the tone).
-         - Set `next_node_id` to the `TARGET_NODE` ID.
-       - If the `User Message` is not a direct response (new topic):
-         - Examine the `Structured Flow Instructions` to find the most relevant node for the user’s current query.
-         - Set `content` to that node’s instruction text and `next_node_id` to its specified next node ID.
-     * **Special LMP/EDD Handling**:
-       - If the current node asks for LMP or EDD and the user provides a date (MM/DD/YYYY):
-         - Validate the date (not after {current_date}).
-         - Calculate gestational age from LMP to {current_date} (weeks = days/7, First Trimester: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks).
-         - Include in the response (e.g., "You’re about 8 weeks along, in your first trimester!").
-         - Store in `state_updates` as `{{"gestational_age_weeks": X, "trimester": "First"}}`.
+        If the `Patient Profile` is complete (no required fields missing):
+        *   **Step 2.1 - Identify User Intent and Response Type**:
+        
+        - Based on the `User Message` and `Conversation History`, determine the user's *current* primary intent or topic.
+        - Determine if the `User Message` is a *direct response* to the *last Assistant message* (e.g., 'Y', 'N', 'yes', 'no', a letter choice like 'A', 'B', 'E', a date like 'MM/DD/YYYY', or a specific keyword expected by the previous node like 'Bleeding'). Normalize direct responses ('Yes'/'y' -> 'Y', 'No'/'n' -> 'N', 'A'/'a' -> 'A', etc.).
+
+        *   **Step 2.2 - Find the Most Relevant Flow Node from Retrieved Instructions**:
+        
+        - Carefully review the `Structured Flow Instructions` provided (these are texts from nodes retrieved).
+        - **If the User Message IS a direct response:**
+            - Identify the node *in the retrieved set* whose instruction text matches the *last Assistant message* from the `Conversation History`. This is the "current active node".
+            - Find the branching logic within this node's text that corresponds to the normalized `User Message`.
+            - Identify the `TARGET_NODE` ID from this branch.
+            - Find the instruction text for this `TARGET_NODE` within the `Structured Flow Instructions` context. **Set the `content` of your response to this TARGET NODE's instruction text.**
+            
+            - Set `next_node_id` to the `TARGET_NODE` ID.
+            - **Special LMP Date Handling**: 
+            - If the current active node was asking for LMP (Last Menstural Period) date confirmation AND user provided a valid date (MM/DD/YYYY): 
+                - Validate dates as MM/DD/YYYY, not after {current_date}.
+                - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+                - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+                - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
+
+        - ** If the User Message IS NOT a direct response (New Topic):**
+            - **Focusing *primarily* on the user's *current* message's topic/intent**, examine the `Structured Flow Instructions` (retrieved nodes).
+            - **Find the single node *in this retrieved set* whose instruction text represents the best *entry point* or *most relevant response* for the user's *current* query.** For example, if the user asks about symptoms, look for the node explicitly labeled "Symptoms Response" or "Always-On Q & A ON FIT".
+            - **Set the `content` of your response to the instruction text of this most relevant entry point node.**
+            - **CRITICAL:** After identifying the matched node and its content, immediately find the `(next_node_id: ...)` line associated with *that specific matched node* in the `Structured Flow Instructions`. **The value inside the parentheses `(...)` after `next_node_id:` is the `TARGET_NODE` ID for the next step in that flow.**
+            - **Set the `next_node_id` output to this extracted `TARGET_NODE` ID.** If the instruction is `(next_node_id: null)`, set `next_node_id` to `null`. **DO NOT default `next_node_id` to `null` or `None` if a `next_node_id` is explicitly provided for the matched node.**
+            - **Prioritize the *current* explicit user query over previous conversation topics when selecting the primary node for the response.**
+
+        -   - After determining the primary flow node response, review the `Document Content`.
+            - If the `Document Content` contains specific details (like resource URLs, phone numbers, exact medical advice, medication names, treatment options) highly relevant to the user's query *that are not already fully covered by the chosen flow node text*, augment the response to include these specific details. **Always include URLs, phone numbers, contact information, medication names, etc., from `Document Content` VERBATIM if they are relevant.**
+
+        -    For date-related instructions (e.g., gestational age):
+            - Validate dates as MM/DD/YYYY, not after {current_date}.
+            - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
+            - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
+            - IMP: Remeber If Patient provides the LMP Don't Forget to Provide the  gestational age like First Trimester or Second or Third Trimester
 
 3. **Response Style**:
-   - Respond warmly and conversationally (e.g., "Great, thanks for letting me know!" instead of robotic phrases).
-   - If off-topic, acknowledge and steer back gently.
-   - Use `Document Content` for specific details (e.g., phone numbers) if relevant.
+   - Always respond in a warm, conversational tone (e.g., "Hey, thanks for sharing that!" or "No worries, let's try that again.").
+   - Avoid robotic phrases like "Processing node" or "Moving to next step."
+   - If the user goes off-topic, acknowledge their message and gently steer back to the flow if needed (e.g., "That's interesting! By the way, I still need your last name to complete your profile. Could you share it?").
+   - If all profile fields are complete and no flow instructions apply, respond to the user's message naturally, using document content or general knowledge.
 
-4. **Flow Progression**:
-   - Update `next_node_id` and `state_updates` based on the flow.
-   - If no matching node is found, provide a general helpful response and set `next_node_id` to null.
+4. **Database Operations**:
+   - Issue `UPDATE_PATIENT` when a valid field is provided, with `patient_id`, `field_name`, and `field_value`.
+   - Issue `CREATE_PATIENT` only if the patient record is missing (unlikely, as patientId is provided), using `organization_id` and `phone` from session_data.
 
-5. **Response Structure**:
+5. **Flow Progression**:
+   - Update `next_node_id` based on the flow instructions if the user's response matches,.
+   - Identify the Assistant's last message in `Conversation History`.
+   - Normalize the `User Message` (e.g., "Yes" to "Y", "No" to "N").
+   - Store any relevant session updates (e.g., gestational age) in `state_updates`.
+
+6. **General Instructions**
+   - If Conversation History is Empty then always start with the **Menu-Items** to ask the user what they are looking for. 
+
+7. **Response Structure**:
    Return a JSON object:
    ```json
    {{
@@ -12766,7 +12345,20 @@ Instructions:
      }} // Optional, only when updating/creating
    }}
    ```
+
+Examples:
+- Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
+  - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
+- Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
+  - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
+- Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": "03/29/1996"}}, Flow: "Ask about symptoms", Message: "I have a headache"
+  - Response: {{"content": "Sorry to hear about your headache! How long have you been feeling this way?", "next_node_id": "node_symptom_duration", "state_updates": {{}}}}
+- Profile complete, Flow: "Ask about symptoms", Message: "Book an appointment"
+  - Response: {{"content": "Sure thing, let's get you an appointment! When are you free?", "next_node_id": "node_appointment", "state_updates": {{}}}}
 """
+
+   
+        
         # Call LLM
         response_text = Settings.llm.complete(prompt).text  # Replace with Settings.llm.complete
         if "```json" in response_text:
