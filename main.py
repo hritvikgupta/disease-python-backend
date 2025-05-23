@@ -11424,8 +11424,11 @@ Instructions:
 5. **Flow Progression**:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
+6. **General Instructions**
+    - If Conversation History  are found always start with **Start Conversation** Node. 
+    - If Any Nodes Have more than 2 options like A, B, C, D, E, etc then If User Message is E or D or Any of These Single Letter Then Match the response and go to that Node rather asking same question over again. 
 
-6. **Response Structure**:
+7. **Response Structure**:
    Return a JSON object:
    ```json
    {{
