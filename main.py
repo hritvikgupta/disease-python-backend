@@ -12125,7 +12125,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
         print('[DOCUMENT CONTEXT]', document_context[:200])
 
-#         flow_instruction_context = f"""
+        # flow_instruction_context = f"""
 # Current Flow Instructions:
 
 # • **Menu-Items**  
@@ -12188,8 +12188,1519 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 #   “I’m transferring you now to a specialist for further assistance.”  
 
 # """
+        flow_instruction_context = f"""
+### NODE_START ###
+NODE_ID: start_conversation
+DESCRIPTION: Initial entry point for a new or returning user. Presents the main menu options.
+MESSAGE: "Hi $patient_firstname! I'm here to help you with your healthcare needs. What would you like to talk about today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test  F) I need help with pregnancy loss  G) Something else H) Nothing at this time Reply with just one letter."
+INPUT_TYPE: Multiple Choice (A-H)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "User selected Symptoms"
+    NEXT_NODE: symptoms_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "User selected Medications"
+    NEXT_NODE: menu_b_medications_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User selected Appointment"
+    NEXT_NODE: appointment_response
+  - IF_INPUT_MATCH: "D"
+    MATCH_DESCRIPTION: "User selected PEACE Visit Info"
+    NEXT_NODE: peace_visit_response_part_1
+  - IF_INPUT_MATCH: "E"
+    MATCH_DESCRIPTION: "User selected Pregnancy Test"
+    NEXT_NODE: follow_up_confirmation_of_pregnancy_survey
+  - IF_INPUT_MATCH: "F"
+    MATCH_DESCRIPTION: "User selected Pregnancy Loss"
+    NEXT_NODE: possible_early_pregnancy_loss
+  - IF_INPUT_MATCH: "G"
+    MATCH_DESCRIPTION: "User selected Something Else"
+    NEXT_NODE: something_else_response
+  - IF_INPUT_MATCH: "H"
+    MATCH_DESCRIPTION: "User selected Nothing at this time"
+    NEXT_NODE: nothing_response
+DEFAULT_NEXT_NODE: default_response # Fallback if input doesn't match A-H
+ACTIONS: [] # No specific system actions at this node
+### NODE_END ###
 
-        flow_instruction_context = flow_instructions
+### NODE_START ###
+NODE_ID: menu_items
+DESCRIPTION: Presents the full menu options to the user.
+MESSAGE: "What are you looking for today? A) I have a question about symptoms B) I have a question about medications C) I have a question about an appointment D) Information about what to expect at a PEACE visit E) I have a question about a pregnancy test F) I need help with pregnancy loss G) Something else H) Nothing at this time I) Take the Pre-Program Impact Survey J) Take the Post-Program Impact Survey K) Take the NPS Quantitative Survey Reply with just one letter."
+INPUT_TYPE: Multiple Choice (A-K)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "User selected Symptoms"
+    NEXT_NODE: symptoms_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "User selected Medications"
+    NEXT_NODE: menu_b_medications_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User selected Appointment"
+    NEXT_NODE: appointment_response
+  - IF_INPUT_MATCH: "D"
+    MATCH_DESCRIPTION: "User selected PEACE Visit Info"
+    NEXT_NODE: peace_visit_response_part_1
+  - IF_INPUT_MATCH: "E"
+    MATCH_DESCRIPTION: "User selected Pregnancy Test"
+    NEXT_NODE: follow_up_confirmation_of_pregnancy_survey
+  - IF_INPUT_MATCH: "F"
+    MATCH_DESCRIPTION: "User selected Pregnancy Loss"
+    NEXT_NODE: possible_early_pregnancy_loss
+  - IF_INPUT_MATCH: "G"
+    MATCH_DESCRIPTION: "User selected Something Else"
+    NEXT_NODE: something_else_response
+  - IF_INPUT_MATCH: "H"
+    MATCH_DESCRIPTION: "User selected Nothing at this time"
+    NEXT_NODE: nothing_response
+  - IF_INPUT_MATCH: "I"
+    MATCH_DESCRIPTION: "User selected Pre-Program Survey"
+    NEXT_NODE: pre_program_impact_survey
+  - IF_INPUT_MATCH: "J"
+    MATCH_DESCRIPTION: "User selected Post-Program Survey"
+    NEXT_NODE: post_program_impact_survey
+  - IF_INPUT_MATCH: "K"
+    MATCH_DESCRIPTION: "User selected NPS Survey"
+    NEXT_NODE: nps_quantitative_survey
+DEFAULT_NEXT_NODE: default_response # Fallback if input doesn't match A-K
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: onboarding
+DESCRIPTION: Initial patient enrollment entry point, leading to the pregnancy test survey flow.
+MESSAGE: "Initial patient enrollment with four main branches: Pregnancy Preference Unknown, Desired Pregnancy Preference, Undesired/Unsure Pregnancy Preference, Early Pregnancy Loss. Final pathways to either Offboarding or Program Archived."
+INPUT_TYPE: System/Auto # This node seems to be an automatic transition or entry point, not requiring user input here.
+BRANCHES: [] # No user-driven branches from this message
+DEFAULT_NEXT_NODE: follow_up_confirmation_of_pregnancy_survey # This node automatically moves to the next step
+ACTIONS: [] # No specific system actions at this node
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: follow_up_confirmation_of_pregnancy_survey
+DESCRIPTION: Checks if the user has taken a home pregnancy test.
+MESSAGE: "Hi $patient_firstname. As your virtual health buddy, my mission is to help you find the best care for your needs. Have you had a moment to take your home pregnancy test? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User replied Yes"
+    NEXT_NODE: pregnancy_test_results_nlp_survey
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User replied No"
+    NEXT_NODE: pregnancy_test_results_nlp_survey # Original text had null here, corrected to follow flow logic
+DEFAULT_NEXT_NODE: pregnancy_test_results_nlp_survey # If input is neither Y nor N, still potentially proceed to clarify
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pregnancy_test_results_nlp_survey
+DESCRIPTION: Confirms if the user's previous message was about test results.
+MESSAGE: "It sounds like you're sharing your pregnancy test results, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User replied Yes"
+    NEXT_NODE: pregnancy_test_result_confirmation
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User replied No"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback if input is neither Y nor N
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: default_response
+DESCRIPTION: Standard fallback message when the bot doesn't understand or flow ends non-specifically.
+MESSAGE: "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+INPUT_TYPE: None # This node doesn't expect specific input to branch
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # This is a terminal node or waits for new input (system dependent)
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pregnancy_test_result_confirmation
+DESCRIPTION: Asks if the pregnancy test result was positive.
+MESSAGE: "Were the results positive? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "Result was positive"
+    NEXT_NODE: ask_for_lmp
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "Result was negative"
+    NEXT_NODE: negative_test_result_response
+DEFAULT_NEXT_NODE: negative_test_result_response # Defaulting to negative if input is unclear might be safer, or default_response
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: ask_for_lmp
+DESCRIPTION: Asks the user if they know the date of their last menstrual period (LMP).
+MESSAGE: "Sounds good. In order to give you accurate information, it's helpful for me to know the first day of your last menstrual period (LMP). Do you know this date? Reply Y or N (It's OK if you're uncertain)"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User knows LMP"
+    NEXT_NODE: enter_lmp_date
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User doesn't know LMP"
+    NEXT_NODE: ask_for_edd
+DEFAULT_NEXT_NODE: ask_for_edd # If unsure, proceed to ask for EDD
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: enter_lmp_date
+DESCRIPTION: Prompts the user to enter their LMP date in a specific format.
+MESSAGE: "Great. Your LMP is a good way to tell your gestational age. Please reply in this format: MM/DD/YYYY"
+INPUT_TYPE: Date (MM/DD/YYYY)
+BRANCHES: [] # Specific date format validation would happen upstream of this branch logic in a real system
+DEFAULT_NEXT_NODE: lmp_date_received # Assuming valid format is entered
+ACTIONS: [] # May include action to parse and store date
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: lmp_date_received
+DESCRIPTION: Confirms receipt of LMP and informs user about next steps.
+MESSAGE: "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+INPUT_TYPE: None # No specific input expected, just confirmation message
+BRANCHES: []
+DEFAULT_NEXT_NODE: pregnancy_intention_survey # Automatic transition after message
+ACTIONS: [Calculate Estimated Gestational Age]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: ask_for_edd
+DESCRIPTION: Asks the user if they know their Estimated Due Date (EDD) if LMP is unknown.
+MESSAGE: "Not a problem. Do you know your Estimated Due Date? Reply Y or N (again, it's OK if you're uncertain)"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User knows EDD"
+    NEXT_NODE: enter_edd_date
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User doesn't know EDD"
+    NEXT_NODE: check_penn_medicine_system
+DEFAULT_NEXT_NODE: check_penn_medicine_system # If unsure, proceed to ask about Penn system
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: enter_edd_date
+DESCRIPTION: Prompts the user to enter their EDD in a specific format.
+MESSAGE: "Great. Please reply in this format: MM/DD/YYYY"
+INPUT_TYPE: Date (MM/DD/YYYY)
+BRANCHES: [] # Specific date format validation would happen upstream
+DEFAULT_NEXT_NODE: edd_date_received # Assuming valid format is entered
+ACTIONS: [] # May include action to parse and store date
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: edd_date_received
+DESCRIPTION: Confirms receipt of EDD and informs user about next steps.
+MESSAGE: "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
+INPUT_TYPE: None # No specific input expected, just confirmation message
+BRANCHES: []
+DEFAULT_NEXT_NODE: pregnancy_intention_survey # Automatic transition after message
+ACTIONS: [Calculate Estimated Gestational Age from EDD]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: check_penn_medicine_system
+DESCRIPTION: Asks if the user has been seen in the Penn Medicine system.
+MESSAGE: "We know it can be hard to keep track of periods sometimes. Have you been seen in the Penn Medicine system? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User seen in Penn System"
+    NEXT_NODE: penn_system_confirmation
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User not seen in Penn System"
+    NEXT_NODE: register_as_new_patient
+DEFAULT_NEXT_NODE: register_as_new_patient # Defaulting to new patient registration if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: penn_system_confirmation
+DESCRIPTION: Confirms Penn system status and provides next steps.
+MESSAGE: "Perfect. Over the next few days we're here for you and ready to help with your next moves. Stay tuned!"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: pregnancy_intention_survey # Automatic transition after message
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: register_as_new_patient
+DESCRIPTION: Instructs the user to contact the call center to register as a new patient.
+MESSAGE: "Not a problem. Contact the call center $clinic_phone$ and have them add you as a 'new patient'. This way, if you need any assistance in the future, we'll be able to help you quickly."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: pregnancy_intention_survey # Automatic transition after message
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: negative_test_result_response
+DESCRIPTION: Provides information and contact details after a negative pregnancy test result.
+MESSAGE: "Thanks for sharing. If you have any questions or if there's anything you'd like to talk about, we're here for you. Contact the call center $clinic_phone$ for any follow-ups & to make an appointment with your OB/GYN."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: offboarding_after_negative_result # Automatic transition after message
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: offboarding_after_negative_result
+DESCRIPTION: Final message for users whose pregnancy test was negative, indicating service ends.
+MESSAGE: "Being a part of your care journey has been a real privilege. Since I only guide you through this brief period, I won't be available for texting after today. If you find yourself pregnant in the future, text me back at this number, and I'll be here to support you once again."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: [End Session]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pregnancy_intention_survey
+DESCRIPTION: Asks the user about their feelings regarding the pregnancy.
+MESSAGE: "$patient_firstName$, pregnancy can stir up many different emotions. These can range from uncertainty and regret to joy and happiness. You might even feel multiple emotions at the same time. It's okay to have these feelings. We're here to help support you through it all. I'm checking in on how you're feeling about being pregnant. Are you: A) Excited B) Not sure C) Not excited Reply with just 1 letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "User feels Excited"
+    NEXT_NODE: excited_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "User feels Not Sure"
+    NEXT_NODE: not_sure_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User feels Not Excited"
+    NEXT_NODE: not_excited_response
+DEFAULT_NEXT_NODE: default_response # Fallback if input doesn't match A-C
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: excited_response
+DESCRIPTION: Response for users who feel excited about the pregnancy.
+MESSAGE: "Well that is exciting news! Some people feel excited, and want to continue their pregnancy, and others aren't sure. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: care_options_prompt # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: not_sure_response
+DESCRIPTION: Response for users who are unsure about the pregnancy.
+MESSAGE: "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: care_options_prompt # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: not_excited_response
+DESCRIPTION: Response for users who are not excited about the pregnancy.
+MESSAGE: "We're here to support you. Some people feel excitement, and want to continue their pregnancy, and others aren't sure or want an abortion. The next step is connecting with a provider. I'm here to assist you in navigating your options as you choose the right care for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: care_options_prompt # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: care_options_prompt
+DESCRIPTION: Asks the user what type of care provider they wish to connect with.
+MESSAGE: "Would you prefer us to connect you with providers who can help with: A) Continuing my pregnancy B) Talking with me about what my options are C) Getting an abortion Reply with just 1 letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "User wants to continue pregnancy (Prenatal care)"
+    NEXT_NODE: prenatal_provider_check
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "User wants to discuss options"
+    NEXT_NODE: connect_to_peace_clinic # Connects to PEACE for options discussion
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User wants an abortion"
+    NEXT_NODE: connect_to_peace_for_abortion # Connects to PEACE for abortion care
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: prenatal_provider_check
+DESCRIPTION: Checks if the user already has a prenatal provider.
+MESSAGE: "Do you have a prenatal provider? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User has a prenatal provider"
+    NEXT_NODE: schedule_appointment
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not have a prenatal provider"
+    NEXT_NODE: schedule_with_penn_obgyn
+DEFAULT_NEXT_NODE: schedule_with_penn_obgyn # Default to scheduling with Penn if unsure
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_appointment
+DESCRIPTION: Instructs the user to call their provider to schedule.
+MESSAGE: "Great, it sounds like you're on the right track! Call $clinic_phone$ to make an appointment."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_with_penn_obgyn
+DESCRIPTION: Instructs the user to call specific Penn clinics to schedule prenatal care.
+MESSAGE: "It's important to receive prenatal care early on. Sometimes it takes a few weeks to get in. Call $clinic_phone$ to schedule an appointment with Penn OB/GYN Associates or Dickens Clinic."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: connect_to_peace_clinic
+DESCRIPTION: Provides information and contact for the PEACE clinic regarding options discussion.
+MESSAGE: "We understand your emotions, and it's important to take the necessary time to navigate through them. The team at The Pregnancy Early Access Center (PEACE) provides abortion, miscarriage management, and pregnancy prevention. Call $clinic_phone$ to schedule an appointment with PEACE. https://www.pennmedicine.org/make-an-appointment"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: connect_to_peace_for_abortion
+DESCRIPTION: Provides contact information for PEACE clinic for abortion care. Notes about follow-up questions exist but not linked in original.
+MESSAGE: "Call $clinic_phone$ to be scheduled with PEACE. https://www.pennmedicine.org/make-an-appointment We'll check back with you to make sure you're connected to care. We have a few more questions before your visit. It'll help us find the right care for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node according to original next_node_id: null
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: symptoms_response
+DESCRIPTION: Initial response when a user asks about symptoms, providing disclaimers and directing to triage.
+MESSAGE: "We understand questions and concerns come up. You can try texting this number with your question, and I may have an answer. This isn't an emergency line, so it’s best to reach out to your provider if you have an urgent concern by calling $clinic_phone$. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+INPUT_TYPE: None # This is an informative node, user response triggers triage via Always-On or previous node
+BRANCHES: []
+DEFAULT_NEXT_NODE: symptom_triage # Automatically proceeds to symptom triage
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: menu_b_medications_response
+DESCRIPTION: Provides a sub-menu for medication-related questions.
+MESSAGE: "Do you have questions about: A) Medication management B) Medications that are safe in pregnancy C) Abortion medications"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "User selected Medication management"
+    NEXT_NODE: medications_info
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "User selected Safe medications in pregnancy"
+    NEXT_NODE: medications_info
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User selected Abortion medications"
+    NEXT_NODE: null # Original text had null next_node_id
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: medications_info
+DESCRIPTION: Provides general information about medications in pregnancy and a resource link.
+MESSAGE: "Each person — and every medication — is unique, and not all medications are safe to take during pregnancy. Make sure you share what medication you're currently taking with your provider. Your care team will find the best treatment option for you. List of safe meds: https://hspogmembership.org/stages/safe-medications-in-pregnancy"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: appointment_response
+DESCRIPTION: Provides guidance for appointment-related questions.
+MESSAGE: "Unfortunately, I can’t see when your appointment is, but you can call the clinic to find out more information. If I don’t answer all of your questions, or you have a more complex question, you can contact the Penn care team at $clinic_phone$ who can give you further instructions. I can also provide some general information about what to expect at a visit. Just ask me."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node, waits for new input
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: peace_visit_response_part_1
+DESCRIPTION: Explains the role of the PEACE Center.
+MESSAGE: "The Pregnancy Early Access Center is a support team who's here to help you think through the next steps and make sure you have all the information you need. They're a listening ear, judgment-free and will support any decision you make. You can have an abortion, you can place the baby for adoption or you can continue the pregnancy and choose to parent. They are there to listen to you and answer any of your questions."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: peace_visit_response_part_2 # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: peace_visit_response_part_2
+DESCRIPTION: Explains procedures and topics covered during a PEACE visit.
+MESSAGE: "Sometimes, they use an ultrasound to confirm how far along you are to help in discussing options for your pregnancy. If you're considering an abortion, they'll review both types of abortion (medical and surgical) and tell you about the required counseling and consent (must be done at least 24 hours before the procedure). They can also discuss financial assistance and connect you with resources to help cover the cost of care."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: something_else_response
+DESCRIPTION: Provides a general response for "Something else" queries and directs user how to rephrase or seek help.
+MESSAGE: "Ok, I understand and I might be able to help. Try texting your question to this number. Remember, I do best with short questions that are on one topic. If you need more urgent help or prefer to speak to someone on the phone, you can reach your care team at $clinic_phone$ & ask for your clinic. If you're worried or feel like this is something serious – it's essential to seek medical attention."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node, waits for new input
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nothing_response
+DESCRIPTION: Acknowledges the user doesn't need help now and reminds them they can text later.
+MESSAGE: "OK, remember you can text this number at any time with questions or concerns."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: symptom_triage
+DESCRIPTION: Asks the user to specify the symptom they are experiencing.
+MESSAGE: "What symptom are you experiencing? Reply 'Bleeding', 'Nausea', 'Vomiting', 'Pain', or 'Other'"
+INPUT_TYPE: Categorical (Bleeding, Nausea, Vomiting, Pain, Other) or Free Text (for 'Other')
+BRANCHES:
+  - IF_INPUT_MATCH: "Bleeding"
+    MATCH_DESCRIPTION: "User specified Bleeding"
+    NEXT_NODE: vaginal_bleeding_1st_trimester
+  - IF_INPUT_MATCH: "Nausea"
+    MATCH_DESCRIPTION: "User specified Nausea"
+    NEXT_NODE: nausea_1st_trimester
+  - IF_INPUT_MATCH: "Vomiting"
+    MATCH_DESCRIPTION: "User specified Vomiting"
+    NEXT_NODE: vomiting_1st_trimester
+  - IF_INPUT_MATCH: "Pain"
+    MATCH_DESCRIPTION: "User specified Pain"
+    NEXT_NODE: pain_early_pregnancy
+  - IF_INPUT_MATCH: "Other"
+    MATCH_DESCRIPTION: "User specified Other symptom"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback if input doesn't match categories
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vaginal_bleeding_1st_trimester
+DESCRIPTION: Initiates the bleeding triage flow by asking about prior ectopic pregnancy.
+MESSAGE: "Let me ask a few more questions about your medical history to determine the next best steps. Have you ever had an ectopic pregnancy (this is a pregnancy in your tube or anywhere outside of your uterus)? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User has previous ectopic pregnancy"
+    NEXT_NODE: immediate_provider_visit
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User has no previous ectopic pregnancy"
+    NEXT_NODE: heavy_bleeding_check
+DEFAULT_NEXT_NODE: heavy_bleeding_check # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: immediate_provider_visit
+DESCRIPTION: Advises the user to seek immediate medical attention due to history/symptom combination.
+MESSAGE: "Considering your past history, you should be seen by a provider immediately. Now: Call your OB/GYN ASAP (Call $clinic_phone$ to make an urgent appointment with PEACE – the Early Pregnancy Access Center – if you do not have a provider) If you're not feeling well or have a medical emergency, visit your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: heavy_bleeding_check
+DESCRIPTION: Checks if the user is experiencing heavy bleeding.
+MESSAGE: "Over the past 2 hours, is your bleeding so heavy that you've filled 4 or more super pads? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User reports heavy bleeding"
+    NEXT_NODE: urgent_provider_visit_for_heavy_bleeding
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User reports no heavy bleeding"
+    NEXT_NODE: pain_or_cramping_check
+DEFAULT_NEXT_NODE: pain_or_cramping_check # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: urgent_provider_visit_for_heavy_bleeding
+DESCRIPTION: Advises urgent provider visit due to heavy bleeding.
+MESSAGE: "This amount of bleeding during pregnancy means you should be seen by a provider immediately. Now: Call your OB/GYN. (Call $clinic_phone$, option 5 to make an urgent appointment with PEACE – the Early Pregnancy Access Center) If you're not feeling well or have a medical emergency, visit your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pain_or_cramping_check
+DESCRIPTION: Checks if the user is experiencing pain or cramping with bleeding.
+MESSAGE: "Are you in any pain or cramping? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User reports pain or cramping"
+    NEXT_NODE: er_visit_check_during_pregnancy
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User reports no pain or cramping"
+    NEXT_NODE: monitor_bleeding
+DEFAULT_NEXT_NODE: monitor_bleeding # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: er_visit_check_during_pregnancy
+DESCRIPTION: Checks if the user has recently been to the ER during this pregnancy.
+MESSAGE: "Have you been to the ER during this pregnancy? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User has been to ER"
+    NEXT_NODE: report_bleeding_to_provider
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User has not been to ER"
+    NEXT_NODE: monitor_bleeding_at_home
+DEFAULT_NEXT_NODE: monitor_bleeding_at_home # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: report_bleeding_to_provider
+DESCRIPTION: Advises the user to report bleeding to their provider.
+MESSAGE: "Any amount of bleeding during pregnancy should be reported to a provider. Call your provider for guidance."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: continued_bleeding_follow_up # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: monitor_bleeding_at_home
+DESCRIPTION: Provides advice on monitoring bleeding at home based on ER visit status.
+MESSAGE: "While bleeding or spotting in early pregnancy can be alarming, it's pretty common. Based on your exam in the ER, it's okay to keep an eye on it from home. If you notice new symptoms, feel worse, or are concerned about your health and need to be seen urgently, go to the emergency department."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: continued_bleeding_follow_up # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: monitor_bleeding
+DESCRIPTION: Provides general advice on monitoring bleeding at home.
+MESSAGE: "While bleeding or spotting in early pregnancy can be alarming, it's actually quite common and doesn't always mean a miscarriage. But keeping an eye on it is important. Always check the color of the blood (brown, pink, or bright red) and keep a note."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: continued_bleeding_follow_up # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: continued_bleeding_follow_up
+DESCRIPTION: Provides advice if bleeding continues and schedules a follow-up check-in.
+MESSAGE: "If you continue bleeding, getting checked out by a provider can be helpful. Keep an eye on your bleeding. We'll check in on you again tomorrow. If the bleeding continues or you feel worse, make sure you contact a provider. And remember: If you do not feel well or you're having a medical emergency — especially if you've filled 4 or more super pads in two hours — go to your local ER. If you still have questions or concerns, call PEACE $clinic_phone$, option 5."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: vaginal_bleeding_follow_up # Automatic transition
+ACTIONS: [Schedule follow-up check-in for tomorrow]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vaginal_bleeding_follow_up
+DESCRIPTION: Follow-up message checking on bleeding status.
+MESSAGE: "Hey $patient_firstname, just checking on you. How's your vaginal bleeding today? A) Stopped B) Stayed the same C) Gotten heavier Reply with just one letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "Bleeding has Stopped"
+    NEXT_NODE: bleeding_stopped_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "Bleeding Stayed the same"
+    NEXT_NODE: persistent_bleeding_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "Bleeding Gotten heavier"
+    NEXT_NODE: increased_bleeding_response
+DEFAULT_NEXT_NODE: persistent_bleeding_response # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: bleeding_stopped_response
+DESCRIPTION: Response when bleeding has stopped during follow-up.
+MESSAGE: "We're glad to hear it. If anything changes - especially if you begin filling 4 or more super pads in two hours, go to your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: persistent_bleeding_response
+DESCRIPTION: Response when bleeding remains the same during follow-up.
+MESSAGE: "Thanks for sharing—we're sorry to hear your situation hasn't improved. Since your vaginal bleeding has lasted longer than a day, we recommend you call your OB/GYN or $clinic_phone$ and ask for the Early Pregnancy Access Center. If you do not feel well or you're having a medical emergency - especially if you've filled 4 or more super pads in two hours -- go to your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: increased_bleeding_response
+DESCRIPTION: Response when bleeding has gotten heavier during follow-up.
+MESSAGE: "Sorry to hear that. Thanks for sharing. Since your vaginal bleeding has lasted longer than a day, and has increased, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_1st_trimester
+DESCRIPTION: Initial response for nausea, providing advice and checking severity.
+MESSAGE: "We're sorry to hear it—and we're here to help. Nausea and vomiting are very common during pregnancy. Staying hydrated and eating small, frequent meals can help, along with natural remedies like ginger and vitamin B6. Let's make sure there's nothing you need to be seen for right away. Have you been able to keep food or liquids in your stomach for 24 hours? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User can keep food/liquids down"
+    NEXT_NODE: nausea_management_advice
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User cannot keep food/liquids down"
+    NEXT_NODE: nausea_treatment_options
+DEFAULT_NEXT_NODE: nausea_management_advice # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_management_advice
+DESCRIPTION: Provides advice for managing less severe nausea.
+MESSAGE: "OK, thanks for letting us know. Nausea and vomiting are very common during pregnancy. To feel better, staying hydrated and eating small, frequent meals (even before you feel hungry) is important. Avoid an empty stomach by taking small sips of water or nibbling on bland snacks throughout the day. Try eating protein-rich foods like meat or beans."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: nausea_follow_up_warning # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_treatment_options
+DESCRIPTION: Provides advice and options for more severe nausea/vomiting.
+MESSAGE: "OK, thanks for letting us know. There are safe treatment options for you! Your care team at Penn recommends trying a natural remedy like ginger and vitamin B6 (take one 25mg tablet every 8 hours as needed). If this isn't working, you can try unisom – an over-the-counter medication – unless you have an allergy. Let your provider know. You can use this medicine until they call you back."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: nausea_follow_up_warning # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_follow_up_warning
+DESCRIPTION: Provides a warning about seeking care if nausea worsens.
+MESSAGE: "If your nausea gets worse and you can't keep foods or liquids down for over 24 hours, contact your provider or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you!"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: nausea_1st_trimester_follow_up # Automatic transition
+ACTIONS: [Schedule follow-up check-in] # Assumed action based on original text flow
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_1st_trimester_follow_up
+DESCRIPTION: Follow-up message checking on nausea status.
+MESSAGE: "Hey $patient_firstname, just checking on you. How's your nausea today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "Nausea is Better"
+    NEXT_NODE: nausea_improved_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "Nausea Stayed the same"
+    NEXT_NODE: nausea_same_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "Nausea is Worse"
+    NEXT_NODE: nausea_worsened_check
+DEFAULT_NEXT_NODE: nausea_same_response # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_improved_response
+DESCRIPTION: Response when nausea has improved during follow-up.
+MESSAGE: "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. Don't wait—there are safe treatment options for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_same_response
+DESCRIPTION: Response when nausea is unchanged during follow-up, asks about scheduling another check-in.
+MESSAGE: "Thanks for sharing—Sorry you aren't feeling better yet, but we're glad to hear you could keep a little down. Would you like us to check on you tomorrow as well? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User wants check-in tomorrow"
+    NEXT_NODE: schedule_follow_up
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not want check-in tomorrow"
+    NEXT_NODE: nausea_monitoring_advice
+DEFAULT_NEXT_NODE: nausea_monitoring_advice # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_follow_up
+DESCRIPTION: Confirms scheduling a follow-up (action implied).
+MESSAGE: "OK. We're here to help. Let us know if anything changes."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node, follow-up scheduled externally
+ACTIONS: [Schedule Nausea Follow-up]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_monitoring_advice
+DESCRIPTION: Provides advice for monitoring nausea when no further check-in is requested.
+MESSAGE: "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. There are safe ways to treat this, so don't wait. If you're not feeling well or have a medical emergency, visit your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nausea_worsened_check
+DESCRIPTION: Checks if user has kept food/drinks down if nausea worsened.
+MESSAGE: "Have you kept food or drinks down since I last checked in? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User able to keep food/drinks down"
+    NEXT_NODE: null # Original flow shows null, implying end or wait
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User unable to keep food/drinks down"
+    NEXT_NODE: urgent_nausea_response
+DEFAULT_NEXT_NODE: null # Defaulting to less urgent path if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: urgent_nausea_response
+DESCRIPTION: Advises urgent care if nausea and vomiting have worsened significantly.
+MESSAGE: "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_1st_trimester
+DESCRIPTION: Confirms user concern about vomiting and directs to nausea triage.
+MESSAGE: "Hi $patient_firstName$, It sounds like you're concerned about vomiting. Is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is concerned about vomiting"
+    NEXT_NODE: trigger_nausea_triage
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not concerned about vomiting"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: trigger_nausea_triage
+DESCRIPTION: Internal node to redirect conversation flow to the Nausea Triage logic.
+MESSAGE: "TRIGGER 2ND NODE → NAUSEA TRIAGE"
+INPUT_TYPE: System/Auto # No user interaction, this is an internal redirect
+BRANCHES: []
+DEFAULT_NEXT_NODE: nausea_1st_trimester # Automatically redirects to the nausea triage start
+ACTIONS: [Redirect Flow]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_1st_trimester_follow_up
+DESCRIPTION: Follow-up message checking on vomiting status (Note: Unlinked in original text flow).
+MESSAGE: "Checking on you, $patient_firstname. How's your vomiting today? A) Better B) Stayed the same C) Worse Reply with just the letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "Vomiting is Better"
+    NEXT_NODE: vomiting_improved_response
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "Vomiting Stayed the same"
+    NEXT_NODE: vomiting_same_response
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "Vomiting is Worse"
+    NEXT_NODE: vomiting_worsened_response
+DEFAULT_NEXT_NODE: vomiting_same_response # Default
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_improved_response
+DESCRIPTION: Response when vomiting has improved during follow-up.
+MESSAGE: "We're glad to hear it. If anything changes - especially if you can't keep foods or liquids down for 24+ hours, reach out to your OB or call $clinic_phone$ if you have not seen an OB yet. Don't wait—there are safe treatment options for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_same_response
+DESCRIPTION: Response when vomiting is unchanged during follow-up, asks about scheduling another check-in.
+MESSAGE: "Thanks for sharing—Sorry you aren't feeling better yet. Would you like us to check on you tomorrow as well? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User wants check-in tomorrow"
+    NEXT_NODE: schedule_vomiting_follow_up
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not want check-in tomorrow"
+    NEXT_NODE: vomiting_monitoring_advice
+DEFAULT_NEXT_NODE: vomiting_monitoring_advice # Default
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_vomiting_follow_up
+DESCRIPTION: Confirms scheduling a vomiting follow-up (action implied).
+MESSAGE: "OK. We're here to help. Let us know if anything changes."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node, follow-up scheduled externally
+ACTIONS: [Schedule Vomiting Follow-up]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_monitoring_advice
+DESCRIPTION: Provides advice for monitoring vomiting when no further check-in requested.
+MESSAGE: "OK. We're here to help. Let us know if anything changes. If you can't keep foods or liquids down for 24+ hours, contact your OB or call $clinic_phone$ if you haven't seen an OB yet & ask for the PEACE clinic. If you're not feeling well or have a medical emergency, visit your local ER."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: vomiting_worsened_response
+DESCRIPTION: Advises urgent care if vomiting has worsened significantly during follow-up.
+MESSAGE: "Sorry to hear that. Thanks for sharing. Since your vomiting has increased and worsened, we recommend you call your OB or $clinic_phone$ & ask for the PEACE clinic for guidance. If you do not have an OB, please go to your local ER. If you're worried or feel like you need urgent help - it's essential to seek medical attention."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pain_early_pregnancy
+DESCRIPTION: Confirms user concern about pain and directs to the vaginal bleeding triage flow (which handles ectopic/pain checks).
+MESSAGE: "We're sorry to hear this. It sounds like you're concerned about pain, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is concerned about pain"
+    NEXT_NODE: trigger_vaginal_bleeding_flow # Original text linked here, which then links to vaginal_bleeding_1st_trimester
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not concerned about pain"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: trigger_vaginal_bleeding_flow
+DESCRIPTION: Internal node to redirect conversation flow to the Vaginal Bleeding triage logic.
+MESSAGE: "Trigger EPS Vaginal Bleeding (First Trimester)"
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: vaginal_bleeding_1st_trimester # Automatically redirects
+ACTIONS: [Redirect Flow]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: ectopic_pregnancy_concern
+DESCRIPTION: Confirms user concern about ectopic pregnancy and directs to the vaginal bleeding triage flow.
+MESSAGE: "We're sorry to hear this. It sounds like you're concerned about an ectopic pregnancy, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is concerned about ectopic pregnancy"
+    NEXT_NODE: trigger_vaginal_bleeding_flow # Links to the consolidated trigger
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not concerned about ectopic pregnancy"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: menstrual_period_concern
+DESCRIPTION: Confirms user concern about menstrual period and directs to the vaginal bleeding triage flow.
+MESSAGE: "It sounds like you're concerned about your menstrual period, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is concerned about menstrual period"
+    NEXT_NODE: trigger_vaginal_bleeding_flow # Links to the consolidated trigger
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not concerned about menstrual period"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: possible_early_pregnancy_loss
+DESCRIPTION: Confirms user concern about pregnancy loss (miscarriage).
+MESSAGE: "It sounds like you're concerned about pregnancy loss (miscarriage), is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is concerned about pregnancy loss"
+    NEXT_NODE: confirm_pregnancy_loss
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not concerned about pregnancy loss"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: confirm_pregnancy_loss
+DESCRIPTION: Checks if a healthcare provider has confirmed the pregnancy loss.
+MESSAGE: "We're sorry to hear this. Has a healthcare provider confirmed an early pregnancy loss (that your pregnancy stopped growing)? A) Yes B) No C) Not Sure Reply with just the letter"
+INPUT_TYPE: Multiple Choice (A-C)
+BRANCHES:
+  - IF_INPUT_MATCH: "A"
+    MATCH_DESCRIPTION: "Loss confirmed by provider"
+    NEXT_NODE: support_and_schedule_appointment
+  - IF_INPUT_MATCH: "B"
+    MATCH_DESCRIPTION: "Loss not confirmed by provider"
+    NEXT_NODE: trigger_vaginal_bleeding_flow # Directs to bleeding flow for assessment
+  - IF_INPUT_MATCH: "C"
+    MATCH_DESCRIPTION: "User is Not Sure about confirmation"
+    NEXT_NODE: schedule_peace_appointment
+DEFAULT_NEXT_NODE: schedule_peace_appointment # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: support_and_schedule_appointment
+DESCRIPTION: Offers support and advises scheduling an appointment with PEACE after confirmed loss.
+MESSAGE: "We're here to listen and offer support. It's helpful to talk about the options to manage this. We can help schedule you an appointment. Call $clinic_phone$ and ask for the PEACE clinic. We'll check in on you in a few days."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node, follow-up scheduled externally
+ACTIONS: [Schedule check-in in a few days]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_peace_appointment
+DESCRIPTION: Advises scheduling an appointment with PEACE if pregnancy loss is not confirmed or unsure.
+MESSAGE: "Sorry to hear this has been confusing for you. We recommend scheduling an appointment with PEACE so that they can help explain what's going on. Call $clinic_phone$, option 5 and we can help schedule you a visit so that you can get the information you need, and your situation becomes more clear."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: trigger_vaginal_bleeding_flow # Automatic transition after providing advice
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: undesired_pregnancy_desires_abortion
+DESCRIPTION: Confirms user interest in connecting for abortion care.
+MESSAGE: "It sounds like you want to get connected to care for an abortion, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User desires abortion care connection"
+    NEXT_NODE: abortion_care_connection
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not desire abortion care connection"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: abortion_care_connection
+DESCRIPTION: Provides information and contact details for connecting to abortion care via PEACE.
+MESSAGE: "The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$ and ask to be connected to the PEACE clinic (pregnancy early access center). The clinic intake staff will answer your questions and help schedule an abortion. You can also find more information about laws in your state and how to get an abortion at AbortionFinder.org"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: undesired_pregnancy_completed_abortion
+DESCRIPTION: Confirms if the user has already completed an abortion.
+MESSAGE: "It sounds like you've already had an abortion, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User has completed abortion"
+    NEXT_NODE: post_abortion_care
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User has not completed abortion"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: post_abortion_care
+DESCRIPTION: Provides general post-abortion care information and contact for concerns.
+MESSAGE: "Caring for yourself after an abortion is important. Follow the instructions given to you. Most people can return to normal activities 1 to 2 days after the procedure. You may have cramps and light bleeding for up to 2 weeks. Call $clinic_phone$, option 5 and ask to be connected to the PEACE clinic (pregnancy early access center) if you have any questions or concerns."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: offboarding_after_abortion # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: offboarding_after_abortion
+DESCRIPTION: Final message after abortion care, indicating service ends.
+MESSAGE: "Being a part of your care journey has been a real privilege. On behalf of your team at Penn, we hope we've been helpful to you during this time. Since I only guide you through this brief period, I won't be available for texting after today. Remember, you have a lot of resources available from Penn AND your community right at your fingertips."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: [End Session]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: desired_pregnancy_survey
+DESCRIPTION: Confirms user interest in connecting for prenatal care.
+MESSAGE: "It sounds like you want to get connected to care for your pregnancy, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User wants to connect for prenatal care"
+    NEXT_NODE: connect_to_prenatal_care
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not want to connect for prenatal care"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: connect_to_prenatal_care
+DESCRIPTION: Provides information and contact details for connecting to prenatal care.
+MESSAGE: "That's something I can definitely do! Call $clinic_phone$ Penn OB/GYN Associates or Dickens Clinic and make an appointment. It's important to receive prenatal care early on (and throughout your pregnancy) to reduce the risk of complications and ensure that both you and your baby are healthy."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: unsure_about_pregnancy_survey
+DESCRIPTION: Confirms user interest in discussing pregnancy options if they are unsure.
+MESSAGE: "Becoming a parent is a big step. Deciding if you want to continue a pregnancy is a personal decision. Talking openly and honestly with your partner or healthcare team is key. We're here for you. You can also try some thought work here: https://www.pregnancyoptions.info/pregnancy-options-workbook Would you like to get connected to care to discuss your options for pregnancy, is that correct? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User wants to discuss options for pregnancy"
+    NEXT_NODE: connect_to_peace_clinic_for_options
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User does not want to discuss options"
+    NEXT_NODE: default_response
+DEFAULT_NEXT_NODE: default_response # Fallback
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: connect_to_peace_clinic_for_options
+DESCRIPTION: Provides information and contact for discussing pregnancy options via PEACE.
+MESSAGE: "Few decisions are greater than this one, but we've got your back. The decision about this pregnancy is yours and no one is better able to decide than you. Please call $clinic_phone$, and ask to be scheduled in the PEACE clinic (pregnancy early access center). They are here to support you no matter what you choose."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: postpartum_onboarding_week_1
+DESCRIPTION: Welcome message for postpartum users at week 1.
+MESSAGE: "Hi $patient_firstname$, congratulations on your new baby! Let's get started with a few short messages to support you and your newborn. You can always reply STOP to stop receiving messages."
+INPUT_TYPE: System/Auto # Timed message, no direct user input expected to branch
+BRANCHES: []
+DEFAULT_NEXT_NODE: feeding_advice # Automatic transition
+ACTIONS: [] # Could include setting a timer/schedule for future messages
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: feeding_advice
+DESCRIPTION: Provides advice on newborn feeding frequency.
+MESSAGE: "Feeding your baby is one of the most important parts of newborn care. Feeding your baby at least 8-12 times every 24 hours is normal and important to support their growth. You may need to wake your baby to feed if they're sleepy or jaundiced."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: track_baby_output # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: track_baby_output
+DESCRIPTION: Provides advice on tracking baby's output (diapers).
+MESSAGE: "It's important to keep track of your baby's output (wet and dirty diapers) to know they're feeding well. By the time your baby is 5 days old, they should have 5+ wet diapers and 3+ poops per day."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: jaundice_information # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: jaundice_information
+DESCRIPTION: Provides information on newborn jaundice.
+MESSAGE: "Jaundice is common in newborns and usually goes away on its own. Signs of jaundice include yellowing of the skin or eyes. If you're worried or if your baby isn't feeding well or is hard to wake up, call your pediatrician or visit the ER."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: schedule_pediatrician_visit # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_pediatrician_visit
+DESCRIPTION: Reminder to schedule a pediatrician visit.
+MESSAGE: "Schedule a pediatrician visit. [Add scheduling link or instructions]"
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: postpartum_check_in # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: postpartum_check_in
+DESCRIPTION: Postpartum check-in message about physical and emotional recovery.
+MESSAGE: "Hi $patient_firstname$, following up to check on how you're feeling after delivery. The postpartum period is a time of recovery, both physically and emotionally. It's normal to feel tired, sore, or even overwhelmed. You're not alone. Let us know if you need support."
+INPUT_TYPE: System/Auto # Timed message
+BRANCHES: []
+DEFAULT_NEXT_NODE: urgent_symptoms_warning # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: urgent_symptoms_warning
+DESCRIPTION: Warns about urgent postpartum symptoms.
+MESSAGE: "Some symptoms may require urgent care. If you experience chest pain, heavy bleeding, or trouble breathing, call 911 or go to the ER. For other questions or concerns, message us anytime."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: postpartum_onboarding_week_2 # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: postpartum_onboarding_week_2
+DESCRIPTION: Welcome message for postpartum users at week 2.
+MESSAGE: "Hi $patient_firstname$, checking in to see how things are going now that your baby is about a week old. We shared some helpful info last week and want to make sure you're doing okay."
+INPUT_TYPE: System/Auto # Timed message
+BRANCHES: []
+DEFAULT_NEXT_NODE: emotional_well_being_check # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: emotional_well_being_check
+DESCRIPTION: Message about emotional well-being postpartum and seeking help.
+MESSAGE: "Hi there—feeling different emotions after delivery is common. You may feel joy, sadness, or both. About 80% of people experience the 'baby blues,' which typically go away in a couple of weeks. If you're not feeling well emotionally or have thoughts of hurting yourself or others, please reach out for help."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: sids_prevention_advice # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: sids_prevention_advice
+DESCRIPTION: Provides advice on SIDS prevention.
+MESSAGE: "Experts recommend always placing your baby on their back to sleep, in a crib or bassinet without blankets, pillows, or stuffed toys. This reduces the risk of SIDS (Sudden Infant Death Syndrome)."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: schedule_postpartum_check_in # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: schedule_postpartum_check_in
+DESCRIPTION: Reminder to schedule the postpartum check-in.
+MESSAGE: "Reminder to schedule your postpartum check-in."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: diaper_rash_advice # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: diaper_rash_advice
+DESCRIPTION: Provides advice on managing diaper rash.
+MESSAGE: "Diaper rash is common. It can usually be treated with diaper cream and frequent diaper changes. If your baby develops a rash that doesn't go away or seems painful, call your pediatrician."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: feeding_follow_up # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: feeding_follow_up
+DESCRIPTION: Follow-up message checking on feeding progress postpartum.
+MESSAGE: "Hi $patient_firstname$, checking in again—how is feeding going? Breastfeeding can be challenging at times. It's okay to ask for help from a lactation consultant or your provider. Let us know if you have questions."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: contraception_reminder # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: contraception_reminder
+DESCRIPTION: Reminder about contraception postpartum.
+MESSAGE: "Hi $patient_firstname$, just a quick note about contraception. You can get pregnant again even if you haven't gotten your period yet. If you're not ready to be pregnant again soon, it's important to consider your birth control options. Talk to your provider to learn what's right for you."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: contraception_resources # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: contraception_resources
+DESCRIPTION: Information about contraception resources.
+MESSAGE: "Birth control is available at no cost with most insurance plans. Let us know if you'd like support connecting to resources."
+INPUT_TYPE: System/Auto
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node (for this automated sequence)
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: emergency_room_survey
+DESCRIPTION: Asks the user if they are currently in or going to the ER.
+MESSAGE: "It sounds like you are telling me about an emergency. Are you currently in the ER (or on your way)? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User is in or going to the ER"
+    NEXT_NODE: current_er_response
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User is not in or going to the ER"
+    NEXT_NODE: recent_er_visit_check
+DEFAULT_NEXT_NODE: recent_er_visit_check # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: current_er_response
+DESCRIPTION: Provides a response when the user is currently in the ER.
+MESSAGE: "We're sorry to hear and thanks for sharing. Glad you're seeking care. Please let us know if there's anything we can do for you."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: recent_er_visit_check
+DESCRIPTION: Checks if the user was recently discharged from the ER.
+MESSAGE: "Were you recently discharged from an emergency room visit? Reply Y or N"
+INPUT_TYPE: Y/N
+BRANCHES:
+  - IF_INPUT_MATCH: "Y"
+    MATCH_DESCRIPTION: "User had a recent ER visit"
+    NEXT_NODE: share_er_info
+  - IF_INPUT_MATCH: "N"
+    MATCH_DESCRIPTION: "User did not have a recent ER visit"
+    NEXT_NODE: er_recommendation
+DEFAULT_NEXT_NODE: er_recommendation # Default if unclear
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: share_er_info
+DESCRIPTION: Asks if the user wants to share information about their recent ER visit.
+MESSAGE: "We're sorry to hear about your visit. To help your care team stay in the loop, would you like us to pass on any info? No worries if not, just reply 'no'."
+INPUT_TYPE: Free Text or Y/N (implied by 'reply no')
+BRANCHES: [] # Branching logic based on free text response would need more detail, assuming any response leads to follow-up support or a negative response leads to default
+DEFAULT_NEXT_NODE: follow_up_support # Assume some input is given, or it transitions regardless
+ACTIONS: [] # Could include action to log/relay shared info
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: follow_up_support
+DESCRIPTION: Offers further support after discussing an ER visit.
+MESSAGE: "Let us know if you need anything else."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: er_recommendation
+DESCRIPTION: Recommends going to the ER if needed, otherwise suggests rephrasing or menu.
+MESSAGE: "If you're not feeling well or have a medical emergency, go to your local ER. If I misunderstood your message, try rephrasing & using short sentences. You may also reply MENU for a list of support options."
+INPUT_TYPE: None
+BRANCHES: [] # Waits for new user input (possibly triggering MENU flow via retrieval/intent)
+DEFAULT_NEXT_NODE: null # Terminal node, waits for new input
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: pre_program_impact_survey
+DESCRIPTION: Introduction to the pre-program impact survey.
+MESSAGE: "Hi there, $patient_firstName$. As you start this program, we'd love to hear your thoughts! We're asking a few questions to understand how you're feeling about managing your early pregnancy."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: confidence_rating # Automatic transition to the first survey question
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: confidence_rating
+DESCRIPTION: First question of the pre-program survey, asking about confidence.
+MESSAGE: "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+INPUT_TYPE: Number (0-10)
+BRANCHES: [] # Assuming any number input transitions
+DEFAULT_NEXT_NODE: knowledge_rating # Automatic transition after response
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: knowledge_rating
+DESCRIPTION: Second question of the pre-program survey, asking about knowledge.
+MESSAGE: "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+INPUT_TYPE: Number (0-10)
+BRANCHES: [] # Assuming any number input transitions
+DEFAULT_NEXT_NODE: thank_you_message # Automatic transition after response
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: thank_you_message
+DESCRIPTION: Thank you message upon completion of the pre-program survey.
+MESSAGE: "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: post_program_impact_survey
+DESCRIPTION: Introduction to the post-program impact survey.
+MESSAGE: "Hi $patient_firstname$, glad you finished the program! Sharing your thoughts would be a huge help in making the program even better for others."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: post_program_confidence_rating # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: post_program_confidence_rating
+DESCRIPTION: First question of the post-program survey, asking about confidence.
+MESSAGE: "On a 0-10 scale, with 10 being extremely confident, how confident do you feel in your ability to navigate your needs related to early pregnancy? Reply with a number 0-10"
+INPUT_TYPE: Number (0-10)
+BRANCHES: [] # Assuming any number input transitions
+DEFAULT_NEXT_NODE: post_program_knowledge_rating # Automatic transition
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: post_program_knowledge_rating
+DESCRIPTION: Second question of the post-program survey, asking about knowledge.
+MESSAGE: "On a 0-10 scale, with 10 being extremely knowledgeable, how would you rate your knowledge related to early pregnancy? Reply with a number 0-10"
+INPUT_TYPE: Number (0-10)
+BRANCHES: [] # Assuming any number input transitions
+DEFAULT_NEXT_NODE: post_program_thank_you # Automatic transition
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: post_program_thank_you
+DESCRIPTION: Thank you message upon completion of the post-program survey.
+MESSAGE: "Thank you for taking the time to answer these questions. We are looking forward to supporting your health journey."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nps_quantitative_survey
+DESCRIPTION: Introduction to the NPS survey.
+MESSAGE: "Hi $patient_firstname$, I have two quick questions about using this text messaging service (last time I promise):"
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: likelihood_to_recommend # Automatic transition
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: likelihood_to_recommend
+DESCRIPTION: First question of the NPS survey (quantitative).
+MESSAGE: "On a 0-10 scale, with 10 being 'extremely likely,' how likely are you to recommend this text message program to someone with the same (or similar) situation? Reply with a number 0-10"
+INPUT_TYPE: Number (0-10)
+BRANCHES: [] # Assuming any number input transitions
+DEFAULT_NEXT_NODE: nps_qualitative_survey # Automatic transition
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: nps_qualitative_survey
+DESCRIPTION: Second question of the NPS survey (qualitative).
+MESSAGE: "Thanks for your response. What's the reason for your score?"
+INPUT_TYPE: Free Text
+BRANCHES: [] # Assuming free text input transitions
+DEFAULT_NEXT_NODE: feedback_acknowledgment # Automatic transition after response
+ACTIONS: [Record Survey Response]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: feedback_acknowledgment
+DESCRIPTION: Acknowledgment message after receiving NPS feedback.
+MESSAGE: "Thanks, your feedback helps us improve future programs."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node
+ACTIONS: []
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: always_on_qa_on_fit
+DESCRIPTION: Entry point for natural language queries about symptoms or topics outside the menu flow.
+MESSAGE: "Always-On Q & A ON FIT - Symptom Triage (Nausea, Vomiting & Bleeding + Pregnancy Preference)"
+INPUT_TYPE: System/Auto # This is a routing node, not a user-facing message prompt
+BRANCHES: []
+DEFAULT_NEXT_NODE: symptom_triage # Automatically redirects to symptom triage
+ACTIONS: [Identify user intent (e.g., 'symptom', 'pain', 'bleeding') and route]
+### NODE_END ###
+
+### NODE_START ###
+NODE_ID: general_default_response
+DESCRIPTION: Another standard fallback message (similar to default_response). Use case distinction needed if both are active.
+MESSAGE: "OK. We're here to help. If a symptom or concern comes up, let us know by texting a single symptom or topic."
+INPUT_TYPE: None
+BRANCHES: []
+DEFAULT_NEXT_NODE: null # Terminal node or waits for new input
+ACTIONS: []
+### NODE_END ###
+"""
+        # flow_instruction_context = flow_instructions
         print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
