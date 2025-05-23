@@ -10396,7 +10396,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         flow_id = request.get("flow_id", "")
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
-        flow_instructions = request.get("flow_instructions")
+        flow_instructions = request.get("instruction_type")
         patient_history = request.get("patient_history", "")
         print(f"[PATIENT HISTORY], {patient_history}")
 
