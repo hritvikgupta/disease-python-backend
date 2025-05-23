@@ -10605,7 +10605,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # similarity_top_k is the *final* number of results after fusion.
                     fusion_retriever = QueryFusionRetriever(
                         retrievers=retrievers_list,
-                        similarity_top_k=2,  # Or 3, 5, etc. A small positive integer.
+                        similarity_top_k=5,  # Or 3, 5, etc. A small positive integer.
                         num_queries=1,  # Number of queries to generate (1 + 3 generated). Set to 1 to disable.
                         mode="reciprocal_rerank", # Use RRF to combine results
                         use_async=False, # Recommended for speed
