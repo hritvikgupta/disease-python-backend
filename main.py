@@ -10535,107 +10535,42 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         #         flow_instructions = f"Error retrieving flow instructions: {str(e)}"
 
         if flow_instructions == "indexed" and assistantId:
-            try:
+            try:    
                 base_dir = os.path.abspath(os.path.dirname(__file__))
                 persist_dir = os.path.join(base_dir, "flow_instructions_storage", f"flow_instruction_{assistantId}")
-
                 print(f"Attempting to load index from: {persist_dir}")
 
-                index = None # Initialize index
-                # Check if the directory exists
                 if os.path.exists(persist_dir):
                     # Load the storage context from the persist directory
                     storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
-
-                    # Load the index from storage
                     print("Loading index from storage...")
                     index = load_index_from_storage(storage_context)
                     print("Index loaded successfully.")
-                else:
-                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}. Cannot load index.")
 
-
-                # Initialize retrievers - proceed even if index wasn't loaded,
-                # though BM25 needs nodes from docstore which comes from index.
-                # Vector retriever *requires* the index.
-                bm25_retriever = None
-                vector_retriever = None
-                retrievers_list = []
-                all_nodes = list(index.docstore.docs.values())
-                # Create BM25 Retriever (needs nodes from loaded index)
-                if index:
-                    all_nodes = list(index.docstore.docs.values())
-                    if not all_nodes:
-                        print("Warning: Could not retrieve nodes from index docstore to build BM25Retriever. BM25 will not be used.")
-                    else:
-                        print(f"Building BM25Retriever from {len(all_nodes)} nodes...")
-                        # similarity_top_k here is the initial fetch for BM25
-                        bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=10) # Fetch more initial results
-                        retrievers_list.append(bm25_retriever)
-                        print("BM25Retriever built.")
-
-                # Create Vector Retriever (requires loaded index)
-                if index:
-                    print("Building VectorIndexRetriever...")
-                    # similarity_top_k here is the initial fetch for Vector
+                    # Create VectorStoreRetriever
+                    print("Building VectorStoreRetriever...")
                     vector_retriever = VectorIndexRetriever(
                         index=index,
-                        similarity_top_k=10, # Fetch more initial results
-                        # embed_model is picked up from global Settings unless specified
+                        similarity_top_k=10,  # Retrieve top 5 most similar nodes
+                        embed_model=Settings.embed_model  # Use a lightweight embedding model
                     )
-                    retrievers_list.append(vector_retriever)
-                    print("VectorIndexRetriever built.")
-                else:
-                    print("Warning: Index not loaded, cannot build VectorIndexRetriever.")
+                    print("VectorStoreRetriever built.")
 
-
-                query_engine = None # Initialize query_engine
-
-                # Check if we have *any* retrievers to work with
-                if not retrievers_list:
-                    print("Error: No retrievers could be initialized (index likely not found or empty).")
-                    flow_instructions = "Indexed flow instructions not available or empty."
-                else:
-                    # --- Create the QueryFusionRetriever for Hybrid Retrieval ---
+                    # Create query engine
+                    print("Creating query engine using VectorStoreRetriever...")
+                    query_engine = RetrieverQueryEngine(retriever=vector_retriever)
                     
-                    print(f"Building QueryFusionRetriever with {len(retrievers_list)} retrievers...")
-                    # This retriever runs the query (or generated queries) through
-                    # the list of retrievers and fuses the results using the mode="reciprocal_rerank".
-                    # num_queries=4 means it will generate 3 extra queries. Set to 1 to disable.
-                    # similarity_top_k is the *final* number of results after fusion.
-                    fusion_retriever = QueryFusionRetriever(
-                        retrievers=retrievers_list,
-                        similarity_top_k=len(all_nodes),  # <-- Changed to len(all_nodes) which is 9
-                        num_queries=1,       # Keep this at 1
-                        mode="reciprocal_rerank",
-                        use_async=False,
-                        verbose=True,
-                        # query_gen_prompt="..."
-                    )
-                    print("QueryFusionRetriever built.")
-
-                    # --- Create the query engine using the Fusion Retriever ---
-                    print("Creating query engine using QueryFusionRetriever...")
-                    query_engine = RetrieverQueryEngine(retriever=fusion_retriever)
-                    print("Query engine built.")
-
-                    # --- Query the engine ---
-                    # Pass the augmented query to the engine. The retriever will
-                    # potentially generate multiple queries from this, run them,
-                    # fuse results, and then the LLM will use the original query
-                    # and the fused nodes to synthesize the response.
+                    # --- Keep the rest of the query logic ---
                     print(f"Querying index with message: '{query_to_use}'")
                     response = query_engine.query(query_to_use)
 
-                    # --- Process the response ---
-                    # response.response contains the text synthesized by the LLM
-                    retrieved_text = str(response) # Use str() for safety
-                    source_nodes = response.source_nodes # Nodes returned by the fusion retriever
+                    retrieved_text = response.response
+                    source_nodes = response.source_nodes # This will now be the nodes retrieved by the active retriever
 
                     print(f"Successfully queried index for assistant: {assistantId}")
                     print(f"LLM Synthesized Response: {retrieved_text}")
 
-                    print("\n--- Retrieved Source Nodes (after Fusion) ---")
+                    print("\n--- Retrieved Source Nodes ---")
                     if source_nodes:
                         retrieved_texts = []
                         # Check if nodes have scores before trying to format
@@ -10653,18 +10588,16 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # flow_instructions = retrieved_text # Or the raw text from source_nodes if preferred
                     flow_instructions = "\n---\n".join(retrieved_texts)
 
-
-                    # --- Set the final flow_instructions ---
-                    # Use the LLM's synthesized response! This is the key fix.
-
+                else:
+                    print(f"Warning: Flow instructions directory not found for assistant: {assistantId} at {persist_dir}")
+                    flow_instructions = "No indexed flow instructions found."
 
             except Exception as e:
-                print(f"Error during indexed flow instruction retrieval: {str(e)}")
-                # Import traceback at the top if you uncomment this
-                # import traceback
+                print(f"Error retrieving indexed flow instructions: {str(e)}")
+                # Ensure traceback is imported if you use it
                 # print(f"Stacktrace: {traceback.format_exc()}")
                 flow_instructions = f"Error retrieving flow instructions: {str(e)}"
-
+        
         print(f"[FETCHED FLOW INSTRUCTIONS], {flow_instructions}")
         # Get patient profile directly from Patient table
         patient = db.query(Patient).filter(Patient.id == patientId).first()
