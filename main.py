@@ -9395,170 +9395,170 @@ async def vector_flow_chat(request: dict):
             if not value or (isinstance(value, str) and not value.strip()):
                 missing_fields.append(field)
 
-#         if missing_fields: 
-#             print("==== PATIENT ONBOARDING/CHAT START ====\n")
-#             patient_fields_prompt = f"""
+        if missing_fields: 
+            print("==== PATIENT ONBOARDING/CHAT START ====\n")
+            patient_fields_prompt = f"""
 
-#             Patient Profile (includes phone and organization_id):
-#             {patient_fields}
+            Patient Profile (includes phone and organization_id):
+            {patient_fields}
 
-#             User Message : 
-#             {message}
+            User Message : 
+            {message}
 
-#             You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+            You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
 
-#             1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
-#             2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
-#             3. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
-#             4. Maintain a warm, empathetic tone, like you're talking to a friend.
+            1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
+            2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
+            3. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
+            4. Maintain a warm, empathetic tone, like you're talking to a friend.
 
-#             Instructions:
-#             1. **Check Patient Profile**:
-#             - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
-#             - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
-#             - Validate user input based on the field type:
-#                 - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
-#                 - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
-#             - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
-#                 - patient_id: {patientId}
-#                 - field_name: the field (e.g., "first_name")
-#                 - field_value: the validated value
-#             - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
-#             - If no fields are missing, proceed to conversation flow.
-#             - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
-#             IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-#                 Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
+            Instructions:
+            1. **Check Patient Profile**:
+            - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
+            - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
+            - Validate user input based on the field type:
+                - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+                - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
+            - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
+                - patient_id: {patientId}
+                - field_name: the field (e.g., "first_name")
+                - field_value: the validated value
+            - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
+            - If no fields are missing, proceed to conversation flow.
+            - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
+            IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
+                Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
 
 
-#             2. **Response Structure**:
-#             Return a JSON object:
-#             ```json
-#             {{
-#                 "content": "Your friendly response to the user",
-#                 "next_node_id": "ID of the next node or current node",
-#                 "state_updates": {{"key": "value"}},
-#                 "database_operation": {{
-#                 "operation": "UPDATE_PATIENT | CREATE_PATIENT",
-#                 "parameters": {{
-#                     "patient_id": "string",
-#                     "field_name": "string",
-#                     "field_value": "string"
-#                 }}
-#                 }} // Optional, only when updating/creating
-#             }}
+            2. **Response Structure**:
+            Return a JSON object:
+            ```json
+            {{
+                "content": "Your friendly response to the user",
+                "next_node_id": "ID of the next node or current node",
+                "state_updates": {{"key": "value"}},
+                "database_operation": {{
+                "operation": "UPDATE_PATIENT | CREATE_PATIENT",
+                "parameters": {{
+                    "patient_id": "string",
+                    "field_name": "string",
+                    "field_value": "string"
+                }}
+                }} // Optional, only when updating/creating
+            }}
 
-# """
+"""
             
-#             response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
-#             if "```json" in response_text:
-#                 response_text = response_text.split("```json")[1].split("```")[0].strip()
-#             response_data = json.loads(response_text)
+            response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            response_data = json.loads(response_text)
 
-#             content = response_data.get("content", "I'm having trouble processing your request.")
-#             next_node_id = response_data.get("next_node_id")
-#             state_updates = response_data.get("state_updates", {})
-#             database_operation = response_data.get("database_operation")
+            content = response_data.get("content", "I'm having trouble processing your request.")
+            next_node_id = response_data.get("next_node_id")
+            state_updates = response_data.get("state_updates", {})
+            database_operation = response_data.get("database_operation")
 
-#             operation_result = None
-#             if database_operation:
-#                 operation = database_operation.get("operation")
-#                 parameters = database_operation.get("parameters", {})
-#                 try:
-#                     if operation == "UPDATE_PATIENT":
-#                         patient = db.query(Patient).filter(Patient.id == patientId).first()
-#                         if not patient:
-#                             raise HTTPException(status_code=404, detail="Patient not found")
-#                         setattr(patient, parameters["field_name"], parameters["field_value"])
-#                         patient.updated_at = datetime.utcnow()
-#                         db.commit()
-#                         db.refresh(patient)
-#                         operation_result = {
-#                             "id": patient.id,
-#                             "mrn": patient.mrn,
-#                             "first_name": patient.first_name,
-#                             "last_name": patient.last_name,
-#                             "date_of_birth": patient.date_of_birth,
-#                             "phone": patient.phone,
-#                             "organization_id": patient.organization_id
-#                         }
-#                         # Update JSON file
-#                         patient_path = f"patients/{patient.id}.json"
-#                         os.makedirs(os.path.dirname(patient_path), exist_ok=True)
-#                         with open(patient_path, "w") as f:
-#                             patient_dict = {
-#                                 "id": patient.id,
-#                                 "mrn": patient.mrn,
-#                                 "first_name": patient.first_name,
-#                                 "last_name": patient.last_name,
-#                                 "date_of_birth": patient.date_of_birth,
-#                                 "phone": patient.phone,
-#                                 "organization_id": patient.organization_id,
-#                                 "created_at": patient.created_at.isoformat() if patient.created_at else None,
-#                                 "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
-#                             }
-#                             json.dump(patient_dict, f, indent=2)
-#                         content += f"\nProfile updated successfully!"
-#                     elif operation == "CREATE_PATIENT":
-#                         # Fallback if patientId is invalid; use session_data for phone/organization_id
-#                         mrn = generate_mrn()
-#                         patient = Patient(
-#                             id=str(uuid.uuid4()),
-#                             mrn=mrn,
-#                             first_name=parameters.get("first_name", ""),
-#                             last_name=parameters.get("last_name", ""),
-#                             date_of_birth=parameters.get("date_of_birth"),
-#                             phone=session_data.get("phone", "unknown"),
-#                             organization_id=session_data.get("organization_id", "default_org"),
-#                             created_at=datetime.utcnow(),
-#                             updated_at=datetime.utcnow()
-#                         )
-#                         db.add(patient)
-#                         db.commit()
-#                         db.refresh(patient)
-#                         operation_result = {
-#                             "id": patient.id,
-#                             "mrn": patient.mrn,
-#                             "first_name": patient.first_name,
-#                             "last_name": patient.last_name,
-#                             "date_of_birth": patient.date_of_birth,
-#                             "phone": patient.phone,
-#                             "organization_id": patient.organization_id
-#                         }
-#                         # Save JSON file
-#                         patient_path = f"patients/{patient.id}.json"
-#                         os.makedirs(os.path.dirname(patient_path), exist_ok=True)
-#                         with open(patient_path, "w") as f:
-#                             patient_dict = {
-#                                 "id": patient.id,
-#                                 "mrn": patient.mrn,
-#                                 "first_name": patient.first_name,
-#                                 "last_name": patient.last_name,
-#                                 "date_of_birth": patient.date_of_birth,
-#                                 "phone": patient.phone,
-#                                 "organization_id": patient.organization_id,
-#                                 "created_at": patient.created_at.isoformat() if patient.created_at else None,
-#                                 "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
-#                             }
-#                             json.dump(patient_dict, f, indent=2)
-#                         content += f"\nProfile created successfully!"
-#                 except Exception as e:
-#                     db.rollback()
-#                     print(f"Database operation failed: {str(e)}")
-#                     content += f"\nSorry, I couldn’t update your profile. Let’s try again."
-#                     response_data["next_node_id"] = current_node_id
+            operation_result = None
+            if database_operation:
+                operation = database_operation.get("operation")
+                parameters = database_operation.get("parameters", {})
+                try:
+                    if operation == "UPDATE_PATIENT":
+                        patient = db.query(Patient).filter(Patient.id == patientId).first()
+                        if not patient:
+                            raise HTTPException(status_code=404, detail="Patient not found")
+                        setattr(patient, parameters["field_name"], parameters["field_value"])
+                        patient.updated_at = datetime.utcnow()
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Update JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile updated successfully!"
+                    elif operation == "CREATE_PATIENT":
+                        # Fallback if patientId is invalid; use session_data for phone/organization_id
+                        mrn = generate_mrn()
+                        patient = Patient(
+                            id=str(uuid.uuid4()),
+                            mrn=mrn,
+                            first_name=parameters.get("first_name", ""),
+                            last_name=parameters.get("last_name", ""),
+                            date_of_birth=parameters.get("date_of_birth"),
+                            phone=session_data.get("phone", "unknown"),
+                            organization_id=session_data.get("organization_id", "default_org"),
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(patient)
+                        db.commit()
+                        db.refresh(patient)
+                        operation_result = {
+                            "id": patient.id,
+                            "mrn": patient.mrn,
+                            "first_name": patient.first_name,
+                            "last_name": patient.last_name,
+                            "date_of_birth": patient.date_of_birth,
+                            "phone": patient.phone,
+                            "organization_id": patient.organization_id
+                        }
+                        # Save JSON file
+                        patient_path = f"patients/{patient.id}.json"
+                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
+                        with open(patient_path, "w") as f:
+                            patient_dict = {
+                                "id": patient.id,
+                                "mrn": patient.mrn,
+                                "first_name": patient.first_name,
+                                "last_name": patient.last_name,
+                                "date_of_birth": patient.date_of_birth,
+                                "phone": patient.phone,
+                                "organization_id": patient.organization_id,
+                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                            }
+                            json.dump(patient_dict, f, indent=2)
+                        content += f"\nProfile created successfully!"
+                except Exception as e:
+                    db.rollback()
+                    print(f"Database operation failed: {str(e)}")
+                    content += f"\nSorry, I couldn’t update your profile. Let’s try again."
+                    response_data["next_node_id"] = current_node_id
 
-#             print(f"Response: {content}")
-#             print(f"Next node ID: {next_node_id}")
-#             print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
+            print(f"Response: {content}")
+            print(f"Next node ID: {next_node_id}")
+            print("==== PATIENT ONBOARDING/CHAT COMPLETE ====\n")
         
-#             response = {
-#                 "content": content,
-#                 "next_node_id": next_node_id,
-#                 "state_updates": state_updates
-#             }
-#             if operation_result:
-#                 response["operation_result"] = operation_result
-#             return response
+            response = {
+                "content": content,
+                "next_node_id": next_node_id,
+                "state_updates": state_updates
+            }
+            if operation_result:
+                response["operation_result"] = operation_result
+            return response
             
         # Create context for the query
         current_node_id = session_data.get('currentNodeId')
@@ -9781,9 +9781,6 @@ You are a helpful assistant tasked with providing accurate and context-aware res
         context_text = f"""
 The user message is: "{message}"
 
- Patient Profile (includes phone and organization_id):
-{patient_fields}
-
 The current node ID is: {current_node_id or "None - this is the first message"}
 
 current node documentation: {current_node_doc}
@@ -9800,72 +9797,47 @@ The session data is:
 {json.dumps(session_data, indent=2)}
 
 Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
- 
-            1. **Check Patient Profile**:
-            - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
-            - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
-            - Validate user input based on the field type:
-                - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
-                - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
-            - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
-                - patient_id: {patientId}
-                - field_name: the field (e.g., "first_name")
-                - field_value: the validated value
-            - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
-            - If no fields are missing, proceed to conversation flow.
-            - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
-            IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-                Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
-
-
-2. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
-3. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
-4. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
-5. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
-6. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
-7. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
-8. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
-9. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
-10. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
-11. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
-12. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
-13. Maintain conversation continuity and ensure responses are contextually appropriate.
-14. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
-15. If a date is provided in response to a function:
+1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
+1. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
+2. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
+3. Many Dialogue Nodes may have similar functions (e.g., Node 1 might have functions "Yes" or "No" leading to different nodes, and Node 3 might also have "Yes" or "No" leading to different nodes). Therefore, evaluate the users response strictly in the context of the current node’s transitions or functions.
+4. Rather than Acknowldge the user like "Okay Lets Move to another node" Execute that another node from functions (For Dialogue Node) which is matched with user message.
+5. Do NOT include any acknowledgment text like "Okay," "I understand," "Let's move on," or "Great" in the response. Directly perform the next node's action as defined in its instructions (EXCEPT IF IT IS A nodetype == starting NODE WHICH ALWAYS STARTS WITH GREETINGS Like Great or Okay Let's Move On ).
+6. For Dialogue Nodes and Survey Nodes, if the user's response matches a Function (e.g., 'If user replied with yes') or Trigger (e.g., 'If survey outcome is Completed'), identify the next node ID and retrieve its instructions to IMMEDIATELY execute its action (e.g., ask the next question).
+7. If the user's response matches a function (For Dialogue Node) in the current node (e.g., 'If user replied with yes'), transition to the specified next node and IMMEDIATELY execute its action (e.g., ask the next question).
+8. For Survey Nodes, if the user's response matches a Trigger (e.g., 'If survey outcome is Completed'), transition to the specified next node and IMMEDIATELY execute its action, as defined in the Next Node Instructions.
+9. Do NOT provide generic responses For Dialogue Nodes with Functions like "Okay, let's move to the next node"; instead, directly perform the next node's action as defined in its instructions.
+10. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
+11. Maintain conversation continuity and ensure responses are contextually appropriate.
+12. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
+13. If a date is provided in response to a function:
      - Validate the date as MM/DD/YYYY (e.g., '05/14/2025' or '5/5/2025'). A date is valid if:
      - It matches the format MM/DD/YYYY (with or without leading zeros for month/day).
      - It represents a real calendar date (e.g., not '02/30/2025').
      - It is not after the current date ({current_date}).
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
-16. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
+14. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
    - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
    - Convert the gestational age to weeks (integer division of days by 7).
    - Determine the trimester: First (≤12 weeks), Second (13–27 weeks), or Third (≥28 weeks).
    - Append to the node's instructed response: "Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester."
    - Store 'gestational_age_weeks' and 'trimester' in 'state_updates'.
 
-17. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
+15. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
 {document_context_section}
 
 Return your response as a JSON object with the following structure:
-            ```json
-            {{
-                "content": "Your friendly response to the user",
-                "next_node_id": "ID of the next node or current node",
-                "state_updates": {{"key": "value"}},
-                "database_operation": {{
-                "operation": "UPDATE_PATIENT | CREATE_PATIENT",
-                "parameters": {{
-                    "patient_id": "string",
-                    "field_name": "string",
-                    "field_value": "string"
-                }}
-                }} // Optional, only when updating/creating
-            }}
+{{
+    "content": "The response to send to the user, including specific document content where applicable",
+    "next_node_id": "ID of the next node to process (or current node if no match)",
+    "state_updates": {{
+        "key": "value"
+    }}
+}}
 """
 
         print(f"[CHAT] Conversation history: {conversation_history}")
@@ -9905,96 +9877,6 @@ Return your response as a JSON object with the following structure:
             ai_response = response_data.get("content", "I'm having trouble processing your request.")
             next_node_id = response_data.get("next_node_id")
             state_updates = response_data.get("state_updates", {})
-            database_operation = response_data.get("database_operation")
-
-            operation_result = None
-            if database_operation:
-                operation = database_operation.get("operation")
-                parameters = database_operation.get("parameters", {})
-                try:
-                    if operation == "UPDATE_PATIENT":
-                        patient = db.query(Patient).filter(Patient.id == patientId).first()
-                        if not patient:
-                            raise HTTPException(status_code=404, detail="Patient not found")
-                        setattr(patient, parameters["field_name"], parameters["field_value"])
-                        patient.updated_at = datetime.utcnow()
-                        db.commit()
-                        db.refresh(patient)
-                        operation_result = {
-                            "id": patient.id,
-                            "mrn": patient.mrn,
-                            "first_name": patient.first_name,
-                            "last_name": patient.last_name,
-                            "date_of_birth": patient.date_of_birth,
-                            "phone": patient.phone,
-                            "organization_id": patient.organization_id
-                        }
-                        # Update JSON file
-                        patient_path = f"patients/{patient.id}.json"
-                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
-                        with open(patient_path, "w") as f:
-                            patient_dict = {
-                                "id": patient.id,
-                                "mrn": patient.mrn,
-                                "first_name": patient.first_name,
-                                "last_name": patient.last_name,
-                                "date_of_birth": patient.date_of_birth,
-                                "phone": patient.phone,
-                                "organization_id": patient.organization_id,
-                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
-                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
-                            }
-                            json.dump(patient_dict, f, indent=2)
-                        content += f"\nProfile updated successfully!"
-                    elif operation == "CREATE_PATIENT":
-                        # Fallback if patientId is invalid; use session_data for phone/organization_id
-                        mrn = generate_mrn()
-                        patient = Patient(
-                            id=str(uuid.uuid4()),
-                            mrn=mrn,
-                            first_name=parameters.get("first_name", ""),
-                            last_name=parameters.get("last_name", ""),
-                            date_of_birth=parameters.get("date_of_birth"),
-                            phone=session_data.get("phone", "unknown"),
-                            organization_id=session_data.get("organization_id", "default_org"),
-                            created_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow()
-                        )
-                        db.add(patient)
-                        db.commit()
-                        db.refresh(patient)
-                        operation_result = {
-                            "id": patient.id,
-                            "mrn": patient.mrn,
-                            "first_name": patient.first_name,
-                            "last_name": patient.last_name,
-                            "date_of_birth": patient.date_of_birth,
-                            "phone": patient.phone,
-                            "organization_id": patient.organization_id
-                        }
-                        # Save JSON file
-                        patient_path = f"patients/{patient.id}.json"
-                        os.makedirs(os.path.dirname(patient_path), exist_ok=True)
-                        with open(patient_path, "w") as f:
-                            patient_dict = {
-                                "id": patient.id,
-                                "mrn": patient.mrn,
-                                "first_name": patient.first_name,
-                                "last_name": patient.last_name,
-                                "date_of_birth": patient.date_of_birth,
-                                "phone": patient.phone,
-                                "organization_id": patient.organization_id,
-                                "created_at": patient.created_at.isoformat() if patient.created_at else None,
-                                "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
-                            }
-                            json.dump(patient_dict, f, indent=2)
-                        content += f"\nProfile created successfully!"
-                except Exception as e:
-                    db.rollback()
-                    print(f"Database operation failed: {str(e)}")
-                    content += f"\nSorry, I couldn’t update your profile. Let’s try again."
-                    response_data["next_node_id"] = current_node_id
-
 
             # Check if no function match and no progression (e.g., no functions or all unmatched)
             has_functions = False
