@@ -10398,6 +10398,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
         previous_messages = request.get("previous_messages", [])
         flow_instructions = request.get("instruction_type")
         patient_history = request.get("patient_history", "")
+        current_node_id = session_data.get('currentNodeId')
         # print(f"[PATIENT HISTORY], {patient_history}")
 
         if not message:
@@ -10428,7 +10429,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 
             # Combine context with the current message to form the query
             # Structure the query to help the retriever understand it's a follow-up
-            query_to_use = f"{context_str}\nCurrent user input: {message}\nConsidering this, what is the relevant flow instruction or the next step or nodes?"
+            query_to_use = f"{context_str}\nCurrent user input: {message} and the Current Node ID : {current_node_id}\nConsidering this, what is the relevant flow instruction and the next step and nodes?"
 
             # print(f"Augmented Query for Retrieval:\n{query_to_use}")
         else:
@@ -10608,7 +10609,6 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
             flow_index = app.state.flow_indices[flow_id]
 
         # Get current node
-        current_node_id = session_data.get('currentNodeId')
         current_node_doc = ""
         # if current_node_id:
         #     try:
@@ -11376,6 +11376,8 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
+Current Node ID :
+{current_node_id}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
@@ -11398,7 +11400,7 @@ Instructions:
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
 2. **Conversation Flow**:
-   - Use the `User Message`, `Conversation History` and the `Structured Flow Instructions` to decide the what next question to ask. 
+   - Use the `Current Node`, `User Message`, `Conversation History` and the `Structured Flow Instructions` to decide the what next question to ask and what is the next node id. 
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
    - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
@@ -11426,7 +11428,7 @@ Instructions:
    - Update `next_node_id` based on the flow instructions if the user's response matches, or keep it the same if the response is off-topic or a field is still being collected.
    - Store any relevant session updates (e.g., gestational age) in `state_updates`.
 6. **General Instructions**
-    - If Conversation History  are found always start with **Start Conversation** Node. 
+    - If Conversation History  are found always start with **menu items* Node. 
     - If Any Nodes Have more than 2 options like A, B, C, D, E, etc then If User Message is E or D or Any of These Single Letter Then Match the response and go to that Node rather asking same question over again. 
 
 7. **Response Structure**:
