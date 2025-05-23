@@ -9399,6 +9399,8 @@ async def vector_flow_chat(request: dict):
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
             patient_fields_prompt = f"""
 
+            Current Date (MM/DD/YYYY) : {current_date}
+
             Patient Profile (includes phone and organization_id):
             {patient_fields}
 
@@ -9427,7 +9429,7 @@ async def vector_flow_chat(request: dict):
             - If no fields are missing, proceed to conversation flow.
             - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
             IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-                Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
+            Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
 
 
             2. **Response Structure**:
@@ -9446,7 +9448,12 @@ async def vector_flow_chat(request: dict):
                 }}
                 }} // Optional, only when updating/creating
             }}
-
+            ```
+            Examples:
+            - Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
+            - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
+            - Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
+            - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
 """
             
             response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
