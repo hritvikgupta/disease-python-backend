@@ -10605,13 +10605,12 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
                     # similarity_top_k is the *final* number of results after fusion.
                     fusion_retriever = QueryFusionRetriever(
                         retrievers=retrievers_list,
-                        similarity_top_k=5,  # Or 3, 5, etc. A small positive integer.
-                        num_queries=1,  # Number of queries to generate (1 + 3 generated). Set to 1 to disable.
-                        mode="reciprocal_rerank", # Use RRF to combine results
-                        use_async=False, # Recommended for speed
-                        verbose=True, # Good for debugging
-
-                        # query_gen_prompt="..." # Optional: override prompt for generating queries
+                        similarity_top_k=len(all_nodes),  # <-- Changed to len(all_nodes) which is 9
+                        num_queries=1,       # Keep this at 1
+                        mode="reciprocal_rerank",
+                        use_async=False,
+                        verbose=True,
+                        # query_gen_prompt="..."
                     )
                     print("QueryFusionRetriever built.")
 
