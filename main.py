@@ -11321,7 +11321,7 @@ async def patient_onboarding(request: Dict, db: Session = Depends(get_db)):
 # """
         
         flow_instruction_context = flow_instructions
-        # print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
+        print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
 {document_context}
@@ -11376,8 +11376,6 @@ Structured Flow Instructions (Use this to guide conversation flow based on user 
 Document Content:
 {document_context_section}
 
-Patient History Summary (Patient Previous Session Conversation):
-{patient_history}
 
 Session Data:
 {json.dumps(session_data, indent=2)}
