@@ -11471,7 +11471,8 @@ Instructions:
      Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
     
 2. **Conversation Flow**:
-   - When a flow instruction indicates "Flow ends" or provides no next_node_id, the analyze the user message next_node_id to decide. See Step 7 For More Details
+   - When a flow instruction indicates "Flow ends" or  next node id is null, the analyze the user message next_node_id to decide.
+   - *CRITICAL* Do not Repeat the Same `Content` To The User Over and Over again, if the next node id is null , analyze the last {message} to Set the next node id or See the `Document Content` To Provide the Best Possible Answer
    - Use the `Current Node`, `User Message`, `Conversation History` and the `Structured Flow Instructions` to decide the what next question to ask and what is the next node id. 
    - If the patient profile is complete, use `Current Flow Instructions` OR `Structured Flow Instructions` as a guide to suggest what to ask or discuss next.
    - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
@@ -11506,53 +11507,7 @@ Instructions:
       - DO NOT REPOND WITH "Perfect. Thanks so much. Over the next few days we're here for you and ready to help with next steps. Stay tuned for your estimated gestational age, we're calculating it now."
       - Instead Calculate the gestational age in the Current Node Using {current_date} and provide reponse For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
 
-7. **Handling Flow Ends and Document-Based Questions**:
-   - When a flow instruction indicates "Flow ends" or provides no next_node_id, the analyze the user message next_node_id to decide.
-   - Follow this priority order:
-    **Priority 1: Check for Specific Flow Node Match (High Priority)**
-        * If user asks about **bleeding** → route to `vaginal-bleeding-1st-trimester`
-        * If user mentions **nausea** or **vomiting** → route to `nausea-1st-trimester`
-        * If user mentions **pain** → route to `pain-early-pregnancy`
-        * If user asks about **PEACE visit** → route to `peace-visit-response-part-1`
-        * If user asks about **pregnancy test** → route to `follow-up-confirmation-of-pregnancy-survey`
-        * If user asks about **pregnancy loss** → route to `pregnancy-loss-response`
-        * If user asks about **appointments** → route to `appointment-response`
-        * If user wants to take surveys → route to appropriate survey node
-        * If user says "nothing" or wants to end → route to `nothing-response`
-    
-     **Priority 2: Hybrid Approach for Ambiguous Topics (medications, symptoms, general questions)**
-     * For **medications**: 
-       - If asking general "What medications?" or "Tell me about medications" → route to `medications-response`
-       - If asking specific "What medication should I take for [condition]?" → provide document content answer + route to `medications-response`
-       - Always include both the specific answer AND the flow guidance
-     * For **symptoms**:
-       - If asking general "I have symptoms" or "Tell me about symptoms" → route to `symptoms-response`
-       - If asking specific "Is [specific symptom] normal?" → provide document content answer + route to `symptoms-response`
-     * **ALWAYS combine specific document answers with appropriate flow routing for these topics**
-   
-     **Priority 3: Pure Document Content (Non-flow topics)**
-        * Questions that clearly don't match any flow node For example : "What foods should I avoid?", "Is it safe to exercise?", "What are early pregnancy signs?"
-        * Stay in the current node (don't change next_node_id) since you're providing supplementary information
-        * Use the `Document Content` to give a comprehensive, helpful answer
-    
-     **Priority 3: Fallback Options**
-        * If none of the above match and no relevant document content found → route to `menu-items` to present options
-        * If user asks very general questions like "what else can you help with?" → route to `menu-items`
-    
-     **Smart Routing Examples**:
-        - Current node: `medications-response` (Flow ends), User says: "What about symptoms?" → next_node_id: `symptoms-response`
-        - Current node: `appointment-response` (Flow ends), User says: "I have questions about medications" → next_node_id: `medications-response`
-        - Current node: `symptoms-response` (Flow ends), User says: "Thanks" → next_node_id: `nothing-response`
-        - Current node: any ending node, User says: "What else can you help with?" → next_node_id: `menu-items`
-        
-        - For example, if the user mentions bleeding, follow the Bleeding branch by asking the appropriate questions.
-        - If the user mentions pregnancy test, ask if they've had a positive test, and then follow up with LMP questions.
-        - If the user asks about medications or treatments, check the Document Content first.
-        - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
-        - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
-        - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
-
-8. **Response Structure**:
+7. **Response Structure**:
    Return a JSON object:
    ```json
    {{
