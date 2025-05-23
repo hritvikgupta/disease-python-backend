@@ -13700,7 +13700,7 @@ DEFAULT_NEXT_NODE: null # Terminal node or waits for new input
 ACTIONS: []
 ### NODE_END ###
 """
-        flow_instruction_context = flow_instructions
+        # flow_instruction_context = flow_instructions
         print(f"[FLOW INSTURCTIONS] {flow_instruction_context}")
         document_context_section = f"""
 Relevant Document Content:
@@ -13922,7 +13922,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
    - Interpret the instructions as prompts for conversation topics (e.g., if the instruction says "Ask about symptoms," say something like, "So, how have you been feeling lately? Any symptoms you want to talk about?").
    - If the user's message matches the flow instructions, use the instructions to guide the next question or action, and update `next_node_id` to the next relevant node.
    - If the user's message doesn't match the flow instructions, use `Document Content` to provide a relevant response if available, or fall back to general knowledge with a natural reply (e.g., "I can help with that! Could you tell me more about what you need?").
-   - For date-related instructions (e.g., gestational age):
+   - **IMP** For date-related instructions (e.g., gestational age):
      - Validate dates as MM/DD/YYYY, not after {current_date}.
      - For gestational age, calculate weeks from the provided date to {current_date}, determine trimester (First: ≤12 weeks, Second: 13–27 weeks, Third: ≥28 weeks), and include in the response (e.g., "You're about 20 weeks along, in your second trimester!").
      - Store in `state_updates` as `{{ "gestational_age_weeks": X, "trimester": "Second" }}`.
