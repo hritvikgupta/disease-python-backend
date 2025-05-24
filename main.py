@@ -10008,9 +10008,7 @@ Return your response as a JSON object with the following structure:
 
             Patient History (for subtle contextual enrichment, use only if it fits without contradiction):
             {patient_history}
-            
-            Previous conversation:
-            {conversation_history}
+
             Return the rephrased response as a string.
             """
             print("Calling secondary LLM for rephrasing")
