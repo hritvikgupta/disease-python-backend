@@ -9843,11 +9843,8 @@ current node documentation: {current_node_doc}
 
 The current date in Eastern Time (MM/DD/YYYY) is: {current_date}
 
-IMPORTANT: 
- - If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
+IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
- -  Do Not Repeat the `INSTRUCTION:` From `current node documentation` instead rephrase it in Human Natural Language Conversation
-
 
 
 Previous conversation:
@@ -9985,13 +9982,35 @@ Return your response as a JSON object with the following structure:
                 print(f"Fallback response generated, length: {len(ai_response)} characters")
 
             
+
+
+            rephrase_prompt = f"""
+            You are a friendly, conversational assistant tasked with rephrasing a response to sound natural and human-like. The original response may be literal or contain typos. Your goal is to:
+            1. Identify the intent of the original response (e.g., greeting, question, information).
+            2. Rephrase it into a natural, conversational tone, fixing any typos or awkward phrasing.
+            3. Preserve the core meaning and intent of the original response.
+            4. Do NOT include phrases like "Okay," "I understand," or "Let's move on" unless the intent is explicitly to transition.
+            5. If the intent is a greeting, use a warm, welcoming tone (e.g., "Hi, welcome to Circa! How can I help you today?").
+
+            Original response: "{ai_response}"
+            Current node documentation: {current_node_doc}
+            User message: "{message}"
+            Previous conversation:
+            {conversation_history}
+
+            Return the rephrased response as a string.
+            """
+            print("Calling secondary LLM for rephrasing")
+            rephrased_response = Settings.llm.complete(rephrase_prompt).text.strip()
+            print(f"Rephrased response: {rephrased_response}")
+
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
             print(f"State updates: {json.dumps(state_updates, indent=2)}")
             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
 
             return {
-                "content": ai_response,
+                "content": rephrased_response,
                 "next_node_id": next_node_id,
                 "state_updates": state_updates,
                 "onboarding_status": onboarding_status_to_send 
