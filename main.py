@@ -9397,12 +9397,15 @@ async def vector_flow_chat(request: dict):
             value = getattr(patient, field, None)
             if not value or (isinstance(value, str) and not value.strip()):
                 missing_fields.append(field)
+
+
         print(f"[MISSING FIELDS], {missing_fields}")
         print(f"[PATIENT FIELDS], {patient_fields}")
         onboarding_status_to_send = "in_progress" # Default to in_progress
         if not missing_fields:
                 onboarding_status_to_send = "completed"
 
+        
         if missing_fields: 
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
             patient_fields_prompt = f"""
@@ -9947,7 +9950,10 @@ Return your response as a JSON object with the following structure:
             return {
                 "content": ai_response,
                 "next_node_id": next_node_id,
-                "state_updates": state_updates
+                "state_updates": state_updates,
+                "onboarding_status": onboarding_status_to_send 
+
+
             }
 
         except Exception as e:
