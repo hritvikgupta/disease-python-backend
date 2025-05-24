@@ -10002,8 +10002,10 @@ Return your response as a JSON object with the following structure:
             """
             print("Calling secondary LLM for rephrasing")
             rephrased_response = Settings.llm.complete(rephrase_prompt).text.strip()
-            print(f"Rephrased response: {rephrased_response}")
+            if rephrased_response.startswith('"') and rephrased_response.endswith('"'):
+                rephrased_response = rephrased_response[1:-1]
 
+            print(f"Rephrased response: {rephrased_response}")
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
             print(f"State updates: {json.dumps(state_updates, indent=2)}")
