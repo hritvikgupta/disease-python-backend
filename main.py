@@ -9337,6 +9337,8 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         patientId = request.get("patientId", "")
+        onboarding_status_from_session = session_data.get("onboardingStatus") # Use .get() for safety
+        print(f"[ONBOARDING STATUS], {onboarding_status_from_session}")
         Onboarding = None
         print(f"Message: '{message}'")
         print(f"Session ID: {sessionId}")
@@ -9397,6 +9399,9 @@ async def vector_flow_chat(request: dict):
                 missing_fields.append(field)
         print(f"[MISSING FIELDS], {missing_fields}")
         print(f"[PATIENT FIELDS], {patient_fields}")
+        onboarding_status_to_send = "in_progress" # Default to in_progress
+        if not missing_fields:
+                onboarding_status_to_send = "completed"
 
         if missing_fields: 
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
@@ -9570,14 +9575,14 @@ async def vector_flow_chat(request: dict):
             response = {
                 "content": content,
                 "next_node_id": next_node_id,
-                "state_updates": state_updates
+                "state_updates": state_updates,
+                "onboarding_status": onboarding_status_to_send 
             }
             if operation_result:
                 response["operation_result"] = operation_result
             return response
         
       
-
         # Format previous messages for better context
         conversation_history = ""
         if is_post_survey_start:
@@ -9900,7 +9905,7 @@ Return your response as a JSON object with the following structure:
 
             # Enter fallback if no functions exist
             # print(f"DOCUMENT CONTEXT {document_context}")
-            if not has_functions and not is_survey_node:
+            if not has_functions and not is_survey_node and onboarding_status_from_session == "completed":
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
                     print("Using document context for response")
