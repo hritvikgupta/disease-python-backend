@@ -9517,6 +9517,19 @@ async def vector_flow_chat(request: dict):
                             }
                             json.dump(patient_dict, f, indent=2)
                         content += f"\nProfile updated successfully!"
+                        missing_fields = []
+                        for field in required_fields:
+                            value = getattr(patient, field, None)
+                            if not value or (isinstance(value, str) and not value.strip()):
+                                missing_fields.append(field)
+                        
+                        # Update onboarding status based on recalculated missing fields
+                        if not missing_fields:
+                            onboarding_status_to_send = "completed"
+                            print(f"🎉 ONBOARDING COMPLETE! All required fields now filled.")
+                        else:
+                            print(f"Still missing fields after UPDATE: {missing_fields}")
+                            # onboarding_status_to_send stays "in_progress"
                     elif operation == "CREATE_PATIENT":
                         # Fallback if patientId is invalid; use session_data for phone/organization_id
                         mrn = generate_mrn()
