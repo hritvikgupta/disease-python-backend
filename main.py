@@ -9929,7 +9929,7 @@ Return your response as a JSON object with the following structure:
 
             # Enter fallback if no functions exist
             # print(f"DOCUMENT CONTEXT {document_context}")
-            if not has_functions and not is_survey_node and onboarding_status_from_session == "completed":
+            if not has_functions and not is_survey_node and onboarding_status_from_session != "completed":
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
                     print("Using document context for response")
