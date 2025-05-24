@@ -9338,6 +9338,7 @@ async def vector_flow_chat(request: dict):
         previous_messages = request.get("previous_messages", [])
         patientId = request.get("patientId", "")
         patient_history = request.get("patient_history", "")  # New: Extract patient history
+        print(f"[PATIENT HISTORY] {patient_history}")
         onboarding_status_from_session = session_data.get("onboardingStatus") # Use .get() for safety
         print(f"[ONBOARDING STATUS], {onboarding_status_from_session}")
         Onboarding = None
@@ -9437,7 +9438,7 @@ async def vector_flow_chat(request: dict):
 
         }
         patient_fields = json.dumps(patient_dict, indent=2)
-        required_fields = ["first_name", "last_name", "date_of_birth", "gender", "email"]
+        required_fields = ["first_name", "last_name", "date_of_birth"]
         missing_fields = []
         for field in required_fields:
             value = getattr(patient, field, None)
