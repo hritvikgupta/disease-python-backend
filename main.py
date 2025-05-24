@@ -9337,6 +9337,7 @@ async def vector_flow_chat(request: dict):
         session_data = request.get("session_data", {})
         previous_messages = request.get("previous_messages", [])
         patientId = request.get("patientId", "")
+        patient_history = request.get("patient_history", "")  # New: Extract patient history
         onboarding_status_from_session = session_data.get("onboardingStatus") # Use .get() for safety
         print(f"[ONBOARDING STATUS], {onboarding_status_from_session}")
         Onboarding = None
@@ -9847,6 +9848,7 @@ IMPORTANT: If this is the first message after survey questions (userMessageCount
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
 
 
+
 Previous conversation:
 {conversation_history}
 
@@ -9985,19 +9987,25 @@ Return your response as a JSON object with the following structure:
 
 
             rephrase_prompt = f"""
+
             You are a friendly, conversational assistant tasked with rephrasing a response to sound natural and human-like. The original response may be literal or contain typos. Your goal is to:
             1. Identify the intent of the original response (e.g., greeting, question, information).
             2. Rephrase it into a natural, conversational tone, fixing any typos or awkward phrasing.
             3. Preserve the core meaning and intent of the original response.
             4. Do NOT include phrases like "Okay," "I understand," or "Let's move on" unless the intent is explicitly to transition.
             5. If the intent is a greeting, use a warm, welcoming tone (e.g., "Hi, welcome to Circa! How can I help you today?").
+            6. If Patient Profile contains a first_name, use it to personalize the response (e.g., address the patient by name).
+            7. If Patient History is non-empty, incorporate relevant details (e.g., past symptoms, calculations) to provide context, but do NOT assume specific history content.
+            8. For calculation intents, acknowledge any relevant prior data from Patient History (if present) and proceed with the node's intent without assuming specific calculations (For example gestational age).
 
             Original response: "{ai_response}"
             Current node documentation: {current_node_doc}
             User message: "{message}"
             Previous conversation:
             {conversation_history}
-
+            Patient Profile:
+            {patient_fields}
+            Patient History: {patient_history}
             Return the rephrased response as a string.
             """
             print("Calling secondary LLM for rephrasing")
