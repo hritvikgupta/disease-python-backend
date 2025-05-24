@@ -9988,29 +9988,27 @@ Return your response as a JSON object with the following structure:
 
 
             rephrase_prompt = f"""
-            You are a friendly, conversational assistant tasked with rephrasing a response to sound natural, human-like, and context-aware. The original response may contain typos or awkward phrasing. Your goal is to:
-            1. Identify the intent of the original response (e.g., greeting, question, information) from the node documentation and response content.
-            2. Preserve the response type: if the original is a question, the rephrased response MUST be a question; if a statement, it MUST be a statement.
-            3. Rephrase the response to be natural and conversational, fixing typos (e.g., 'are you the first time visiting' to 'Is this your first time visiting?') and awkward phrasing.
-            4. Use the patient's first_name from Patient Profile (if available) to personalize the response.
-            5. Incorporate relevant details from Patient History (if non-empty) to provide context (e.g., past symptoms, calculations), without assuming specific content.
-            6. For greeting intents, use a warm, welcoming tone and reference past interactions from Patient History (if available).
-            7. For calculation intents (e.g., gestational age), acknowledge prior data from Patient History (if present) and align with the node's intent.
-            8. If Patient History or Profile is empty, base the response on the node's intent and user message.
-            9. Do NOT include acknowledgment phrases like 'Okay,' 'Great,' 'I understand,' or 'Let's move on' unless the node's intent explicitly requires them (e.g., starting node).
-            10. Preserve the core meaning and intent of the original response, ensuring no critical information (e.g., questions, instructions) is lost.
-            11. Examples:
-            - Original: "Hey, are you the first time visiting CIRCA? ", Profile: {{"first_name": "Hritvik"}}, History: "Reported pregnancy test positive"
-                Rephrased: "Hi, Hritvik, is this your first time visiting CIRCA? I see you recently reported a positive pregnancy test."
-            - Original: "Provide your LMP date", Profile: {{"first_name": "Hritvik"}}, History: "LMP 04/28/2025"
-                Rephrased: "Hi, Hritvik, we have your last menstrual period as 04/28/2025. Would you like to confirm or provide a new date?"
+            You are a friendly, conversational assistant tasked with rephrasing a given text to sound natural, human-like, and context-aware.
 
-            Original response (Flow Indexed Instruction Feched Response Using `User Message`): "{ai_response}"
+            Instructions:
+            1.  **Rephrase the 'Original Response' provided.** This is the core message to deliver.
+            2.  **Personalize the response:** If the patient's first name is available in 'Patient Profile', use it at the beginning of the response.
+            3.  **Subtly incorporate relevant 'Patient History':** If any detail from the 'Patient History' can be seamlessly and non-contradictorily woven into the rephrased 'Original Response' to make it more contextually rich, do so. For example, if the original response is a general greeting and the history mentions a positive pregnancy test, you can add "I see you recently reported a positive pregnancy test." If the original response is a question about a date, you might add, "We have your last reported LMP as [date], would you like to update that?"
+            4.  **Maintain the original intent and type:** If the 'Original Response' is a question, the rephrased response MUST be a question. If it's a statement, it MUST be a statement. Do not add new questions or change the core meaning.
+            5.  **Crucially: Do NOT contradict or question the 'Original Response'.** Your goal is to enhance it, not to challenge its premise or introduce new, conflicting information.
+            6.  Do NOT include acknowledgment phrases like 'Okay,' 'Great,' 'I understand,' or 'Let's move on' unless they ar
+            
+            Original Response (from the main LLM, this is the message you must rephrase): "{ai_response}"
+            
             Current node documentation: {current_node_doc}
             User message: "{message}"
-            Patient Profile:
+
+            Patient Profile (for personalization, e.g., first_name):
             {patient_fields}
-            Patient History: {patient_history}
+
+            Patient History (for subtle contextual enrichment, use only if it fits without contradiction):
+            {patient_history}
+            
             Previous conversation:
             {conversation_history}
             Return the rephrased response as a string.
