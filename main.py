@@ -10012,7 +10012,6 @@ Return your response as a JSON object with the following structure:
             
             Original Response (from the main LLM, this is the message you must rephrase): "{ai_response}"
             
-            Current node documentation: {current_node_doc}
             User message: "{message}"
 
             Patient Profile (for personalization, e.g., first_name):
