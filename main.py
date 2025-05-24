@@ -9327,7 +9327,7 @@ async def vector_flow_chat(request: dict):
     eastern = pytz.timezone('America/New_York')
     current_time = datetime.now(eastern)
     current_date = current_time.date().strftime('%m/%d/%Y')
-
+    print(f"[CURRENT DATE] {current_date}")
     try:
         print("\n==== STARTING VECTOR CHAT PROCESSING ====")
         message = request.get("message", "")
@@ -9878,11 +9878,23 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
 15. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
-   - Calculate the gestational age by subtracting the LMP (retrived from Previous conversation) date from the current date ({current_date}).
-   - Convert the gestational age to weeks (integer division of days by 7).
-   - Determine the trimester: First (≤12 weeks), Second (13–27 weeks), or Third (≥28 weeks).
-   - Append to the node's instructed response: "Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester."
-   - Store 'gestational_age_weeks' and 'trimester' in 'state_updates'.
+    - Use the most recent LMP date from the conversation history or user message.
+    - Validate the LMP date: it must be in MM/DD/YYYY format, a real calendar date, and not after {current_date}.
+    - Calculate the gestational age:
+        - Subtract the LMP date from the current date ({current_date}) to get the number of days.
+        - Convert days to weeks (integer division of days by 7, rounding down).
+        - Ensure the gestational age is non-negative; if negative, return an error response asking for clarification (e.g., 'That date doesn’t seem right. Can you confirm your LMP?').
+        - Cap the gestational age at 40 weeks (typical maximum for pregnancy).
+    - Determine the trimester:
+        - First trimester: ≤12 weeks
+        - Second trimester: 13–27 weeks
+        - Third trimester: ≥28 weeks
+        - If gestational age is invalid (negative or >40 weeks), do not assign a trimester.
+    - Append to the node's instructed response: 'Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester.'
+    - Store in 'state_updates':
+        - 'gestational_age_weeks': [X]
+        - 'trimester': '[trimester]'
+        - 'lmp_date': '[LMP date in MM/DD/YYYY]'
 
 16. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
