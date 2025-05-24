@@ -9378,6 +9378,51 @@ async def vector_flow_chat(request: dict):
                 "content": "Missing required parameters"
             }
         
+        # Load flow index
+        if flow_id not in app.state.flow_indices:
+            bucket = storage_client.bucket(BUCKET_NAME)
+            meta_file = f"temp_flow_{flow_id}_meta.pkl"
+            blob = bucket.blob(f"flow_metadata/{flow_id}_meta.pkl")
+            try:
+                blob.download_to_filename(meta_file)
+                with open(meta_file, "rb") as f:
+                    metadata = pickle.load(f)
+                os.remove(meta_file)
+            except Exception as e:
+                print(f"Failed to load flow index metadata from GCS: {str(e)}")
+                return {
+                    "error": "Flow knowledge index not found. Please index the flow first.",
+                    "content": "I'm having trouble processing your request."
+                }
+
+            temp_dir = f"temp_flow_{flow_id}"
+            os.makedirs(temp_dir, exist_ok=True)
+            for blob in bucket.list_blobs(prefix=f"flow_indices/{flow_id}/"):
+                local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
+                blob.download_to_filename(local_path)
+
+            collection_name = metadata["collection_name"]
+            print("DEBUG: Entering Chroma collection block")
+            try:
+                chroma_collection = chroma_client.get_collection(collection_name)
+                print(f"Found existing Chroma collection {collection_name}")
+            except chromadb.errors.InvalidCollectionException:
+                print(f"Creating new Chroma collection {collection_name}")
+                chroma_collection = chroma_client.create_collection(collection_name)
+            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+
+            storage_context = StorageContext.from_defaults(
+                persist_dir=temp_dir, vector_store=vector_store
+            )
+            flow_index = load_index_from_storage(storage_context)
+            app.state.flow_indices[flow_id] = flow_index
+            shutil.rmtree(temp_dir)
+        else:
+            flow_index = app.state.flow_indices[flow_id]
+            print('Flow Data', flow_index)
+            print(f"[CHAT] Using cached flow index for flow_id: {flow_id}")
+
+        
         patient = db.query(Patient).filter(Patient.id == patientId).first()
         if not patient:
             raise HTTPException(status_code=404, detail="Patient not found")
@@ -9638,50 +9683,7 @@ async def vector_flow_chat(request: dict):
                 content = msg.get("content", "")
                 conversation_history += f"{role}: {content}\n"
         print("conversation history", conversation_history, message)
-        # Load flow index
-        if flow_id not in app.state.flow_indices:
-            bucket = storage_client.bucket(BUCKET_NAME)
-            meta_file = f"temp_flow_{flow_id}_meta.pkl"
-            blob = bucket.blob(f"flow_metadata/{flow_id}_meta.pkl")
-            try:
-                blob.download_to_filename(meta_file)
-                with open(meta_file, "rb") as f:
-                    metadata = pickle.load(f)
-                os.remove(meta_file)
-            except Exception as e:
-                print(f"Failed to load flow index metadata from GCS: {str(e)}")
-                return {
-                    "error": "Flow knowledge index not found. Please index the flow first.",
-                    "content": "I'm having trouble processing your request."
-                }
-
-            temp_dir = f"temp_flow_{flow_id}"
-            os.makedirs(temp_dir, exist_ok=True)
-            for blob in bucket.list_blobs(prefix=f"flow_indices/{flow_id}/"):
-                local_path = os.path.join(temp_dir, blob.name.split('/')[-1])
-                blob.download_to_filename(local_path)
-
-            collection_name = metadata["collection_name"]
-            print("DEBUG: Entering Chroma collection block")
-            try:
-                chroma_collection = chroma_client.get_collection(collection_name)
-                print(f"Found existing Chroma collection {collection_name}")
-            except chromadb.errors.InvalidCollectionException:
-                print(f"Creating new Chroma collection {collection_name}")
-                chroma_collection = chroma_client.create_collection(collection_name)
-            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-
-            storage_context = StorageContext.from_defaults(
-                persist_dir=temp_dir, vector_store=vector_store
-            )
-            flow_index = load_index_from_storage(storage_context)
-            app.state.flow_indices[flow_id] = flow_index
-            shutil.rmtree(temp_dir)
-        else:
-            flow_index = app.state.flow_indices[flow_id]
-            print('Flow Data', flow_index)
-            print(f"[CHAT] Using cached flow index for flow_id: {flow_id}")
-
+        
 
         if not session_data.get("currentNodeId") and not previous_messages:  # New session
             starting_node_id, starting_node_doc = get_starting_node(flow_index)
