@@ -9401,6 +9401,7 @@ async def vector_flow_chat(request: dict):
 
         print(f"[MISSING FIELDS], {missing_fields}")
         print(f"[PATIENT FIELDS], {patient_fields}")
+
         onboarding_status_to_send = "in_progress" # Default to in_progress
         if not missing_fields:
                 onboarding_status_to_send = "completed"
@@ -9559,12 +9560,19 @@ async def vector_flow_chat(request: dict):
                             }
                             json.dump(patient_dict, f, indent=2)
                         content += f"\nProfile created successfully!"
-                        starting_node_id, starting_node_doc = get_starting_node(flow_index)
-                        print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
-                        if starting_node_id:
-                            current_node_id = starting_node_id
-                            current_node_doc = starting_node_doc
-                            
+                        missing_fields = []
+                        for field in required_fields:
+                            value = getattr(patient, field, None)
+                            if not value or (isinstance(value, str) and not value.strip()):
+                                missing_fields.append(field)
+                        
+                        # Update onboarding status based on recalculated missing fields
+                        if not missing_fields:
+                            onboarding_status_to_send = "completed"
+                            print(f"🎉 ONBOARDING COMPLETE! All required fields now filled.")
+                        else:
+                            print(f"Still missing fields after update: {missing_fields}")
+                            # onboarding_status_to_send stays "in_progress"
                 except Exception as e:
                     db.rollback()
                     print(f"Database operation failed: {str(e)}")
