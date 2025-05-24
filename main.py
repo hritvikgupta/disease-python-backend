@@ -9834,6 +9834,12 @@ You are a helpful assistant tasked with providing accurate and context-aware res
 """
 
         context_text = f"""
+
+** GENERAL INSTRUCTION **
+    Rephrase Instructions Dynamically:
+    - ALWAYS rephrase the node's INSTRUCTION into a natural, conversational response. (For example, transform "Ask the User Welcom to Circa How we can help ?" into "Hi, welcome to Circa! How can we help you today?").
+    - If the instruction is unclear or overly literal, infer the intent and generate a response that aligns with it (e.g., for a greeting intent, use a friendly welcome message).
+
 The user message is: "{message}"
 
 The current node ID is: {current_node_id or "None - this is the first message"}
@@ -9885,11 +9891,6 @@ NOTE: If the user's message '{message}' does not match any Triggers or Functions
 
 {document_context_section}
 
-17 ** GENERAL INSTRUCTION **
-     Rephrase Instructions Dynamically:
-   - ALWAYS rephrase the node's INSTRUCTION into a natural, conversational response. For example, transform "Ask the User Welcom to Circa How we can help ?" into "Hi, welcome to Circa! How can we help you today?".
-   - Fix any typos (e.g., "Welcom" to "Welcome") and ensure proper grammar and tone.
-   - If the instruction is unclear or overly literal, infer the intent and generate a response that aligns with it (e.g., for a greeting intent, use a friendly welcome message).
 
 Return your response as a JSON object with the following structure:
 {{
