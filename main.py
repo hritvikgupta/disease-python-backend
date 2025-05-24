@@ -9530,6 +9530,12 @@ async def vector_flow_chat(request: dict):
                         else:
                             print(f"Still missing fields after UPDATE: {missing_fields}")
                             # onboarding_status_to_send stays "in_progress"
+                        starting_node_id, starting_node_doc = get_starting_node(flow_index)
+                        print(f"[STARTING NODE, FROM UPDATE] {starting_node_id, starting_node_doc}")
+                        if starting_node_id:
+                            current_node_id = starting_node_id
+                            current_node_doc = starting_node_doc
+                
                     elif operation == "CREATE_PATIENT":
                         # Fallback if patientId is invalid; use session_data for phone/organization_id
                         mrn = generate_mrn()
@@ -9586,6 +9592,12 @@ async def vector_flow_chat(request: dict):
                         else:
                             print(f"Still missing fields after update: {missing_fields}")
                             # onboarding_status_to_send stays "in_progress"
+                        starting_node_id, starting_node_doc = get_starting_node(flow_index)
+                        print(f"[STARTING NODE] {starting_node_id, starting_node_doc}")
+                        if starting_node_id:
+                            current_node_id = starting_node_id
+                            current_node_doc = starting_node_doc
+                
                 except Exception as e:
                     db.rollback()
                     print(f"Database operation failed: {str(e)}")
@@ -9598,7 +9610,7 @@ async def vector_flow_chat(request: dict):
         
             response = {
                 "content": content,
-                "next_node_id": next_node_id,
+                "next_node_id": current_node_id,
                 "state_updates": state_updates,
                 "onboarding_status": onboarding_status_to_send 
             }
@@ -9929,7 +9941,7 @@ Return your response as a JSON object with the following structure:
 
             # Enter fallback if no functions exist
             # print(f"DOCUMENT CONTEXT {document_context}")
-            if not has_functions and not is_survey_node and onboarding_status_from_session != "completed":
+            if not has_functions and not is_survey_node:
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
                     print("Using document context for response")
