@@ -9899,9 +9899,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
             - Third trimester: >= 28 weeks
         - **Set `content` to:** "Based on your last menstrual period on [THE PARSED, VALIDATED LMP DATE IN MM/DD/YYYY], you are approximately [CALCULATED WEEKS] weeks pregnant and in your [DETERMINED TRIMESTER] trimester."
             - **Example `content` for 05/10/2025 given current date 05/25/2025:** "Based on your last menstrual period on 05/10/2025, you are approximately 2 weeks pregnant and in your first trimester."
-        - **Set `next_node_id` to:** `node_4`
-        - **Set `state_updates` to:** `{"gestational_age_weeks": "[CALCULATED WEEKS]", "trimester": "[DETERMINED TRIMESTER]", "lmp_date": "[PARSED, VALIDATED LMP DATE IN MM/DD/YYYY]"}`
-
+     
 
 16. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
