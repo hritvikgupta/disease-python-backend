@@ -10021,7 +10021,7 @@ Return your response as a JSON object with the following structure:
 
             
 
-
+            print(f'[AI RESPONSE]', ai_response)
             rephrase_prompt = f"""
             You are a friendly, conversational assistant tasked with rephrasing a given text to sound natural, human-like, and context-aware.
 
