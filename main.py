@@ -9733,6 +9733,47 @@ async def vector_flow_chat(request: dict):
                 current_node_doc = "Error retrieving node instructions."
                     
         print(f"[CURRENT NODE DOC] {current_node_doc}")
+        # Check if last assistant message asked about LMP and current message is a date
+        calculated_gestational_info = ""
+        if previous_messages and len(previous_messages) >= 1:
+            last_assistant_msg = None
+            for msg in reversed(previous_messages):
+                if msg.get("role") == "assistant":
+                    last_assistant_msg = msg.get("content", "").lower()
+                    break
+            
+            if last_assistant_msg and any(keyword in last_assistant_msg for keyword in ["lmp", "mm/dd/yyyy", "gestational age"]):
+                try:
+                    from datetime import datetime
+                    import re
+                    
+                    # Check if current message is a date
+                    date_pattern = r'(\d{1,2})/(\d{1,2})/(\d{4})'
+                    match = re.search(date_pattern, message.strip())
+                    
+                    if match:
+                        month, day, year = match.groups()
+                        try:
+                            parsed_lmp = datetime.strptime(f"{month.zfill(2)}/{day.zfill(2)}/{year}", "%m/%d/%Y")
+                            current_datetime = datetime.strptime(current_date, "%m/%d/%Y")
+                            
+                            if parsed_lmp <= current_datetime:
+                                days_diff = (current_datetime - parsed_lmp).days
+                                weeks = min(days_diff // 7, 40)
+                                
+                                if weeks <= 12:
+                                    trimester = "first"
+                                elif weeks <= 27:
+                                    trimester = "second"
+                                else:
+                                    trimester = "third"
+                                
+                                calculated_gestational_info = f"CALCULATED GESTATIONAL AGE FOR USER: Based on LMP {message.strip()}, the patient is {weeks} weeks pregnant and in the {trimester} trimester."
+                                print(f"[MANUAL CALCULATION] {calculated_gestational_info}")
+                        except ValueError:
+                            pass
+                except Exception as e:
+                    print(f"Error in manual gestational age calculation: {e}")
 
 
         print(f"[DETECTED NODE] {current_node_id, current_node_doc}")
@@ -9870,31 +9911,8 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 11. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 12. Maintain conversation continuity and ensure responses are contextually appropriate.
 13. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
-
-14. **CRITICAL: LMP Date Validation and Gestational Age Calculation:**
-    - **FIRST, PARSE THE LMP DATE from {message} into MM/DD/YYYY format.** Example: 'my LMP is 5th May 2025' should be parsed as '05/05/2025'.
-    - **SECOND, VALIDATE THE PARSED LMP DATE:**
-        - Is it a valid calendar date? (e.g., '02/30/2025' is invalid).
-        - **Is the parsed LMP date ON or BEFORE the current date ({current_date})?**
-            - For example: if current date is '05/25/2025':
-                - LMP '05/10/2025' is VALID.
-                - LMP '05/25/2025' is VALID.
-                - LMP '05/26/2025' is INVALID (future date).
-    - **IF THE PARSED LMP DATE IS VALID:**
-        - **Calculate gestational age:**
-            - Subtract the PARSE LMP Date from ({current_date}). For example (Current Date - PARSE LMP Date).
-            - Divide these days by 7 to get weeks. Round down to the nearest whole week.
-            - Ensure the number of weeks is not negative. If, for some reason, it's negative, use the invalid date response above.
-            - Cap the gestational age at 40 weeks (typical max).
-        - **Determine trimester:**
-            - First trimester: <= 12 weeks
-            - Second trimester: 13-27 weeks
-            - Third trimester: >= 28 weeks
-        - **Set `content` to:** "Based on your last menstrual period on [THE PARSED, VALIDATED LMP DATE IN MM/DD/YYYY], you are approximately [CALCULATED WEEKS] weeks pregnant and in your [DETERMINED TRIMESTER] trimester."
-            - **Example `content` for 05/10/2025 given current date 05/25/2025:** "Based on your last menstrual period on 05/10/2025, you are approximately 2 weeks pregnant and in your first trimester."
-     
-
-16. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
+14. If **`INSTRUCTION : `** In the current Node Doc Provides the asks to calculate the ** Gestational Age **. Then Provide the User with This Calculated Gestational Age `{calculated_gestational_info}`
+15. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
 NOTE: If the user's message '{message}' does not match any Triggers or Functions defined in the current node's instructions ('{current_node_doc}'), set 'next_node_id' to the current node ID ('{current_node_id}') and generate a response that either re-prompts the user for a valid response or provides clarification, unless the node type specifies otherwise (e.g., scriptNode or callTransferNode).
 
