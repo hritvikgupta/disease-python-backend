@@ -10018,7 +10018,10 @@ Return your response as a JSON object with the following structure:
             rephrase_prompt = f"""
             You are a friendly, conversational assistant tasked with rephrasing a given text to sound natural, human-like, and context-aware.
 
-
+            CRITICAL: You must ONLY rephrase the text in 'Original Response': {ai_response}. Do NOT create new content or ask different questions.
+            CRITICAL: Do NOT ask any questions that are not in the Original Response {ai_response}
+            CRITICAL: Keep ALL content including phone number placeholders like $Clinic_Phone$. 
+            
             Instructions:
             1.  **Rephrase** the 'Original Response' to sound natural and human-like, preserving its exact intent and type (statement or question).
             2.  **Personalize the response:** If the patient's first name is available in 'Patient Profile', use it at the beginning of the response.
