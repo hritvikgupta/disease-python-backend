@@ -9975,11 +9975,11 @@ Return your response as a JSON object with the following structure:
                 functions_section = current_node_doc.split("FUNCTIONS:")[1]
                 # Check if there are any non-empty lines after FUNCTIONS:
                 has_functions = any(f.strip() for f in functions_section.split("\n") if f.strip())
-            print(f"[HAS FUNCTION] ({has_functions})")
+            print(f"[HAS FUNCTION] ({has_functions}), Current Node ID : {current_node_id}")
 
             # Enter fallback if no functions exist
             # print(f"DOCUMENT CONTEXT {document_context}")
-            if not has_functions and not is_survey_node:
+            if not has_functions and not is_survey_node and current_node_id is None:
                 print("No function match and no progression detected, generating fallback response")
                 if document_context_section:
                     print("Using document context for response")
@@ -9988,6 +9988,9 @@ Return your response as a JSON object with the following structure:
                     
                     The user's last message was: "{message}"
 
+                    Previous conversation:
+                    {conversation_history}
+                    
                     Relevant Document Content:
                     {document_context_section}
                     
@@ -10052,13 +10055,16 @@ Return your response as a JSON object with the following structure:
             rephrased_response = Settings.llm.complete(rephrase_prompt).text.strip()
             if rephrased_response.startswith('"') and rephrased_response.endswith('"'):
                 rephrased_response = rephrased_response[1:-1]
+            if not has_functions:
+                next_node_id = None
+                print(f"[END NODE] Setting next_node_id to None - no further progression")
 
             print(f"Rephrased response: {rephrased_response}")
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
             print(f"State updates: {json.dumps(state_updates, indent=2)}")
             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
-
+            
             return {
                 "content": rephrased_response,
                 "next_node_id": next_node_id,
