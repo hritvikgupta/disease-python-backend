@@ -9877,7 +9877,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
      - It is not after the current date ({current_date}).
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
-15. If asked to calculate the gestational age calculate in the "INSTURCTION:" in the current node documentation, calculate it using following:
+15. **CRITICAL** If `INSTURCTION:` in `current node documentation` asked to calculate the gestational age,  calculate it using following:
     - Use the most recent LMP date from the conversation history or user message.
     - Validate the LMP date: it must be in MM/DD/YYYY format, a real calendar date, and not after {current_date}.
     - Calculate the gestational age:
