@@ -9988,9 +9988,6 @@ Return your response as a JSON object with the following structure:
                     
                     The user's last message was: "{message}"
 
-                    Previous conversation:
-                    {conversation_history}
-                    
                     Relevant Document Content:
                     {document_context_section}
                     
