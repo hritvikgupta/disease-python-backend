@@ -9870,16 +9870,9 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
 11. If the user's message does not match any Functions or Triggers in the current node's instructions, and no further progression is possible (e.g., no next node defined in the flow), use the Relevant Document Content {document_context_section} to generate a helpful response addressing the user's query. If no relevant document content is available, provide a general helpful response based on the conversation history.
 12. Maintain conversation continuity and ensure responses are contextually appropriate.
 13. If a date is provided in response to a function, update the date to MM/DD/YYYY format. The user message comes in as a string '29/04/1999' or something else. Consider this as a date only and store it in the required format.
-14. If a date is provided in response to a function:
-     - Validate the date as MM/DD/YYYY (e.g., '05/14/2025' or '5/5/2025'). A date is valid if:
-     - It matches the format MM/DD/YYYY (with or without leading zeros for month/day).
-     - It represents a real calendar date (e.g., not '02/30/2025').
-     - It is not after the current date ({current_date}).
-     - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
-15. **CRITICAL: LMP Date Validation and Gestational Age Calculation:**
-    - **Assume the user's current message (`{message}`) contains the LMP date.**
-    - **FIRST, PARSE THE LMP DATE from `{message}` into MM/DD/YYYY format.** Example: 'my LMP is 5th May 2025' should be parsed as '05/05/2025'.
+14. **CRITICAL: LMP Date Validation and Gestational Age Calculation:**
+    - **FIRST, PARSE THE LMP DATE from {message} into MM/DD/YYYY format.** Example: 'my LMP is 5th May 2025' should be parsed as '05/05/2025'.
     - **SECOND, VALIDATE THE PARSED LMP DATE:**
         - Is it a valid calendar date? (e.g., '02/30/2025' is invalid).
         - **Is the parsed LMP date ON or BEFORE the current date ({current_date})?**
@@ -9889,7 +9882,7 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
                 - LMP '05/26/2025' is INVALID (future date).
     - **IF THE PARSED LMP DATE IS VALID:**
         - **Calculate gestational age:**
-            - Count the number of days between the parsed LMP date and the current date ({current_date}).
+            - Subtract the PARSE LMP Date from ({current_date}). For example (Current Date - PARSE LMP Date).
             - Divide these days by 7 to get weeks. Round down to the nearest whole week.
             - Ensure the number of weeks is not negative. If, for some reason, it's negative, use the invalid date response above.
             - Cap the gestational age at 40 weeks (typical max).
