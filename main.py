@@ -9986,13 +9986,20 @@ Return your response as a JSON object with the following structure:
                     fallback_prompt = f"""
                     You are a helpful assistant. The user has sent the following message:
                     
-                    "{message}"
-                    
+                    The user's last message was: "{message}"
+
                     Previous conversation:
                     {conversation_history}
                     
                     Relevant Document Content:
                     {document_context_section}
+                    
+                    INSTRUCTION:
+                     INSTRUCTIONS FOR YOUR RESPONSE:
+                    1.  **PRIMARY REQUIREMENT**: You MUST first deliver the message provided in "Current Node's Primary Message/Instruction" verbatim or rephrased naturally. This is the essential response for this stage of the conversation.
+                    2.  After including the primary message, if the "Relevant Document Content" is present and offers *additional, helpful* information directly related to the user's query or the ongoing conversation (especially if no further flow options exist for this node), integrate it gracefully and naturally.
+                    3.  Maintain a natural, conversational, and empathetic tone.
+                    4.  Ensure any URLs, phone numbers, email addresses, or specific resources from either the "Current Node's Primary Message/Instruction" or "Relevant Document Content" are included verbatim.
                     
                     Please provide a helpful response based on the document content, addressing the user's query.
                     """
@@ -10021,7 +10028,7 @@ Return your response as a JSON object with the following structure:
             CRITICAL: You must ONLY rephrase the text in 'Original Response': {ai_response}. Do NOT create new content or ask different questions.
             CRITICAL: Do NOT ask any questions that are not in the Original Response {ai_response}
             CRITICAL: Keep ALL content including phone number placeholders like $Clinic_Phone$. 
-            
+
             Instructions:
             1.  **Rephrase** the 'Original Response' to sound natural and human-like, preserving its exact intent and type (statement or question).
             2.  **Personalize the response:** If the patient's first name is available in 'Patient Profile', use it at the beginning of the response.
