@@ -9843,7 +9843,7 @@ The current node ID is: {current_node_id or "None - this is the first message"}
 
 current node documentation: {current_node_doc}
 
-The current date in Eastern Time (MM/DD/YYYY) is: {current_date}
+Current Date (The current date in Eastern Time (MM/DD/YYYY)) is: {current_date}
 
 IMPORTANT: If this is the first message after survey questions (userMessageCount == surveyQuestions.length), 
 you MUST transition to the designated starting node which has nodeType='starting', not to node_7.
@@ -9877,24 +9877,31 @@ Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY)
      - It is not after the current date ({current_date}).
      - Normalize to MM/DD/YYYY with leading zeros (e.g., '5/5/2025' to '05/05/2025').
 
-15. **CRITICAL** If `INSTURCTION:` in `current node documentation` asked to calculate the gestational age,  calculate it using following:
-    - Use the most recent LMP date from the conversation history or user message.
-    - Validate the LMP date: it must be in MM/DD/YYYY format, a real calendar date, and not after {current_date}.
-    - Calculate the gestational age:
-        - Subtract the LMP date from the current date ({current_date}) to get the number of days.
-        - Convert days to weeks (integer division of days by 7, rounding down).
-        - Ensure the gestational age is non-negative; if negative, return an error response asking for clarification (e.g., 'That date doesn’t seem right. Can you confirm your LMP?').
-        - Cap the gestational age at 40 weeks (typical maximum for pregnancy).
-    - Determine the trimester:
-        - First trimester: ≤12 weeks
-        - Second trimester: 13–27 weeks
-        - Third trimester: ≥28 weeks
-        - If gestational age is invalid (negative or >40 weeks), do not assign a trimester.
-    - Append to the node's instructed response: 'Based on your last menstrual period on [LMP date], you are approximately [X] weeks pregnant and in your [trimester] trimester.'
-    - Store in 'state_updates':
-        - 'gestational_age_weeks': [X]
-        - 'trimester': '[trimester]'
-        - 'lmp_date': '[LMP date in MM/DD/YYYY]'
+15. **CRITICAL: LMP Date Validation and Gestational Age Calculation:**
+    - **Assume the user's current message (`{message}`) contains the LMP date.**
+    - **FIRST, PARSE THE LMP DATE from `{message}` into MM/DD/YYYY format.** Example: 'my LMP is 5th May 2025' should be parsed as '05/05/2025'.
+    - **SECOND, VALIDATE THE PARSED LMP DATE:**
+        - Is it a valid calendar date? (e.g., '02/30/2025' is invalid).
+        - **Is the parsed LMP date ON or BEFORE the current date ({current_date})?**
+            - For example: if current date is '05/25/2025':
+                - LMP '05/10/2025' is VALID.
+                - LMP '05/25/2025' is VALID.
+                - LMP '05/26/2025' is INVALID (future date).
+    - **IF THE PARSED LMP DATE IS VALID:**
+        - **Calculate gestational age:**
+            - Count the number of days between the parsed LMP date and the current date ({current_date}).
+            - Divide these days by 7 to get weeks. Round down to the nearest whole week.
+            - Ensure the number of weeks is not negative. If, for some reason, it's negative, use the invalid date response above.
+            - Cap the gestational age at 40 weeks (typical max).
+        - **Determine trimester:**
+            - First trimester: <= 12 weeks
+            - Second trimester: 13-27 weeks
+            - Third trimester: >= 28 weeks
+        - **Set `content` to:** "Based on your last menstrual period on [THE PARSED, VALIDATED LMP DATE IN MM/DD/YYYY], you are approximately [CALCULATED WEEKS] weeks pregnant and in your [DETERMINED TRIMESTER] trimester."
+            - **Example `content` for 05/10/2025 given current date 05/25/2025:** "Based on your last menstrual period on 05/10/2025, you are approximately 2 weeks pregnant and in your first trimester."
+        - **Set `next_node_id` to:** `node_4`
+        - **Set `state_updates` to:** `{"gestational_age_weeks": "[CALCULATED WEEKS]", "trimester": "[DETERMINED TRIMESTER]", "lmp_date": "[PARSED, VALIDATED LMP DATE IN MM/DD/YYYY]"}`
+
 
 16. If the current node's instruction mentions calculating or reporting gestational age, perform the calculation as in step 14 using the most recent date from the conversation history or session data.
 
