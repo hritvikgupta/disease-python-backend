@@ -48,6 +48,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
+from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, FilterOperator
 
 import concurrent.futures
 import re
@@ -10729,10 +10730,16 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             next_node_doc = ""
             if next_node_id:
                 try:
-                    retriever = flow_index.as_retriever(similarity_top_k=10)  # or use -1 if supported
-                    query_str = f"NODE ID: {next_node_id}"
-                    print(f"Retrieving document for next node: '{query_str}'")
-                    node_docs = retriever.retrieve(query_str)
+                    retriever = flow_index.as_retriever(
+                        filters=MetadataFilters(filters=[
+                            MetadataFilter(
+                                key="node_id", 
+                                value=next_node_id, 
+                                operator=FilterOperator.EQ
+                            )
+                        ])
+                    )
+                    node_docs = retriever.retrieve(f"NODE ID: {next_node_id}")
                     # print(f"[RETERIVED NODE DOCS FOR {query_str}], {node_docs}")
                     if node_docs:
                         exact_matches = [
