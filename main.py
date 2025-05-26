@@ -10759,6 +10759,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
 
             # Extract instruction from next node documentation
             ai_response = "I'm having trouble processing your request."
+            next_doc_functions = False
             if next_node_doc:
                 try:
                     instruction_start = next_node_doc.find("INSTRUCTION:") + len("INSTRUCTION:")
@@ -10766,9 +10767,26 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                     instruction_text = next_node_doc[instruction_start:instruction_end].strip()
                     ai_response = instruction_text
                     print(f"Extracted instruction: {ai_response[:100]}...")
+                    if "FUNCTIONS:" in next_node_doc:
+                        functions_start = next_node_doc.find("FUNCTIONS:") + len("FUNCTIONS:")
+                        functions_text = next_node_doc[functions_start:].strip()
+                        
+                        # Set next_doc_functions to True if functions exist and are not empty
+                        if functions_text and functions_text.strip():
+                            next_doc_functions = True
+                            print(f"Functions found: {len(functions_text)} characters, NEXT DOC FUNCTION {next_doc_functions}")
+                        else:
+                            next_doc_functions = False
+                            print("Functions section is empty")
+                    else:
+                        next_doc_functions = False
+                        print("No FUNCTIONS section found")
+
                 except Exception as e:
                     print(f"Error extracting instruction from next node: {str(e)}")
                     ai_response = "No specific instructions available for the next step."
+
+
             if calculated_gestational_info:
                 ai_response += f" {calculated_gestational_info}"
             # Check if no function match and no progression (e.g., no functions or all unmatched)
@@ -10857,7 +10875,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             rephrased_response = Settings.llm.complete(rephrase_prompt).text.strip()
             if rephrased_response.startswith('"') and rephrased_response.endswith('"'):
                 rephrased_response = rephrased_response[1:-1]
-            if not has_functions:
+            if not next_doc_functions:
                 next_node_id = None
                 print(f"[END NODE] Setting next_node_id to None - no further progression")
 
