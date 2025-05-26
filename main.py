@@ -10504,15 +10504,30 @@ async def vector_flow_chat(request: dict):
         if current_node_id:
             try:
                 # Create basic retriever with no filters
-                retriever = flow_index.as_retriever(similarity_top_k=10)
+                # retriever = flow_index.as_retriever(similarity_top_k=10)
                 
-                # Query directly for the node ID as text
+                # # Query directly for the node ID as text
+                # query_str = f"NODE ID: {current_node_id}"
+                # print(f"Querying for: '{query_str}'")
+                
+                # # Use the most basic retrieval pattern
+                # node_docs = retriever.retrieve(query_str)
+                
+                retriever = flow_index.as_retriever(
+                    filters=MetadataFilters(filters=[
+                        MetadataFilter(
+                            key="node_id", 
+                            value=current_node_id, 
+                            operator=FilterOperator.EQ
+                        )
+                    ])
+                )
+                
+                # Query for the node - the filter ensures we only get exact matches
                 query_str = f"NODE ID: {current_node_id}"
-                print(f"Querying for: '{query_str}'")
+                print(f"Querying for: '{query_str}' with metadata filter")
                 
-                # Use the most basic retrieval pattern
                 node_docs = retriever.retrieve(query_str)
-                
                 # Check if we got any results
                 if node_docs:
                     # Find exact match for node_id in results
@@ -10535,7 +10550,29 @@ async def vector_flow_chat(request: dict):
                     current_node_doc = "No specific node instructions available."
             except Exception as e:
                 print(f"Error retrieving node document: {str(e)}")
-                current_node_doc = "Error retrieving node instructions."
+                try:
+                    print("Falling back to similarity search approach")
+                    retriever = flow_index.as_retriever(similarity_top_k=1000)  # Use high number as fallback
+                    query_str = f"NODE ID: {current_node_id}"
+                    node_docs = retriever.retrieve(query_str)
+                    
+                    if node_docs:
+                        exact_matches = [
+                            doc for doc in node_docs 
+                            if doc.metadata and doc.metadata.get("node_id") == current_node_id
+                        ]
+                        
+                        if exact_matches:
+                            current_node_doc = exact_matches[0].get_content()
+                            print(f"Found exact match for node {current_node_id} using fallback")
+                        else:
+                            current_node_doc = node_docs[0].get_content()
+                            print(f"No exact match, using top result from fallback")
+                    else:
+                        current_node_doc = "No specific node instructions available."
+                except Exception as fallback_e:
+                    print(f"Fallback approach also failed: {str(fallback_e)}")
+                    current_node_doc = "Error retrieving node instructions"
                     
         print(f"[CURRENT NODE DOC] {current_node_doc}")
         # Check if last assistant message asked about LMP and current message is a date
