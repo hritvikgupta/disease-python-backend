@@ -9899,7 +9899,7 @@ The session data is:
 
 Instructions for the deciding next node:
 
-Instructions for the deciding next node (CAN BE USED BUT NOT STRICTLY NECESSARY):
+Instructions for the deciding next node:
 1. Remember one thing IMP: that the user always reply with {message}, Your task it to match the user {message} with current node documentation. 
 2. If the current node's document ({current_node_doc}) is available and if "INSTRUCTION:" in current node doc is given make sure to include everything in the response but in Human Response Format. 
 3. If the current node's document ({current_node_doc}) is available, use that to determine the next node based on the user's response that matches with Functions and message.
