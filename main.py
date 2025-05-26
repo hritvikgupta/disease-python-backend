@@ -8873,7 +8873,7 @@ async def create_flow_knowledge_index(flow_data: dict):
         node_id = node.get("id")
         node_type = node.get("type")
         node_data = node.get("data", {})
-        
+        embedding_id = f"{flow_id}_{node_id}"
         # Create base document text
         doc_text = f"NODE ID: {node_id}\nNODE TYPE: {node_type}\n\n"
         
@@ -8951,7 +8951,8 @@ async def create_flow_knowledge_index(flow_data: dict):
                 "node_id": node_id,
                 "node_type": node_type,
                 "flow_id": flow_id
-            }
+            },
+            id_=embedding_id  # Use predictable embedding ID
         ))
     # Add global flow processing instructions
     starting_node = next((node for node in nodes if node.get("data", {}).get("nodeType") == "starting" or 
