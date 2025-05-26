@@ -10733,7 +10733,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                     query_str = f"NODE ID: {next_node_id}"
                     print(f"Retrieving document for next node: '{query_str}'")
                     node_docs = retriever.retrieve(query_str)
-                    
+                    print(f"[RETERIVED NODE DOCS FOR {query_str}], {node_docs}")
                     if node_docs:
                         exact_matches = [
                             doc for doc in node_docs 
