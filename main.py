@@ -10729,7 +10729,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             next_node_doc = ""
             if next_node_id:
                 try:
-                    retriever = flow_index.as_retriever(similarity_top_k=10)
+                    retriever = flow_index.as_retriever(similarity_top_k=1000)  # or use -1 if supported
                     query_str = f"NODE ID: {next_node_id}"
                     print(f"Retrieving document for next node: '{query_str}'")
                     node_docs = retriever.retrieve(query_str)
