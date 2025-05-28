@@ -13146,7 +13146,7 @@ Instructions:
       * "My name is John" → extract "John" as first_name  
       * "I'm called Sarah" → extract "Sarah" as first_name
       * "Jones" (when asking for last name) → extract "Jones" as last_name
-      
+          
      - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
    - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
      - patient_id: {patientId}
