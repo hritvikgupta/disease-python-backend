@@ -10390,76 +10390,76 @@ async def vector_flow_chat(request: dict):
         
         if missing_fields: 
             print("==== PATIENT ONBOARDING/CHAT START ====\n")
-            patient_fields_prompt = f"""
+            # Direct approach - no LLM needed
+            import re
 
-            Current Date (MM/DD/YYYY) : {current_date}
+            # Determine which field to ask for (first missing field)
+            field_to_ask = missing_fields[0]
 
-            Patient Profile (includes phone and organization_id):
-            {patient_fields}
+            # Check if user provided information for the current missing field
+            database_operation = None
+            content = ""
 
-            User Message : 
-            {message}
+            if field_to_ask == "first_name":
+                name_match = re.search(r'\b([A-Za-z]+)\b', message.strip())
+                if name_match:
+                    extracted_name = name_match.group(1).lower()
+                    database_operation = {
+                        "operation": "UPDATE_PATIENT",
+                        "parameters": {
+                            "patient_id": patientId,
+                            "field_name": "first_name",
+                            "field_value": extracted_name
+                        }
+                    }
+                    content = f"Great! I've got your first name as {extracted_name.title()}. Now I need your last name."
+                else:
+                    content = "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?"
 
-            You are a friendly, conversational assistant helping a patient with healthcare interactions. Your goal is to have a natural, human-like conversation. You need to:
+            elif field_to_ask == "last_name":
+                name_match = re.search(r'\b([A-Za-z]+)\b', message.strip())
+                if name_match:
+                    extracted_name = name_match.group(1).lower()
+                    database_operation = {
+                        "operation": "UPDATE_PATIENT",
+                        "parameters": {
+                            "patient_id": patientId,
+                            "field_name": "last_name",
+                            "field_value": extracted_name
+                        }
+                    }
+                    content = f"Perfect! Last name recorded as {extracted_name.title()}. What's your date of birth? Please use format MM/DD/YYYY like 03/29/1996."
+                else:
+                    content = "I need your last name. Could you please share it?"
 
-            1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
-            2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
-            3. Maintain a warm, empathetic tone, like you're talking to a friend.
+            elif field_to_ask == "date_of_birth":
+                date_match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', message.strip())
+                if date_match:
+                    month, day, year = date_match.groups()
+                    formatted_date = f"{month.zfill(2)}/{day.zfill(2)}/{year}"
+                    try:
+                        parsed_date = datetime.strptime(formatted_date, "%m/%d/%Y")
+                        current_datetime = datetime.strptime(current_date, "%m/%d/%Y")
+                        
+                        if parsed_date <= current_datetime:
+                            database_operation = {
+                                "operation": "UPDATE_PATIENT",
+                                "parameters": {
+                                    "patient_id": patientId,
+                                    "field_name": "date_of_birth",
+                                    "field_value": formatted_date
+                                }
+                            }
+                            content = f"Perfect! Thanks for providing your information. Your profile is now complete and we can get started."
+                        else:
+                            content = "That date seems to be in the future. Could you please provide a valid date of birth in MM/DD/YYYY format?"
+                    except ValueError:
+                        content = "I couldn't understand that date format. Could you please use MM/DD/YYYY format like 03/29/1996?"
+                else:
+                    content = "I need your date of birth. Please use the format MM/DD/YYYY, like 03/29/1996."
 
-            Instructions:
-            1. **Check Patient Profile**:
-            - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
-            - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
-            - Extract the `first_name` or `date_of_birth` directly from the user's message without any validation:
-            - For `first_name`, take the provided name as-is from the message (e.g., "My name is Oliver" -> "Oliver").
-            - For `date_of_birth`, take the provided date as-is from the message (e.g., "My date of birth  is 04/29/1999" -> "04/29/1999").
-            - If the user provides a value for the requested field, issue an `UPDATE_PATIENT` command with:
-            - patient_id: {patientId}
-            - field_name: the field (e.g., "first_name")
-            - field_value: the extracted value
-            
-            - IMPORTANT: When updating the LAST required field (making the profile complete), do NOT ask for confirmation. Instead, respond with: "Perfect! Thanks for providing your information, [first_name]. Please Say or Type 'Hi' To Get Started."
-            - If the user doesn't provide the requested field, ask again with a friendly prompt (e.g., "Sorry, I didn't catch your first name. Could you share it?").
-            - If no fields are missing, proceed to conversation flow.
-            - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
-            IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-            Do ​not ask for insurance, address, emergency contact, or any other fields, even if they’re empty.
-
-            2. **Response Structure**:
-            Return a JSON object:
-            ```json
-            {{
-                "content": "Your friendly response to the user",
-                "next_node_id": "ID of the next node or current node",
-                "state_updates": {{"key": "value"}},
-                "database_operation": {{
-                "operation": "UPDATE_PATIENT | CREATE_PATIENT",
-                "parameters": {{
-                    "patient_id": "string",
-                    "field_name": "string",
-                    "field_value": "string"
-                }}
-                }} // Optional, only when updating/creating
-            }}
-            ```
-            Examples:
-            - Profile: {{"first_name": null, "last_name": null, "date_of_birth": null}}, Message: "hi"
-            - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
-            - Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
-            - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
-            - Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": null}}, Message: "04/29/1999"
-            - Response: {{"content": "Perfect! Thanks for providing your information, Emma. Your profile is now complete, Please Say or Type 'Hi' To Get Started.", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "date_of_birth", "field_value": "04/29/1999"}}}}}}
-"""
-            
-            response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            response_data = json.loads(response_text)
-
-            content = response_data.get("content", "I'm having trouble processing your request.")
-            next_node_id = response_data.get("next_node_id")
-            state_updates = response_data.get("state_updates", {})
-            database_operation = response_data.get("database_operation")
+            next_node_id = None
+            state_updates = {}
 
             operation_result = None
             if database_operation:
