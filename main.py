@@ -13141,7 +13141,12 @@ Instructions:
    - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
    - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
    - Validate user input based on the field type:
-     - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
+    - Text fields (e.g., names): Extract the actual name from the user's message, even if they don't use perfect grammar. For example:
+      * "Shenal" → extract "Shenal" as first_name
+      * "My name is John" → extract "John" as first_name  
+      * "I'm called Sarah" → extract "Sarah" as first_name
+      * "Jones" (when asking for last name) → extract "Jones" as last_name
+      
      - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
    - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
      - patient_id: {patientId}
