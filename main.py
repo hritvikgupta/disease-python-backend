@@ -10418,6 +10418,8 @@ async def vector_flow_chat(request: dict):
                 - patient_id: {patientId}
                 - field_name: the field (e.g., "first_name")
                 - field_value: the validated value
+                - IMPORTANT: When updating the LAST required field (making the profile complete), do NOT ask for confirmation. Instead, respond with: "Perfect! Thanks for providing your information, [first_name]. Please Say or Type 'Hi' To Get Started."
+
             - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
             - If no fields are missing, proceed to conversation flow.
             - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
@@ -10447,6 +10449,8 @@ async def vector_flow_chat(request: dict):
             - Response: {{"content": "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?", "next_node_id": null, "state_updates": {{}}}}
             - Profile: {{"first_name": "Shenal", "last_name": null, "date_of_birth": null}}, Message: "Jones"
             - Response: {{"content": "Awesome, thanks for sharing, Shenal Jones! What's your date of birth, like 03/29/1996?", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "last_name", "field_value": "Jones"}}}}}}
+            - Profile: {{"first_name": "Shenal", "last_name": "Jones", "date_of_birth": null}}, Message: "04/29/1999"
+            - Response: {{"content": "Perfect! Thanks for providing your information, Emma. Your profile is now complete, Please Say or Type 'Hi' To Get Started.", "next_node_id": null, "state_updates": {{}}, "database_operation": {{"operation": "UPDATE_PATIENT", "parameters": {{"patient_id": "{patientId}", "field_name": "date_of_birth", "field_value": "04/29/1999"}}}}}}
 """
             
             response_text = Settings.llm.complete(patient_fields_prompt).text  # Replace with Settings.llm.complete
