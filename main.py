@@ -10404,28 +10404,26 @@ async def vector_flow_chat(request: dict):
 
             1. Check the patient's profile to see if any required fields are missing, and ask for them one at a time if needed.
             2. If the profile is complete, guide the conversation using flow instructions as a loose guide, but respond naturally to the user's message.
-            3. When the user asks specific questions about medical information, treatments, or medications, ALWAYS check the document content first and provide that information.
-            4. Maintain a warm, empathetic tone, like you're talking to a friend.
+            3. Maintain a warm, empathetic tone, like you're talking to a friend.
 
             Instructions:
             1. **Check Patient Profile**:
             - Review the `Patient Profile` JSON to identify any fields (excluding `id`, `mrn`, `created_at`, `updated_at`, `organization_id`, `phone`) that are null, empty, or missing.
             - If any fields are missing, select one to ask for in a natural way (e.g., "Hey, I don't have your first name yet, could you share it?").
-            - Validate user input based on the field type:
-                - Text fields (e.g., names): Alphabetic characters, spaces, or hyphens only (/^[a-zA-Z\s-]+$/).
-                - Dates (e.g., date_of_birth): Valid date, convertible to MM/DD/YYYY, not after {current_date}.
-            - If the user provides a valid value for the requested field, issue an `UPDATE_PATIENT` command with:
-                - patient_id: {patientId}
-                - field_name: the field (e.g., "first_name")
-                - field_value: the validated value
-                - IMPORTANT: When updating the LAST required field (making the profile complete), do NOT ask for confirmation. Instead, respond with: "Perfect! Thanks for providing your information, [first_name]. Please Say or Type 'Hi' To Get Started."
-
-            - If the input is invalid, ask again with a friendly clarification (e.g., "Sorry, that doesn't look like a valid date. Could you try again, like 03/29/1996?").
+            - Extract the `first_name` or `date_of_birth` directly from the user's message without any validation:
+            - For `first_name`, take the provided name as-is from the message (e.g., "My name is Oliver" -> "Oliver").
+            - For `date_of_birth`, take the provided date as-is from the message (e.g., "My date of birth  is 04/29/1999" -> "04/29/1999").
+            - If the user provides a value for the requested field, issue an `UPDATE_PATIENT` command with:
+            - patient_id: {patientId}
+            - field_name: the field (e.g., "first_name")
+            - field_value: the extracted value
+            
+            - IMPORTANT: When updating the LAST required field (making the profile complete), do NOT ask for confirmation. Instead, respond with: "Perfect! Thanks for providing your information, [first_name]. Please Say or Type 'Hi' To Get Started."
+            - If the user doesn't provide the requested field, ask again with a friendly prompt (e.g., "Sorry, I didn't catch your first name. Could you share it?").
             - If no fields are missing, proceed to conversation flow.
             - Use `organization_id` and `phone` from the `Patient Profile`, not from the request.
             IMPORTANT: Only ever ask for these missing profile fields—first name, last name, date of birth, gender, and email.  
-            Do ​not​ ask for insurance, address, emergency contact, or any other fields, even if they’re empty.  
-
+            Do ​not ask for insurance, address, emergency contact, or any other fields, even if they’re empty.
 
             2. **Response Structure**:
             Return a JSON object:
