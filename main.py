@@ -10401,20 +10401,29 @@ async def vector_flow_chat(request: dict):
             content = ""
 
             if field_to_ask == "first_name":
-                name_match = re.search(r'\b([A-Za-z]+)\b', message.strip())
-                if name_match:
-                    extracted_name = name_match.group(1).lower()
-                    database_operation = {
-                        "operation": "UPDATE_PATIENT",
-                        "parameters": {
-                            "patient_id": patientId,
-                            "field_name": "first_name",
-                            "field_value": extracted_name
-                        }
-                    }
-                    content = f"Great! I've got your first name as {extracted_name.title()}. Now I need your last name."
-                else:
+                # Filter out common greetings and check if this is a greeting/start message
+                common_greetings = ['hi', 'hello', 'hey', 'good', 'morning', 'afternoon', 'evening']
+                message_lower = message.strip().lower()
+                
+                # If it's a greeting or very short, ask for name instead of extracting
+                if message_lower in common_greetings or len(message.strip()) < 2:
                     content = "Hey, nice to hear from you! I need a bit of info to get you set up. Could you share your first name?"
+                else:
+                    # Try to extract name from non-greeting messages
+                    name_match = re.search(r'\b([A-Za-z]{2,})\b', message.strip())
+                    if name_match:
+                        extracted_name = name_match.group(1).lower()
+                        database_operation = {
+                            "operation": "UPDATE_PATIENT",
+                            "parameters": {
+                                "patient_id": patientId,
+                                "field_name": "first_name",
+                                "field_value": extracted_name
+                            }
+                        }
+                        content = f"Great! I've got your first name as {extracted_name.title()}. Now I need your last name."
+                    else:
+                        content = "I need your first name. Could you please share it?"
 
             elif field_to_ask == "last_name":
                 name_match = re.search(r'\b([A-Za-z]+)\b', message.strip())
