@@ -10450,7 +10450,7 @@ async def vector_flow_chat(request: dict):
                                     "field_value": formatted_date
                                 }
                             }
-                            content = f"Perfect! Thanks for providing your information. Your profile is now complete and we can get started."
+                            content = f"Perfect! Thanks for providing your information. Your profile is now complete and please say 'Hi' To Get started."
                         else:
                             content = "That date seems to be in the future. Could you please provide a valid date of birth in MM/DD/YYYY format?"
                     except ValueError:
