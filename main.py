@@ -11079,24 +11079,38 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
             
             # Check if the next node is a notification node and include all relevant data
+            # Check if the next node is a notification node BEFORE setting next_node_id to None
             if next_node_id and "NODE TYPE: notificationNode" in next_node_doc:
-                # Extract node data from the document
+                # Extract node data from the instruction section
                 node_data = {}
-                if "NODE DATA:" in next_node_doc:
-                    try:
-                        node_data_start = next_node_doc.find("NODE DATA:") + len("NODE DATA:")
-                        node_data_str = next_node_doc[node_data_start:].strip()
-                        # Find the first JSON object in the node data
-                        json_start = node_data_str.find('{')
-                        json_end = node_data_str.rfind('}') + 1
-                        if json_start >= 0 and json_end > json_start:
-                            node_data = json.loads(node_data_str[json_start:json_end])
-                    except Exception as e:
-                        print(f"Error parsing node data: {str(e)}")
                 
+                # Parse the notification data from the instruction text
+                try:
+                    lines = next_node_doc.split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith('- Notification Type:'):
+                            node_data['messageType'] = line.split(':', 1)[1].strip()
+                        elif line.startswith('- Title:'):
+                            node_data['title'] = line.split(':', 1)[1].strip()
+                        elif line.startswith('- Schedule:'):
+                            node_data['scheduleType'] = line.split(':', 1)[1].strip()
+                        elif line.startswith('- Assistant ID:'):
+                            node_data['assistantId'] = line.split(':', 1)[1].strip()
+                        elif line.startswith('INSTRUCTION:'):
+                            # Extract the main message from the instruction
+                            instruction_text = line.split(':', 1)[1].strip()
+                            node_data['message'] = instruction_text
+                    
+                    print(f"[NOTIFICATION NODE] Parsed node data: {node_data}")
+                    
+                except Exception as e:
+                    print(f"Error parsing notification node data: {str(e)}")
+                
+                print(f"[NOTIFICATION NODE] Setting next_node_id to None after processing notification")
                 return {
                     "content": rephrased_response,
-                    "next_node_id": None,
+                    "next_node_id": None,  # Set to None for notification nodes
                     "node_type": "notificationNode",
                     "message": node_data.get("message", ""),
                     "notification_type": node_data.get("messageType", "whatsapp"),
@@ -11108,6 +11122,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                     "state_updates": {},
                     "onboarding_status": onboarding_status_to_send
                 }
+            
             if not next_doc_functions:
                 next_node_id = None
                 print(f"[END NODE] Setting next_node_id to None - no further progression")
