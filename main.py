@@ -8909,10 +8909,36 @@ async def create_flow_knowledge_index(flow_data: dict):
                 doc_text += f"- Scheduled For: {node_data.get('scheduledFor')}\n"
             if node_data.get('assistantId'):
                 doc_text += f"- Assistant ID: {node_data.get('assistantId')}\n"
+            
+            # Add survey questions if they exist
             if node_data.get('surveyQuestions') and len(node_data.get('surveyQuestions', [])) > 0:
-                doc_text += "- Includes Survey: Yes\n"
+                doc_text += "- Survey Questions:\n"
+                for i, question in enumerate(node_data['surveyQuestions'], 1):
+                    doc_text += f"  {i}. Question: {question.get('text', '')}\n"
+                    doc_text += f"     Type: {question.get('type', 'text')}\n"
+                    doc_text += f"     ID: {question.get('id', '')}\n"
+                    if question.get('options') and len(question['options']) > 0:
+                        options = ", ".join([opt.get('text', '') for opt in question['options']])
+                        doc_text += f"     Options: {options}\n"
+            
             doc_text += "\n"
             doc_text += f"- After sending notification, proceed to node {target_node_id}\n"
+            
+            # Add node data section for easier parsing
+            doc_text += "\nNODE DATA: " + json.dumps({
+                "message": node_data.get('message', ''),
+                "messageType": node_data.get('messageType', 'whatsapp'),
+                "title": node_data.get('title', ''),
+                "scheduleType": node_data.get('type', 'immediate'),
+                "scheduledFor": node_data.get('scheduledFor', ''),
+                "assistantId": node_data.get('assistantId', ''),
+                "surveyQuestions": [{
+                    "id": q.get('id', ''),
+                    "text": q.get('text', ''),
+                    "type": q.get('type', 'text'),
+                    "options": q.get('options', [])
+                } for q in node_data.get('surveyQuestions', [])]
+            })
         
         elif node_type == "fieldSetterNode":
             doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
@@ -11101,8 +11127,22 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                             # Extract the main message from the instruction
                             instruction_text = line.split(':', 1)[1].strip()
                             node_data['message'] = instruction_text
+                        elif line.startswith('NODE DATA:'):
+                            # Extract and parse the JSON data containing survey questions
+                            try:
+                                node_data_str = line.split('NODE DATA:', 1)[1].strip()
+                                # Find the first JSON object in the node data
+                                json_start = node_data_str.find('{')
+                                json_end = node_data_str.rfind('}') + 1
+                                if json_start >= 0 and json_end > json_start:
+                                    parsed_data = json.loads(node_data_str[json_start:json_end])
+                                    if 'surveyQuestions' in parsed_data:
+                                        node_data['surveyQuestions'] = parsed_data['surveyQuestions']
+                            except Exception as e:
+                                print(f"Error parsing survey questions: {str(e)}")
                     
                     print(f"[NOTIFICATION NODE] Parsed node data: {node_data}")
+                    print(f"[SURVEY QUESTIONS] Found {len(node_data.get('surveyQuestions', []))} questions")
                     
                 except Exception as e:
                     print(f"Error parsing notification node data: {str(e)}")
