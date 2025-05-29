@@ -11072,10 +11072,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             rephrased_response = Settings.llm.complete(rephrase_prompt).text.strip()
             if rephrased_response.startswith('"') and rephrased_response.endswith('"'):
                 rephrased_response = rephrased_response[1:-1]
-            if not next_doc_functions:
-                next_node_id = None
-                print(f"[END NODE] Setting next_node_id to None - no further progression")
-
+            
             print(f"Rephrased response: {rephrased_response}")
             print(f"AI response length: {len(ai_response)} characters")
             print(f"Next node ID: {next_node_id}")
@@ -11099,7 +11096,7 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                 
                 return {
                     "content": rephrased_response,
-                    "next_node_id": next_node_id,
+                    "next_node_id": None,
                     "node_type": "notificationNode",
                     "message": node_data.get("message", ""),
                     "notification_type": node_data.get("messageType", "whatsapp"),
@@ -11111,7 +11108,9 @@ You are a helpful assistant tasked with providing accurate and context-aware res
                     "state_updates": {},
                     "onboarding_status": onboarding_status_to_send
                 }
-            
+            if not next_doc_functions:
+                next_node_id = None
+                print(f"[END NODE] Setting next_node_id to None - no further progression")
             # For non-notification nodes, return the standard response
             return {
                 "content": rephrased_response,
