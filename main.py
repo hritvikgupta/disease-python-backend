@@ -8899,7 +8899,20 @@ async def create_flow_knowledge_index(flow_data: dict):
                 func_edges = [e for e in edges if e.get("source") == node_id and e.get("sourceHandle") == f"function-{node_id}-{func_id}"]
                 if func_edges:
                     target_node_id = func_edges[0].get("target")
-                    doc_text += f"- If processing this node requires '{func_content}', proceed to node {target_node_id}\n"
+                    
+        elif node_type == "notificationNode":
+            doc_text += f"INSTRUCTION: {node_data.get('message', 'Send a notification with the following details:')}\n"
+            doc_text += f"- Notification Type: {node_data.get('messageType', 'whatsapp')}\n"
+            doc_text += f"- Title: {node_data.get('title', '')}\n"
+            doc_text += f"- Schedule: {node_data.get('type', 'immediate')}\n"
+            if node_data.get('type') == 'scheduled' and node_data.get('scheduledFor'):
+                doc_text += f"- Scheduled For: {node_data.get('scheduledFor')}\n"
+            if node_data.get('assistantId'):
+                doc_text += f"- Assistant ID: {node_data.get('assistantId')}\n"
+            if node_data.get('surveyQuestions') and len(node_data.get('surveyQuestions', [])) > 0:
+                doc_text += "- Includes Survey: Yes\n"
+            doc_text += "\n"
+            doc_text += f"- After sending notification, proceed to node {target_node_id}\n"
         
         elif node_type == "fieldSetterNode":
             doc_text += f"INSTRUCTION: When the user is at this field setter node, request the value for field '{node_data.get('fieldName', '')}' using the message: '{node_data.get('message', '')}'.\n\n"
@@ -11068,13 +11081,43 @@ You are a helpful assistant tasked with providing accurate and context-aware res
             print(f"Next node ID: {next_node_id}")
             print("==== VECTOR CHAT PROCESSING COMPLETE ====\n")
             
+            # Check if the next node is a notification node and include all relevant data
+            if next_node_id and "NODE TYPE: notificationNode" in next_node_doc:
+                # Extract node data from the document
+                node_data = {}
+                if "NODE DATA:" in next_node_doc:
+                    try:
+                        node_data_start = next_node_doc.find("NODE DATA:") + len("NODE DATA:")
+                        node_data_str = next_node_doc[node_data_start:].strip()
+                        # Find the first JSON object in the node data
+                        json_start = node_data_str.find('{')
+                        json_end = node_data_str.rfind('}') + 1
+                        if json_start >= 0 and json_end > json_start:
+                            node_data = json.loads(node_data_str[json_start:json_end])
+                    except Exception as e:
+                        print(f"Error parsing node data: {str(e)}")
+                
+                return {
+                    "content": rephrased_response,
+                    "next_node_id": next_node_id,
+                    "node_type": "notificationNode",
+                    "message": node_data.get("message", ""),
+                    "notification_type": node_data.get("messageType", "whatsapp"),
+                    "title": node_data.get("title", ""),
+                    "schedule_type": node_data.get("scheduleType", ""),
+                    "scheduled_for": node_data.get("scheduledFor", ""),
+                    "assistant_id": node_data.get("assistantId", ""),
+                    "survey_questions": node_data.get("surveyQuestions", []),
+                    "state_updates": {},
+                    "onboarding_status": onboarding_status_to_send
+                }
+            
+            # For non-notification nodes, return the standard response
             return {
                 "content": rephrased_response,
                 "next_node_id": next_node_id,
                 "state_updates": {},
-                "onboarding_status": onboarding_status_to_send 
-
-
+                "onboarding_status": onboarding_status_to_send
             }
 
         except Exception as e:
